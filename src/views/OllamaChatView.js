@@ -10,9 +10,20 @@ const OllamaChatView = () => {
       display: 'flex',
       flexDirection: 'column',
       backgroundColor: 'background.default',
-      p: 2
+      overflow: 'hidden',
+      '& .simple-chat-container': {
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        overflow: 'hidden',
+        padding: 0,
+        margin: 0
+      }
     }}>
-      <SimpleChat />
+      <Box className="simple-chat-container">
+        <SimpleChat />
+      </Box>
     </Box>
   );
 };

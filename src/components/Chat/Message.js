@@ -5,21 +5,45 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ContentCopy as CopyIcon, Check as CheckIcon } from '@mui/icons-material';
-import { Tooltip, IconButton, Box, styled } from '@mui/material';
+import { Tooltip, IconButton, Box, styled, keyframes } from '@mui/material';
 import BrainIcon from './BrainIcon';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
 import copyToClipboard from '../../utils/clipboard';
 
+// Keyframe animation for pulse effect
+const pulse = keyframes`
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+`;
+
 // Styled component for code block container
 const CodeBlock = styled(Box)(({ theme }) => ({
   position: 'relative',
   margin: '1rem 0',
-  borderRadius: theme.shape.borderRadius,
+  borderRadius: '8px',
   overflow: 'hidden',
-  backgroundColor: theme.palette.grey[900],
-  '&:hover .copy-button': {
-    opacity: 1,
+  backgroundColor: '#1e1e1e',
+  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+  '&:hover, &:focus-within': {
+    '& .copy-button': {
+      opacity: 1,
+      visibility: 'visible',
+    },
+    '& .code-language': {
+      opacity: 1,
+    }
+  },
+  '& pre': {
+    margin: 0,
+    padding: '1.5rem 1rem 1rem',
+    fontSize: '0.9em',
+    lineHeight: 1.5,
+    backgroundColor: 'transparent !important',
+  },
+  '& code': {
+    fontFamily: '"Fira Code", "Fira Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
   },
 }));
 
@@ -62,16 +86,17 @@ const styles = {
   },
   messageActions: {
     position: 'absolute',
-    top: '8px',
-    right: '8px',
+    top: '-36px', // Position above the message bubble
+    right: '0',
     opacity: 0,
     transition: 'opacity 0.2s ease',
     display: 'flex',
     gap: '4px',
     backgroundColor: '#f5f5f5',
     borderRadius: '8px',
-    padding: '2px',
+    padding: '4px',
     zIndex: 1,
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
   },
   messageBubble: (role) => ({
     position: 'relative',
@@ -212,8 +237,29 @@ const Message = ({ message, isLastInGroup }) => {
       
       if (!inline) {
         return (
-          <CodeBlock theme={theme}>
+          <CodeBlock theme={theme} className="code-block">
             <div style={{ position: 'relative' }}>
+              <div 
+                className="code-language"
+                style={{
+                  position: 'absolute',
+                  top: '0',
+                  right: '0',
+                  padding: '0.25rem 0.5rem',
+                  fontSize: '0.75rem',
+                  color: '#fff',
+                  backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                  borderBottomLeftRadius: '4px',
+                  borderTopRightRadius: '8px',
+                  fontWeight: 500,
+                  letterSpacing: '0.5px',
+                  opacity: 0.8,
+                  transition: 'opacity 0.2s ease',
+                  zIndex: 1,
+                }}
+              >
+                {language}
+              </div>
               <SyntaxHighlighter
                 style={atomDark}
                 language={language}
@@ -222,10 +268,16 @@ const Message = ({ message, isLastInGroup }) => {
                 showLineNumbers={true}
                 customStyle={{
                   margin: 0,
-                  padding: '1.5rem 1rem 1rem',
+                  padding: '2.5rem 1rem 1rem',
                   fontSize: '0.9em',
                   lineHeight: 1.5,
-                  backgroundColor: '#1e1e1e',
+                  backgroundColor: 'transparent',
+                }}
+                codeTagProps={{
+                  style: {
+                    fontFamily: '\'Fira Code\', \'Fira Mono\', Menlo, Monaco, Consolas, "Courier New", monospace',
+                    lineHeight: 1.5,
+                  },
                 }}
                 {...props}
               >
@@ -239,21 +291,62 @@ const Message = ({ message, isLastInGroup }) => {
                 <IconButton 
                   className="copy-button"
                   size="small"
-                  onClick={() => handleCopyCode(codeString, codeIndex)}
+                  aria-label="Copy code"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyCode(codeString, codeIndex);
+                  }}
                   sx={{
                     position: 'absolute',
                     top: '0.5rem',
                     right: '0.5rem',
-                    opacity: 0,
-                    transition: 'opacity 0.2s ease',
-                    color: 'text.secondary',
-                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                    '&:hover': {
-                      backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    opacity: 0.9,
+                    visibility: 'visible',
+                    transition: 'all 0.2s ease',
+                    color: '#ffffff',
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    backdropFilter: 'blur(4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    width: '32px',
+                    height: '32px',
+                    '&:hover, &:focus-visible': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                      transform: 'scale(1.05)',
+                      boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.2)',
+                      '& .MuiSvgIcon-root': {
+                        transform: 'scale(1.1)',
+                      }
                     },
+                    '&:active': {
+                      transform: 'scale(0.95)',
+                    },
+                    '& .MuiSvgIcon-root': {
+                      fontSize: '1rem',
+                      transition: 'all 0.2s ease',
+                    }
                   }}
                 >
-                  {copyStatus[codeIndex] ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
+                  {copyStatus[codeIndex] ? (
+                    <CheckIcon 
+                      fontSize="inherit" 
+                      sx={{ 
+                        color: '#4caf50',
+                        filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.8))',
+                        animation: `${pulse} 0.5s ease-in-out`,
+                        '&:hover': {
+                          transform: 'scale(1.1)'
+                        }
+                      }} 
+                    />
+                  ) : (
+                    <CopyIcon 
+                      fontSize="inherit"
+                      sx={{
+                        color: '#fff',
+                        filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
+                      }}
+                    />
+                  )}
                 </IconButton>
               </Tooltip>
             </div>
@@ -266,12 +359,15 @@ const Message = ({ message, isLastInGroup }) => {
         <code 
           className={className} 
           style={{
-            backgroundColor: theme.colors.secondaryBg,
+            backgroundColor: 'rgba(30, 30, 30, 0.7)',
             padding: '0.2em 0.4em',
-            borderRadius: theme.borderRadius.small,
-            fontSize: '0.9em',
-            fontFamily: 'Menlo, Monaco, Consolas, "Courier New", monospace',
+            borderRadius: '4px',
+            fontSize: '0.85em',
+            fontFamily: '"Fira Code", "Fira Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
             color: '#f8f8f2',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            whiteSpace: 'nowrap',
+            lineHeight: '1.5',
           }} 
           {...props}
         >
@@ -370,7 +466,17 @@ const Message = ({ message, isLastInGroup }) => {
   };
 
   return (
-    <div style={getStyle(styles.container)} data-message-id={safeMessage.id} data-role={safeMessage.role}>
+    <div 
+      style={{
+        ...getStyle(styles.container),
+        position: 'relative',
+        '&:hover .message-actions': {
+          opacity: 1,
+        }
+      }} 
+      data-message-id={safeMessage.id} 
+      data-role={safeMessage.role}
+    >
       <div style={getStyle(styles.avatar, safeMessage.role)}>
         {safeMessage.role === 'assistant' ? (
           <BrainIcon size={32} />
@@ -399,7 +505,10 @@ const Message = ({ message, isLastInGroup }) => {
         position: 'relative', 
         display: 'flex', 
         flexDirection: 'column',
-        minWidth: 0 // Ensure text can shrink below its content size
+        minWidth: 0, // Ensure text can shrink below its content size
+        '&:hover .message-actions': {
+          opacity: 1,
+        }
       }}>
         <div style={getStyle(styles.messageActions)} className="message-actions">
           <Tooltip title={copyStatus.message ? 'Copied!' : 'Copy message'} arrow>

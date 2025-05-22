@@ -377,73 +377,15 @@ const SimpleChat = () => {
         width: '100%',
         maxWidth: '100%',
         margin: 0,
-        padding: theme.spacing(2),
+        padding: 0,
         backgroundColor: theme.palette.background.default,
-      }}
-    >
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: theme.spacing(2),
-          padding: theme.spacing(1, 0),
-          borderBottom: `1px solid ${theme.palette.divider}`,
-        }}
-      >
-        <Typography variant="h6" component="h1">
-          Sephia Chat
-        </Typography>
-        
-        <FormControl size="small" sx={{ minWidth: 200 }}>
-          <InputLabel id="model-select-label">Model</InputLabel>
-          <Select
-            labelId="model-select-label"
-            value={selectedModel}
-            label="Model"
-            onChange={(e) => setSelectedModel(e.target.value)}
-            disabled={isLoading}
-            sx={{
-              '& .MuiSelect-select': {
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-              },
-            }}
-          >
-            {models.map((model) => (
-              <MenuItem 
-                key={model.name} 
-                value={model.name}
-                disabled={model.disabled}
-                sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 2,
-                }}
-              >
-                <Box sx={{ flex: 1 }}>{model.name}</Box>
-                <Typography variant="caption" color="text.secondary">
-                  {model.size}
-                </Typography>
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
-
-      {/* Messages */}
-      <Box
-        ref={messageListRef}
-        sx={{
+        '& .message-container': {
           flex: 1,
           overflowY: 'auto',
-          padding: theme.spacing(1),
-          marginBottom: theme.spacing(2),
+          padding: theme.spacing(2),
+          paddingBottom: theme.spacing(1),
           '&::-webkit-scrollbar': {
-            width: '8px',
+            width: '6px',
           },
           '&::-webkit-scrollbar-track': {
             background: theme.palette.background.paper,
@@ -455,8 +397,36 @@ const SimpleChat = () => {
           '&::-webkit-scrollbar-thumb:hover': {
             background: theme.palette.grey[500],
           },
+        },
+        '& .input-container': {
+          padding: theme.spacing(2),
+          paddingTop: 0,
+          borderTop: `1px solid ${theme.palette.divider}`,
+          backgroundColor: theme.palette.background.paper,
+        },
+      }}
+    >
+      {/* Header */}
+      <Box
+        sx={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: theme.spacing(1, 2),
+          backgroundColor: theme.palette.background.paper,
+          borderBottom: `1px solid ${theme.palette.divider}`,
+          position: 'sticky',
+          top: 0,
+          zIndex: 10,
         }}
       >
+        <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.primary.main, flex: 1 }}>
+          Chat
+        </Typography>
+      </Box>
+
+      {/* Messages */}
+      <Box className="message-container" ref={messageListRef} style={{ paddingBottom: '16px' }}>
         {messages.map((message) => (
           <Box 
             key={message.id}
@@ -609,59 +579,131 @@ const SimpleChat = () => {
       )}
 
       {/* Input area */}
-      <Box
-        component="form"
-        onSubmit={handleSubmit}
-        sx={{
-          display: 'flex',
-          gap: 1,
-          width: '100%',
-          paddingTop: theme.spacing(1),
-          borderTop: `1px solid ${theme.palette.divider}`,
-        }}
-      >
-        <TextField
-          inputRef={inputRef}
-          fullWidth
-          variant="outlined"
-          placeholder="Type your message..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              handleSubmit(e);
-            }
-          }}
-          multiline
-          maxRows={4}
-          disabled={isLoading}
+      <Box className="input-container" style={{ padding: '16px', backgroundColor: theme.palette.background.paper, borderTop: `1px solid ${theme.palette.divider}`, position: 'sticky', bottom: 0 }}>
+        <Box
+          component="form"
+          onSubmit={handleSubmit}
           sx={{
-            '& .MuiOutlinedInput-root': {
-              borderRadius: theme.shape.borderRadius * 2,
-              backgroundColor: theme.palette.background.paper,
-            },
-          }}
-        />
-        <Button
-          type="submit"
-          variant="contained"
-          color="primary"
-          disabled={!input.trim() || isLoading}
-          sx={{
-            minWidth: 48,
-            width: 48,
-            height: 48,
-            borderRadius: '50%',
-            padding: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+            width: '100%',
+            maxWidth: '1200px',
+            margin: '0 auto',
           }}
         >
-          {isLoading ? (
-            <CircularProgress size={24} color="inherit" />
-          ) : (
-            <SendIcon />
-          )}
-        </Button>
+          <FormControl size="small" sx={{ width: '100%', mb: 1 }}>
+            <InputLabel id="model-select-label">Model</InputLabel>
+            <Select
+              labelId="model-select-label"
+              value={selectedModel}
+              label="Model"
+              onChange={(e) => setSelectedModel(e.target.value)}
+              disabled={isLoading}
+              fullWidth
+              sx={{
+                '& .MuiSelect-select': {
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  padding: '8px 32px 8px 12px',
+                },
+                '& .MuiOutlinedInput-notchedOutline': {
+                  borderColor: theme.palette.divider,
+                },
+                '&:hover .MuiOutlinedInput-notchedOutline': {
+                  borderColor: theme.palette.primary.main,
+                },
+                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                  borderColor: theme.palette.primary.main,
+                  borderWidth: '1px',
+                },
+              }}
+            >
+              {models.map((model) => (
+                <MenuItem 
+                  key={model.name} 
+                  value={model.name}
+                  disabled={model.disabled}
+                  sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 2,
+                    fontSize: '0.875rem',
+                    '&.Mui-selected': {
+                      backgroundColor: `${theme.palette.primary.main}15`,
+                      '&:hover': {
+                        backgroundColor: `${theme.palette.primary.main}20`,
+                      },
+                    },
+                  }}
+                >
+                  <Box sx={{ 
+                    flex: 1,
+                    fontWeight: model.disabled ? 400 : 500,
+                    color: model.disabled ? 'text.disabled' : 'text.primary',
+                  }}>
+                    {model.name}
+                  </Box>
+                  <Typography 
+                    variant="caption" 
+                    sx={{ 
+                      color: model.disabled ? 'text.disabled' : 'text.secondary',
+                      fontSize: '0.75rem',
+                    }}
+                  >
+                    {model.size}
+                  </Typography>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField
+              inputRef={inputRef}
+              fullWidth
+              variant="outlined"
+              placeholder="Type your message..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+              multiline
+              maxRows={4}
+              disabled={isLoading}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  borderRadius: theme.shape.borderRadius * 2,
+                  backgroundColor: theme.palette.background.paper,
+                },
+              }}
+            />
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              disabled={!input.trim() || isLoading}
+              sx={{
+                minWidth: 48,
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                padding: 0,
+              }}
+            >
+              {isLoading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                <SendIcon />
+              )}
+            </Button>
+          </Box>
+        </Box>
       </Box>
     </Box>
   );
