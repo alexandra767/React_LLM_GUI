@@ -19,6 +19,13 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
+import CloseIcon from '@mui/icons-material/Close';
+import Avatar from '@mui/material/Avatar';
+
+// Default profile picture (you can replace this with your actual profile picture URL)
+const defaultProfilePic = 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y';
+// Model icon (you can replace this with your preferred model icon)
+const modelIcon = 'https://cdn-icons-png.flaticon.com/512/4712/4712109.png';
 
 // Styled components with performance optimizations
 const MessageBubble = styled('div', {
@@ -57,27 +64,47 @@ const MessageBubble = styled('div', {
   },
 }));
 
-// Styled typing indicator
+// Enhanced typing indicator with distinct colors
 const TypingIndicator = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: 4,
+  gap: 8,
+  padding: '14px 18px',
+  backgroundColor: '#e3f2fd',
+  borderRadius: '24px',
+  width: 'fit-content',
+  margin: '12px 0',
   '& > div': {
-    width: 8,
-    height: 8,
+    width: 10,
+    height: 10,
     borderRadius: '50%',
-    backgroundColor: 'currentColor',
-    animation: 'typing 1.4s infinite ease-in-out',
-    '&:nth-of-type(1)': { animationDelay: '0s' },
-    '&:nth-of-type(2)': { animationDelay: '0.2s' },
-    '&:nth-of-type(3)': { animationDelay: '0.4s' },
+    animation: 'typing 1.8s infinite ease-in-out',
+    '&:nth-of-type(1)': { 
+      backgroundColor: '#7986cb',
+      animationDelay: '0s' 
+    },
+    '&:nth-of-type(2)': { 
+      backgroundColor: '#5c6bc0',
+      animationDelay: '0.3s' 
+    },
+    '&:nth-of-type(3)': { 
+      backgroundColor: '#3f51b5',
+      animationDelay: '0.6s' 
+    },
   },
   '@keyframes typing': {
-    '0%, 60%, 100%': { transform: 'translateY(0)' },
-    '30%': { transform: 'translateY(-5px)' },
+    '0%, 80%, 100%': { 
+      transform: 'translateY(0) scale(1)',
+      opacity: 0.7
+    },
+    '40%': { 
+      transform: 'translateY(-8px) scale(1.2)',
+      opacity: 1
+    },
   },
 });
 
+// SimpleChat component with forced styles
 const SimpleChat = () => {
   // Theme and responsive
   const theme = useTheme();
@@ -111,8 +138,9 @@ const SimpleChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [models, setModels] = useState(defaultModels);
-  const [selectedModel, setSelectedModel] = useState('deepseek-r1:14b');
+  const [selectedModel, setSelectedModel] = useState('deepseek-r1:14b'); // Added missing state
   const [error, setError] = useState(null);
+  const [modelIcon, setModelIcon] = useState(<SmartToyIcon />); // Added missing state
 
   // Load available models with performance optimizations
   useEffect(() => {
@@ -430,47 +458,126 @@ const SimpleChat = () => {
         }}
       >
         {messages.map((message) => (
-          <MessageBubble key={message.id} isUser={message.isUser}>
-            <Box
+          <Box 
+            key={message.id}
+            sx={{
+              display: 'flex',
+              flexDirection: 'row',
+              justifyContent: message.isUser ? 'flex-end' : 'flex-start',
+              alignItems: 'flex-start',
+              width: '100%',
+              padding: '4px 16px',
+              boxSizing: 'border-box',
+            }}
+          >
+            {/* Avatar for AI */}
+            {!message.isUser && (
+              <Avatar 
+                src={modelIcon}
+                alt="AI Assistant"
+                sx={{ 
+                  width: 36, 
+                  height: 36, 
+                  marginRight: 1.5,
+                  alignSelf: 'flex-end',
+                  marginBottom: 1,
+                  bgcolor: 'primary.main',
+                }}
+              >
+                <SmartToyIcon />
+              </Avatar>
+            )}
+            
+            <MessageBubble 
+              isUser={message.isUser}
               sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                marginBottom: 0.5,
+                backgroundColor: message.isUser ? '#4a148c !important' : '#f3e5f5 !important',
+                color: message.isUser ? '#ffffff !important' : '#4a148c !important',
+                borderRadius: message.isUser ? '18px 18px 4px 18px !important' : '18px 18px 18px 4px !important',
+                padding: '12px 16px !important',
+                margin: '4px 0 !important',
+                maxWidth: '75% !important',
+                '&:hover': {
+                  transform: 'translateY(-2px) !important',
+                  boxShadow: message.isUser 
+                    ? '0 6px 16px rgba(74, 20, 140, 0.4) !important' 
+                    : '0 4px 12px rgba(0, 0, 0, 0.15) !important',
+                },
               }}
             >
-              {message.isUser ? (
-                <PersonIcon fontSize="small" />
-              ) : (
-                <SmartToyIcon fontSize="small" />
-              )}
-              <Typography variant="subtitle2" fontWeight="bold">
-                {message.isUser ? 'You' : 'Assistant'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {new Date(message.timestamp).toLocaleTimeString()}
-              </Typography>
-            </Box>
-            <Typography variant="body1" component="div" sx={{ whiteSpace: 'pre-wrap' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, marginBottom: 0.5 }}>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ 
+                  color: message.isUser ? '#ffffff !important' : '#4a148c !important', 
+                  fontSize: '0.85rem' 
+                }}>
+                  {message.isUser ? 'You' : selectedModel || 'Assistant'}
+                </Typography>
+                <Typography variant="caption" sx={{ 
+                  color: message.isUser ? '#ffffff !important' : 'rgba(74, 20, 140, 0.7) !important', 
+                  fontSize: '0.7rem' 
+                }}>
+                  {new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </Typography>
+              </Box>
               {message.text}
-            </Typography>
-          </MessageBubble>
+            </MessageBubble>
+          </Box>
         ))}
         {isTyping && (
-          <MessageBubble isUser={false}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, marginBottom: 0.5 }}>
-              <SmartToyIcon fontSize="small" />
-              <Typography variant="subtitle2" fontWeight="bold">Assistant</Typography>
-              <Typography variant="caption" color="text.secondary">
-                {new Date().toLocaleTimeString()}
-              </Typography>
-            </Box>
-            <TypingIndicator>
-              <div></div>
-              <div></div>
-              <div></div>
-            </TypingIndicator>
-          </MessageBubble>
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'flex-start',
+            width: '100%',
+            padding: '4px 16px',
+          }}>
+            <Avatar 
+              src={modelIcon}
+              alt="AI Assistant"
+              sx={{ 
+                width: 36, 
+                height: 36, 
+                marginRight: 1.5,
+                alignSelf: 'flex-end',
+                marginBottom: 1,
+                bgcolor: 'primary.main',
+              }}
+            >
+              <SmartToyIcon />
+            </Avatar>
+            <MessageBubble isUser={false} sx={{
+              backgroundColor: '#f3e5f5 !important',
+              color: '#4a148c !important',
+              borderRadius: '18px 18px 18px 4px !important',
+              padding: '12px 16px !important',
+              margin: '4px 0 !important',
+              maxWidth: '75% !important',
+              '&:hover': {
+                transform: 'translateY(-2px) !important',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15) !important',
+              },
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, marginBottom: 0.5 }}>
+                <Typography variant="subtitle2" fontWeight="bold" sx={{ 
+                  color: '#4a148c !important', 
+                  fontSize: '0.85rem' 
+                }}>
+                  {selectedModel || 'Assistant'}
+                </Typography>
+                <Typography variant="caption" sx={{ 
+                  color: 'rgba(74, 20, 140, 0.7) !important', 
+                  fontSize: '0.7rem' 
+                }}>
+                  {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </Typography>
+              </Box>
+              <TypingIndicator>
+                <div></div>
+                <div></div>
+                <div></div>
+              </TypingIndicator>
+            </MessageBubble>
+          </Box>
         )}
         <div ref={messagesEndRef} />
       </Box>
