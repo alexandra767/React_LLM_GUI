@@ -54,3 +54,10 @@ yarn-error.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Electron and build artifacts
+dist/
+out/
+node_modules/
+*.dmg
+*.exe
