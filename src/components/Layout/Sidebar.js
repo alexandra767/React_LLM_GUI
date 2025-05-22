@@ -1,9 +1,20 @@
-import React, { useState } from 'react';
-import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+import React, { useState, useRef } from 'react';
+import { styled } from '@mui/material/styles';
+import { useTheme } from '@mui/material/styles';
 import { useApp } from '../../context/AppContext';
 import BrainIcon from '../Chat/BrainIcon';
-import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField } from '@mui/material';
+import { 
+  Dialog, 
+  DialogTitle, 
+  DialogContent, 
+  DialogActions, 
+  Button, 
+  TextField,
+  Box,
+  Typography,
+  Divider as MuiDivider,
+  IconButton
+} from '@mui/material';
 import { 
   Add as AddIcon,
   Chat as ChatIcon,
@@ -19,245 +30,265 @@ import {
   SmartToy as OllamaIcon
 } from '@mui/icons-material';
 
-const SidebarContainer = styled.div`
-  width: ${props => props.collapsed ? '64px' : '220px'};
-  height: 100vh;
-  background-color: ${props => props.theme.colors.secondaryBg};
-  border-right: 1px solid ${props => props.theme.colors.border};
-  display: flex;
-  flex-direction: column;
-  transition: width 0.3s ease;
-  overflow-x: hidden;
-`;
+const SidebarContainer = styled('div', {
+  shouldForwardProp: (prop) => prop !== 'collapsed',
+})(({ theme, collapsed }) => ({
+  width: collapsed ? '64px' : '220px',
+  height: '100vh',
+  backgroundColor: theme.colors?.secondaryBg || theme.palette.background.paper,
+  borderRight: `1px solid ${theme.colors?.border || theme.palette.divider}`,
+  display: 'flex',
+  flexDirection: 'column',
+  transition: 'width 0.3s ease',
+  overflowX: 'hidden',
+  position: 'relative',
+}));
 
-const SidebarSection = styled.div`
-  padding: ${props => props.theme.spacing.medium};
-  display: flex;
-  flex-direction: column;
-  gap: ${props => props.theme.spacing.small};
-`;
+const SidebarSection = styled('div')(({ theme }) => ({
+  padding: theme.spacing(2),
+  display: 'flex',
+  flexDirection: 'column',
+  gap: theme.spacing(1),
+}));
 
-const SidebarButton = styled.button`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-  background-color: ${props => props.active ? props.theme.colors.primaryBg : 'transparent'};
-  color: ${props => props.active ? props.theme.colors.primaryText : props.theme.colors.tertiaryText};
-  border: none;
-  border-radius: ${props => props.theme.borderRadius.medium};
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  font-size: ${props => props.theme.typography.regularText.size};
-  font-weight: ${props => props.theme.typography.regularText.weight};
-  cursor: pointer;
-  text-align: left;
-  transition: background-color 0.2s ease;
-  white-space: nowrap;
-  position: relative;
-  width: 100%;
-  
-  &:hover {
-    background-color: ${props => props.theme.colors.primaryBg};
-  }
-  
-  &:hover .chat-actions {
-    opacity: 1;
-  }
-  
-  svg {
-    font-size: 20px;
-  }
-`;
+const SidebarButton = styled('button', {
+  shouldForwardProp: (prop) => prop !== 'active',
+})(({ theme, active }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing(1),
+  backgroundColor: active 
+    ? (theme.colors?.primaryBg || theme.palette.action.selected) 
+    : 'transparent',
+  color: active 
+    ? (theme.colors?.primaryText || theme.palette.text.primary)
+    : (theme.colors?.tertiaryText || theme.palette.text.secondary),
+  border: 'none',
+  borderRadius: theme.shape.borderRadius,
+  padding: `${theme.spacing(1)} ${theme.spacing(2)}`,
+  fontSize: theme.typography.body2.fontSize,
+  fontWeight: theme.typography.fontWeightRegular,
+  cursor: 'pointer',
+  textAlign: 'left',
+  transition: 'background-color 0.2s ease',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  '&:hover': {
+    backgroundColor: active 
+      ? (theme.colors?.primaryBg || theme.palette.action.selected)
+      : (theme.colors?.border ? `${theme.colors.border}30` : theme.palette.action.hover),
+  },
+  '& svg': {
+    flexShrink: 0,
+  },
+}));
 
-const ChatActions = styled.div`
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-`;
+const ChatActions = styled('div')({
+  position: 'absolute',
+  right: '8px',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  display: 'flex',
+  opacity: 0,
+  transition: 'opacity 0.2s ease',
+});
 
-const ActionButton = styled.button`
-  background-color: transparent;
-  color: ${props => props.theme.colors.tertiaryText};
-  border: none;
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  padding: 0;
-  
-  &:hover {
-    color: ${props => props.theme.colors.accent};
-  }
-  
-  svg {
-    font-size: 16px;
-  }
-`;
+const ActionButton = styled('button')(({ theme }) => ({
+  background: 'none',
+  border: 'none',
+  color: theme.palette.text.secondary,
+  cursor: 'pointer',
+  padding: '4px',
+  borderRadius: '4px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    backgroundColor: theme.palette.action.hover,
+    color: theme.palette.text.primary,
+  },
+}));
 
-const SectionTitle = styled.h3`
-  font-size: ${props => props.theme.typography.sectionTitle.size};
-  font-weight: ${props => props.theme.typography.sectionTitle.weight};
-  color: ${props => props.theme.colors.tertiaryText};
-  margin: ${props => props.theme.spacing.medium} 0 ${props => props.theme.spacing.small};
-  padding: 0 ${props => props.theme.spacing.medium};
-  white-space: nowrap;
-`;
+const SectionTitle = styled('div')(({ theme }) => ({
+  padding: `${theme.spacing(1)} ${theme.spacing(2)}`,
+  color: theme.palette.text.secondary,
+  fontSize: theme.typography.caption.fontSize,
+  fontWeight: theme.typography.fontWeightMedium,
+  textTransform: 'uppercase',
+  letterSpacing: '0.5px',
+}));
 
-const Divider = styled.div`
-  height: 1px;
-  background-color: ${props => props.theme.colors.border};
-  margin: ${props => props.theme.spacing.small} 0;
-`;
+const Divider = styled(MuiDivider)({
+  margin: '8px 0',
+});
 
-const ProfileSection = styled.div`
-  margin-top: auto;
-  padding: ${props => props.theme.spacing.medium};
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-  border-top: 1px solid ${props => props.theme.colors.border};
-  position: relative;
-  
-  &:hover .profile-actions {
-    opacity: 1;
-  }
-`;
+const ProfileSection = styled('div', {
+  shouldForwardProp: (prop) => prop !== 'collapsed',
+})(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  padding: theme.spacing(2),
+  gap: theme.spacing(1),
+  borderTop: `1px solid ${theme.palette.divider}`,
+  marginTop: 'auto',
+  position: 'relative',
+  minHeight: '72px',
+}));
 
-const ProfileImage = styled.div`
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background-color: ${props => props.theme.colors.accent};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  cursor: pointer;
-  position: relative;
-  
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  
-  &:hover::after {
-    content: 'Edit';
-    position: absolute;
-    inset: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-  }
-`;
+const ProfileImage = styled('div')(({ theme }) => ({
+  width: '40px',
+  height: '40px',
+  borderRadius: '50%',
+  backgroundColor: theme.palette.action.selected,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  flexShrink: 0,
+  overflow: 'hidden',
+  '& img': {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  '& svg': {
+    color: theme.palette.text.secondary,
+    fontSize: '24px',
+  },
+}));
 
-const ProfileInfo = styled.div`
-  display: ${props => props.collapsed ? 'none' : 'flex'};
-  flex-direction: column;
-`;
+const ProfileInfo = styled('div', {
+  shouldForwardProp: (prop) => prop !== 'collapsed',
+})(({ theme, collapsed }) => ({
+  display: collapsed ? 'none' : 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  minWidth: 0,
+  flex: 1,
+}));
 
-const ProfileName = styled.span`
-  font-size: ${props => props.theme.typography.regularText.size};
-  font-weight: ${props => props.theme.typography.regularText.weight};
-  color: ${props => props.theme.colors.primaryText};
-`;
+const ProfileName = styled('span')(({ theme }) => ({
+  fontWeight: theme.typography.fontWeightMedium,
+  color: theme.palette.text.primary,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+}));
 
-const ConnectionStatus = styled.span`
-  font-size: ${props => props.theme.typography.secondaryInfo.size};
-  color: ${props => {
-    switch(props.status) {
-      case 'connected': return '#4CAF50';
-      case 'connecting': return '#FFC107';
-      case 'disconnected': return '#F44336';
-      default: return props.theme.colors.tertiaryText;
-    }
-  }};
-`;
+const ConnectionStatus = styled('span')(({ theme, status }) => ({
+  fontSize: '0.75rem',
+  color: 
+    status === 'Connected' ? theme.palette.success.main :
+    status === 'Connecting' ? theme.palette.warning.main :
+    theme.palette.error.main,
+}));
 
-const ProfileActions = styled.div`
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  display: flex;
-  gap: 4px;
-`;
+const ProfileActions = styled('div')(({ theme }) => ({
+  position: 'absolute',
+  top: '10px',
+  right: '10px',
+  opacity: 0,
+  transition: 'opacity 0.2s ease',
+  display: 'flex',
+  gap: '4px',
+  backgroundColor: theme.palette.background.paper,
+  padding: '4px',
+  borderRadius: '4px',
+  boxShadow: theme.shadows[2],
+  '&:hover': {
+    opacity: 1,
+  },
+}));
 
-const ProfileActionButton = styled.button`
-  background-color: ${props => props.theme.colors.secondaryBg};
-  color: ${props => props.theme.colors.tertiaryText};
-  border: none;
-  border-radius: ${props => props.theme.borderRadius.small};
-  width: 24px;
-  height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  
-  &:hover {
-    background-color: ${props => props.theme.colors.primaryBg};
-    color: ${props => props.theme.colors.primaryText};
-  }
-`;
+const ProfileActionButton = styled('button')(({ theme }) => ({
+  background: 'none',
+  border: 'none',
+  color: theme.palette.text.secondary,
+  cursor: 'pointer',
+  padding: '4px',
+  borderRadius: '4px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transition: 'all 0.2s ease',
+  '&:hover': {
+    backgroundColor: theme.palette.action.hover,
+    color: theme.palette.text.primary,
+  },
+}));
 
-const FileInput = styled.input`
-  display: none;
-`;
+const FileInput = styled('input')({
+  display: 'none',
+});
 
-const ToggleButton = styled.button`
-  position: absolute;
-  top: ${props => props.theme.spacing.medium};
-  right: -12px;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background-color: ${props => props.theme.colors.accent};
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  cursor: pointer;
-  z-index: 10;
-`;
+const ToggleButton = styled(IconButton)(({ theme }) => ({
+  position: 'absolute',
+  top: '50%',
+  right: '-12px',
+  transform: 'translateY(-50%)',
+  width: '24px',
+  height: '48px',
+  backgroundColor: theme.palette.background.paper,
+  border: `1px solid ${theme.palette.divider}`,
+  borderLeft: 'none',
+  borderRadius: '0 12px 12px 0',
+  cursor: 'pointer',
+  color: theme.palette.text.secondary,
+  transition: 'all 0.2s ease',
+  zIndex: 10,
+  '&:hover': {
+    backgroundColor: theme.palette.action.hover,
+    color: theme.palette.text.primary,
+  },
+}));
 
-const SidebarWrapper = styled.div`
-  position: relative;
-`;
+const LogoSection = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  padding: theme.spacing(2),
+  gap: theme.spacing(1),
+  borderBottom: `1px solid ${theme.palette.divider}`,
+}));
 
-const LogoSection = styled.div`
-  display: flex;
-  align-items: center;
-  padding: ${props => props.theme.spacing.medium};
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-`;
+const LogoText = styled('h1', {
+  shouldForwardProp: (prop) => prop !== 'collapsed',
+})(({ theme, collapsed }) => ({
+  fontSize: theme.typography.h6.fontSize,
+  fontWeight: theme.typography.fontWeightLight,
+  color: theme.palette.text.primary,
+  margin: 0,
+  marginLeft: theme.spacing(1),
+  whiteSpace: 'nowrap',
+  opacity: collapsed ? 0 : 1,
+  transition: 'opacity 0.2s ease',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+}));
 
-const LogoText = styled.h1`
-  font-size: ${props => props.collapsed ? '0' : props.theme.typography.header.size};
-  font-weight: ${props => props.theme.typography.header.weight};
-  margin-left: ${props => props.theme.spacing.small};
-  color: ${props => props.theme.colors.primaryText};
-  transition: font-size 0.3s ease;
-  white-space: nowrap;
-  overflow: hidden;
-`;
+const SidebarWrapper = styled('div')({
+  position: 'relative',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+});
 
 const Sidebar = () => {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [newName, setNewName] = useState('');
-  const theme = useTheme();
-  const { profile, updateProfile } = useApp();
+  const { theme } = useTheme();
+  const { 
+    appState, 
+    toggleSidebar, 
+    setActiveSection,
+    createNewChat,
+    chats,
+    deleteChat,
+    profile,
+    updateProfile 
+  } = useApp();
   
   const { sidebarCollapsed, activeSection, connectionStatus } = appState;
   
