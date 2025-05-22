@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
-import { useApp } from '../../context/AppContext';
+import { FormControl, InputLabel, Select, MenuItem, Box } from '@mui/material';
 
 const HeaderContainer = styled.header`
   height: 60px;
@@ -30,65 +30,9 @@ const LogoText = styled.h1`
   color: ${props => props.theme.colors.primaryText};
 `;
 
-const ModelSelector = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-`;
 
-const ModelLabel = styled.span`
-  font-size: ${props => props.theme.typography.regularText.size};
-  color: ${props => props.theme.colors.tertiaryText};
-`;
-
-const StatusDot = styled.span`
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-left: 8px;
-  background-color: ${props => 
-    props.status === 'connected' ? '#4CAF50' :
-    props.status === 'connecting' ? '#FFC107' : 
-    '#F44336'};
-`;
-
-const Select = styled.select`
-  background-color: ${props => props.theme.colors.secondaryBg};
-  color: ${props => props.theme.colors.primaryText};
-  border: 1px solid ${props => props.theme.colors.border};
-  border-radius: ${props => props.theme.borderRadius.small};
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  font-size: ${props => props.theme.typography.regularText.size};
-  cursor: pointer;
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.colors.accent};
-  }
-`;
-
-const Header = () => {
+const Header = ({ selectedModel, onModelChange, models = [] }) => {
   const { theme } = useTheme();
-  const { 
-    currentModel, 
-    setCurrentModel, 
-    models, 
-    loading,
-    appState,
-    loadModel
-  } = useApp();
-  
-  // Get connection status
-  const connectionStatus = appState?.connectionStatus || 'disconnected';
-  
-  // Skip logging to improve performance
-  
-  const handleModelChange = (e) => {
-    const modelId = e.target.value;
-    // Call loadModel directly to reduce lag
-    loadModel(modelId);
-  };
   
   return (
     <HeaderContainer theme={theme}>
@@ -96,37 +40,48 @@ const Header = () => {
         <LogoImage src="/images/brain-computer.svg" alt="Sephia Logo" />
         <LogoText theme={theme}>Sephia</LogoText>
       </Logo>
-      
-      <ModelSelector theme={theme}>
-        <ModelLabel theme={theme}>
-          Model:
-          <StatusDot status={connectionStatus} title={`Status: ${connectionStatus}`} />
-        </ModelLabel>
-        <Select 
-          theme={theme}
-          value={currentModel || ''}
-          onChange={handleModelChange}
-          disabled={connectionStatus === 'connecting'}
-        >
-          {/* If models array is empty, show hardcoded options */}
-          {models && models.length > 0 ? (
-            models.map(model => (
-              <option key={model.id || model.name} value={model.id || model.name}>
-                {model.name}
-              </option>
-            ))
-          ) : (
-            // Fallback hardcoded models
-            <>
-              <option value="deepseek-r1:32b">DeepSeek R1 (32B)</option>
-              <option value="deepseek-r1:14b-m4">DeepSeek 14B-M4</option>
-              <option value="deepseek-r1:8b-m4">DeepSeek 8B-M4</option>
-              <option value="deepseek-r1:14b">DeepSeek 14B</option>
-              <option value="deepseek-r1:8b">DeepSeek 8B</option>
-            </>
-          )}
-        </Select>
-      </ModelSelector>
+      <Box sx={{ minWidth: 200, ml: 'auto', mr: 2 }}>
+        <FormControl fullWidth size="small">
+          <InputLabel id="model-select-label">Model</InputLabel>
+          <Select
+            labelId="model-select-label"
+            value={selectedModel}
+            label="Model"
+            onChange={onModelChange}
+            sx={{
+              '& .MuiSelect-select': {
+                py: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                backgroundColor: theme.colors.primaryBg,
+                color: theme.colors.primaryText,
+              },
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: theme.colors.border,
+              },
+              '&:hover .MuiOutlinedInput-notchedOutline': {
+                borderColor: theme.colors.primary,
+              },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                borderColor: theme.colors.primary,
+              },
+              '& .MuiSvgIcon-root': {
+                color: theme.colors.primaryText,
+              },
+            }}
+          >
+            {models.map((model) => (
+              <MenuItem key={model.name} value={model.name} disabled={model.disabled}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+                  <span>{model.name}</span>
+                  <span style={{ opacity: 0.7, fontSize: '0.8em' }}>{model.size}</span>
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
     </HeaderContainer>
   );
 };

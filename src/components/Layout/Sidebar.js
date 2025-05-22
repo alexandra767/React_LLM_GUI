@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import BrainIcon from '../Chat/BrainIcon';
+import { Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField } from '@mui/material';
 import { 
   Add as AddIcon,
   Chat as ChatIcon,
@@ -251,17 +252,12 @@ const LogoText = styled.h1`
 `;
 
 const Sidebar = () => {
-  const { theme } = useTheme();
-  const { 
-    appState, 
-    toggleSidebar, 
-    setActiveSection,
-    createNewChat,
-    chats,
-    deleteChat,
-    profile,
-    updateProfile
-  } = useApp();
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [newName, setNewName] = useState('');
+  const theme = useTheme();
+  const { profile, updateProfile } = useApp();
   
   const { sidebarCollapsed, activeSection, connectionStatus } = appState;
   
@@ -288,10 +284,19 @@ const Sidebar = () => {
   };
   
   const handleEditProfile = () => {
-    const name = prompt('Enter your name:', profile.name);
-    if (name) {
-      updateProfile({ name });
+    setNewName(profile.name || '');
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveProfile = () => {
+    if (newName.trim()) {
+      updateProfile({ name: newName.trim() });
+      setIsEditDialogOpen(false);
     }
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditDialogOpen(false);
   };
   
   const handleRemoveProfilePicture = () => {
@@ -305,214 +310,240 @@ const Sidebar = () => {
   const starredChats = chats.length > 0 ? [chats[0]] : [];
   
   return (
-    <SidebarWrapper>
-      <SidebarContainer theme={theme} collapsed={sidebarCollapsed}>
-        <LogoSection theme={theme}>
-          <BrainIcon size={36} color="#FF643D" />
-          <LogoText theme={theme} collapsed={sidebarCollapsed}>Sephia</LogoText>
-        </LogoSection>
-        
-        <SidebarSection theme={theme}>
-          <SidebarButton 
-            theme={theme} 
-            onClick={handleNewChat}
-          >
-            <AddIcon />
-            {!sidebarCollapsed && 'New Chat'}
-          </SidebarButton>
+    <>
+      <Dialog open={isEditDialogOpen} onClose={handleCancelEdit}>
+        <DialogTitle>Edit Profile Name</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSaveProfile()}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelEdit} color="primary">
+            Cancel
+          </Button>
+          <Button onClick={handleSaveProfile} color="primary" variant="contained">
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <SidebarWrapper>
+        <SidebarContainer theme={theme} collapsed={sidebarCollapsed}>
+          <LogoSection theme={theme}>
+            <BrainIcon size={36} color="#FF643D" />
+            <LogoText theme={theme} collapsed={sidebarCollapsed}>Sephia</LogoText>
+          </LogoSection>
           
-          <Divider theme={theme} />
-          
-          <SidebarButton 
-            theme={theme} 
-            active={activeSection === 'chat'} 
-            onClick={() => setActiveSection('chat')}
-          >
-            <ChatIcon />
-            {!sidebarCollapsed && 'Chats'}
-          </SidebarButton>
-          
-          <SidebarButton 
-            theme={theme} 
-            active={activeSection === 'projects'} 
-            onClick={() => setActiveSection('projects')}
-          >
-            <ProjectsIcon />
-            {!sidebarCollapsed && 'Projects'}
-          </SidebarButton>
-          
-          <SidebarButton 
-            theme={theme} 
-            active={activeSection === 'ollama'} 
-            onClick={() => setActiveSection('ollama')}
-          >
-            <OllamaIcon />
-            {!sidebarCollapsed && 'Chat'}
-          </SidebarButton>
-          
-          <SidebarButton 
-            theme={theme} 
-            active={activeSection === 'settings'} 
-            onClick={() => setActiveSection('settings')}
-          >
-            <SettingsIcon />
-            {!sidebarCollapsed && 'Settings'}
-          </SidebarButton>
-        </SidebarSection>
-        
-        {!sidebarCollapsed && (
-          <>
-            <SectionTitle theme={theme}>
-              Starred
-            </SectionTitle>
-            <SidebarSection theme={theme}>
-              {starredChats.length > 0 ? (
-                starredChats.map(chat => (
-                  <div 
-                    key={chat.id} 
-                    style={{
-                      position: 'relative',
-                      width: '100%',
-                      '&:hover .chat-actions': {
-                        opacity: 1
-                      }
-                    }}
-                  >
-                    <SidebarButton 
-                      theme={theme}
-                      onClick={() => {
-                        setActiveSection('chat');
-                        // In real implementation, would set current chat here
-                      }}
-                      style={{ width: '100%' }}
-                    >
-                      <StarIcon />
-                      <span style={{flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                        {chat.title}
-                      </span>
-                    </SidebarButton>
-                    <ChatActions className="chat-actions">
-                      <ActionButton 
-                        theme={theme} 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (window.confirm('Are you sure you want to delete this chat?')) {
-                            deleteChat(chat.id);
-                          }
-                        }}
-                        title="Delete chat"
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </ActionButton>
-                    </ChatActions>
-                  </div>
-                ))
-              ) : (
-                <div style={{ padding: '0 16px', color: theme.colors.tertiaryText, fontSize: '13px' }}>
-                  No starred items
-                </div>
-              )}
-            </SidebarSection>
+          <SidebarSection theme={theme}>
+            <SidebarButton 
+              theme={theme} 
+              onClick={handleNewChat}
+            >
+              <AddIcon />
+              {!sidebarCollapsed && 'New Chat'}
+            </SidebarButton>
             
-            <SectionTitle theme={theme}>
-              Recent
-            </SectionTitle>
-            <SidebarSection theme={theme}>
-              {recentChats.length > 0 ? (
-                recentChats.map(chat => (
-                  <div 
-                    key={chat.id}
-                    style={{
-                      position: 'relative',
-                      width: '100%',
-                      '&:hover .chat-actions': {
-                        opacity: 1
-                      }
-                    }}
-                  >
-                    <SidebarButton 
-                      theme={theme}
-                      onClick={() => {
-                        setActiveSection('chat');
-                        // In real implementation, would set current chat here
-                      }}
-                      style={{ width: '100%' }}
-                    >
-                      <ChatIcon />
-                      <span style={{flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                        {chat.title}
-                      </span>
-                    </SidebarButton>
-                    <ChatActions className="chat-actions">
-                      <ActionButton 
-                        theme={theme} 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (window.confirm('Are you sure you want to delete this chat?')) {
-                            deleteChat(chat.id);
-                          }
-                        }}
-                        title="Delete chat"
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </ActionButton>
-                    </ChatActions>
-                  </div>
-                ))
-              ) : (
-                <div style={{ padding: '0 16px', color: theme.colors.tertiaryText, fontSize: '13px' }}>
-                  No recent chats
-                </div>
-              )}
-            </SidebarSection>
-          </>
-        )}
-        
-        <ProfileSection theme={theme} collapsed={sidebarCollapsed}>
-          <ProfileImage theme={theme} onClick={handleProfileClick}>
-            {profile.picture ? (
-              <img src={profile.picture} alt="Profile" />
-            ) : (
-              <AccountIcon fontSize="large" />
-            )}
-          </ProfileImage>
-          
-          <ProfileInfo collapsed={sidebarCollapsed} theme={theme}>
-            <ProfileName theme={theme}>{profile.name}</ProfileName>
-            <ConnectionStatus theme={theme} status={connectionStatus}>
-              {connectionStatus}
-            </ConnectionStatus>
-          </ProfileInfo>
+            <Divider theme={theme} />
+            
+            <SidebarButton 
+              theme={theme} 
+              active={activeSection === 'chat'} 
+              onClick={() => setActiveSection('chat')}
+            >
+              <ChatIcon />
+              {!sidebarCollapsed && 'Chats'}
+            </SidebarButton>
+            
+            <SidebarButton 
+              theme={theme} 
+              active={activeSection === 'projects'} 
+              onClick={() => setActiveSection('projects')}
+            >
+              <ProjectsIcon />
+              {!sidebarCollapsed && 'Projects'}
+            </SidebarButton>
+            
+            <SidebarButton 
+              theme={theme} 
+              active={activeSection === 'ollama'} 
+              onClick={() => setActiveSection('ollama')}
+            >
+              <OllamaIcon />
+              {!sidebarCollapsed && 'Chat'}
+            </SidebarButton>
+            
+            <SidebarButton 
+              theme={theme} 
+              active={activeSection === 'settings'} 
+              onClick={() => setActiveSection('settings')}
+            >
+              <SettingsIcon />
+              {!sidebarCollapsed && 'Settings'}
+            </SidebarButton>
+          </SidebarSection>
           
           {!sidebarCollapsed && (
-            <ProfileActions className="profile-actions">
-              <ProfileActionButton theme={theme} onClick={handleEditProfile} title="Edit Profile">
-                <EditIcon fontSize="small" />
-              </ProfileActionButton>
-              {profile.picture && (
-                <ProfileActionButton theme={theme} onClick={handleRemoveProfilePicture} title="Remove Photo">
-                  <DeleteIcon fontSize="small" />
-                </ProfileActionButton>
-              )}
-              <ProfileActionButton theme={theme} onClick={handleProfileClick} title="Upload Photo">
-                <PhotoIcon fontSize="small" />
-              </ProfileActionButton>
-            </ProfileActions>
+            <>
+              <SectionTitle theme={theme}>
+                Starred
+              </SectionTitle>
+              <SidebarSection theme={theme}>
+                {starredChats.length > 0 ? (
+                  starredChats.map(chat => (
+                    <div 
+                      key={chat.id} 
+                      style={{
+                        position: 'relative',
+                        width: '100%',
+                        '&:hover .chat-actions': {
+                          opacity: 1
+                        }
+                      }}
+                    >
+                      <SidebarButton 
+                        theme={theme}
+                        onClick={() => {
+                          setActiveSection('chat');
+                          // In real implementation, would set current chat here
+                        }}
+                        style={{ width: '100%' }}
+                      >
+                        <StarIcon />
+                        <span style={{flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                          {chat.title}
+                        </span>
+                      </SidebarButton>
+                      <ChatActions className="chat-actions">
+                        <ActionButton 
+                          theme={theme} 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm('Are you sure you want to delete this chat?')) {
+                              deleteChat(chat.id);
+                            }
+                          }}
+                          title="Delete chat"
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </ActionButton>
+                      </ChatActions>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ padding: '0 16px', color: theme.colors.tertiaryText, fontSize: '13px' }}>
+                    No starred items
+                  </div>
+                )}
+              </SidebarSection>
+              
+              <SectionTitle theme={theme}>
+                Recent
+              </SectionTitle>
+              <SidebarSection theme={theme}>
+                {recentChats.length > 0 ? (
+                  recentChats.map(chat => (
+                    <div 
+                      key={chat.id}
+                      style={{
+                        position: 'relative',
+                        width: '100%',
+                        '&:hover .chat-actions': {
+                          opacity: 1
+                        }
+                      }}
+                    >
+                      <SidebarButton 
+                        theme={theme}
+                        onClick={() => {
+                          setActiveSection('chat');
+                          // In real implementation, would set current chat here
+                        }}
+                        style={{ width: '100%' }}
+                      >
+                        <ChatIcon />
+                        <span style={{flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
+                          {chat.title}
+                        </span>
+                      </SidebarButton>
+                      <ChatActions className="chat-actions">
+                        <ActionButton 
+                          theme={theme} 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm('Are you sure you want to delete this chat?')) {
+                              deleteChat(chat.id);
+                            }
+                          }}
+                          title="Delete chat"
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </ActionButton>
+                      </ChatActions>
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ padding: '0 16px', color: theme.colors.tertiaryText, fontSize: '13px' }}>
+                    No recent chats
+                  </div>
+                )}
+              </SidebarSection>
+            </>
           )}
           
-          <FileInput 
-            ref={fileInputRef} 
-            type="file" 
-            accept="image/*" 
-            onChange={handleFileChange}
-          />
-        </ProfileSection>
-      </SidebarContainer>
-      
-      <ToggleButton theme={theme} onClick={toggleSidebar}>
-        {sidebarCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
-      </ToggleButton>
-    </SidebarWrapper>
+          <ProfileSection theme={theme} collapsed={sidebarCollapsed}>
+            <ProfileImage theme={theme} onClick={handleProfileClick}>
+              {profile.picture ? (
+                <img src={profile.picture} alt="Profile" />
+              ) : (
+                <AccountIcon fontSize="large" />
+              )}
+            </ProfileImage>
+            
+            <ProfileInfo collapsed={sidebarCollapsed} theme={theme}>
+              <ProfileName theme={theme}>{profile.name}</ProfileName>
+              <ConnectionStatus theme={theme} status={connectionStatus}>
+                {connectionStatus}
+              </ConnectionStatus>
+            </ProfileInfo>
+            
+            {!sidebarCollapsed && (
+              <ProfileActions className="profile-actions">
+                <ProfileActionButton theme={theme} onClick={handleEditProfile} title="Edit Profile">
+                  <EditIcon fontSize="small" />
+                </ProfileActionButton>
+                {profile.picture && (
+                  <ProfileActionButton theme={theme} onClick={handleRemoveProfilePicture} title="Remove Photo">
+                    <DeleteIcon fontSize="small" />
+                  </ProfileActionButton>
+                )}
+                <ProfileActionButton theme={theme} onClick={handleProfileClick} title="Upload Photo">
+                  <PhotoIcon fontSize="small" />
+                </ProfileActionButton>
+              </ProfileActions>
+            )}
+            
+            <FileInput 
+              ref={fileInputRef} 
+              type="file" 
+              accept="image/*" 
+              onChange={handleFileChange}
+            />
+          </ProfileSection>
+        </SidebarContainer>
+        
+        <ToggleButton theme={theme} onClick={toggleSidebar}>
+          {sidebarCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+        </ToggleButton>
+      </SidebarWrapper>
+    </>
   );
 };
 

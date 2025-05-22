@@ -6,16 +6,21 @@ import {
   Typography,
   Paper,
   IconButton,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   CircularProgress,
   useTheme,
   useMediaQuery,
   styled,
-  keyframes
+  keyframes,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  InputAdornment,
+  Tooltip
 } from '@mui/material';
+import CodeBlock from './CodeBlock';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import CheckIcon from '@mui/icons-material/Check';
 import SendIcon from '@mui/icons-material/Send';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
@@ -115,6 +120,69 @@ const SimpleChat = () => {
   const inputRef = useRef(null);
   const messageListRef = useRef(null);
   
+  // Function to detect and render code blocks
+  const renderMessageContent = (text) => {
+    // Simple regex to detect code blocks between ```
+    const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = codeBlockRegex.exec(text)) !== null) {
+      // Add text before the code block
+      if (match.index > lastIndex) {
+        parts.push({
+          type: 'text',
+          content: text.slice(lastIndex, match.index)
+        });
+      }
+
+      // Add the code block
+      const [, language, code] = match;
+      parts.push({
+        type: 'code',
+        language: language || 'javascript',
+        content: code.trim()
+      });
+
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Add remaining text after the last code block
+    if (lastIndex < text.length) {
+      parts.push({
+        type: 'text',
+        content: text.slice(lastIndex)
+      });
+    }
+
+    return parts.length > 0 ? parts : [{ type: 'text', content: text }];
+  };
+
+  // State for tracking copied status of each message
+  const [copiedMessages, setCopiedMessages] = useState({});
+
+  // Handle copying message text
+  const handleCopyMessage = async (text, messageId) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMessages(prev => ({
+        ...prev,
+        [messageId]: true
+      }));
+      
+      // Reset the copied status after 2 seconds
+      setTimeout(() => {
+        setCopiedMessages(prev => ({
+          ...prev,
+          [messageId]: false
+        }));
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+    }
+  };
+
   // Memoized initial message
   const initialMessage = useMemo(() => ({
     id: Date.now(),
@@ -123,24 +191,57 @@ const SimpleChat = () => {
     timestamp: new Date().toISOString()
   }), []);
 
-  // Default models optimized for M4 with 24GB unified memory
-  const defaultModels = useMemo(() => [
-    { name: 'deepseek-r1:14b', size: '7.6GB' },
-    { name: 'llama3:8b', size: '4.7GB' },
-    { name: 'mistral:7b', size: '4.1GB' },
-    { name: 'mixtral:8x7b', size: '26.5GB', disabled: true },
-    { name: 'neural-chat:7b', size: '4.1GB' }
-  ], []);
-
   // State management
   const [messages, setMessages] = useState([initialMessage]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [models, setModels] = useState(defaultModels);
-  const [selectedModel, setSelectedModel] = useState('deepseek-r1:14b'); // Added missing state
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState('');
   const [error, setError] = useState(null);
-  const [modelIcon, setModelIcon] = useState(<SmartToyIcon />); // Added missing state
+  const [modelIcon, setModelIcon] = useState(<SmartToyIcon />);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
+
+  // Fetch available models from Ollama
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        setIsLoadingModels(true);
+        const response = await fetch('http://localhost:11434/api/tags');
+        if (!response.ok) {
+          throw new Error('Failed to fetch models');
+        }
+        const data = await response.json();
+        
+        const availableModels = data.models.map(model => ({
+          name: model.name,
+          size: (model.size / 1024 / 1024 / 1024).toFixed(1) + 'GB',
+          modified: new Date(model.modified_at).toLocaleDateString()
+        }));
+        
+        setModels(availableModels);
+        if (availableModels.length > 0) {
+          setSelectedModel(availableModels[0].name);
+        }
+      } catch (err) {
+        console.error('Error fetching models:', err);
+        setError('Failed to load models. Make sure Ollama is running.');
+        // Fallback to default models if API call fails
+        const defaultModels = [
+          { name: 'deepseek-r1:14b', size: '7.6GB' },
+          { name: 'llama3:8b', size: '4.7GB' },
+          { name: 'mistral:7b', size: '4.1GB' },
+          { name: 'neural-chat:7b', size: '4.1GB' }
+        ];
+        setModels(defaultModels);
+        setSelectedModel(defaultModels[0].name);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
 
   // Load available models with performance optimizations
   useEffect(() => {
@@ -373,22 +474,19 @@ const SimpleChat = () => {
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
+        height: '100%',
         width: '100%',
-        maxWidth: '100%',
-        margin: 0,
-        padding: 0,
+        overflow: 'hidden',
         backgroundColor: theme.palette.background.default,
         '& .message-container': {
           flex: 1,
           overflowY: 'auto',
-          padding: theme.spacing(2),
-          paddingBottom: theme.spacing(1),
+          padding: theme.spacing(2, 2, 0, 2),
           '&::-webkit-scrollbar': {
-            width: '6px',
+            width: '8px',
           },
           '&::-webkit-scrollbar-track': {
-            background: theme.palette.background.paper,
+            background: 'transparent',
           },
           '&::-webkit-scrollbar-thumb': {
             background: theme.palette.grey[400],
@@ -406,27 +504,8 @@ const SimpleChat = () => {
         },
       }}
     >
-      {/* Header */}
-      <Box
-        sx={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          padding: theme.spacing(1, 2),
-          backgroundColor: theme.palette.background.paper,
-          borderBottom: `1px solid ${theme.palette.divider}`,
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-        }}
-      >
-        <Typography variant="h6" sx={{ fontWeight: 600, color: theme.palette.primary.main, flex: 1 }}>
-          Chat
-        </Typography>
-      </Box>
-
       {/* Messages */}
-      <Box className="message-container" ref={messageListRef} style={{ paddingBottom: '16px' }}>
+      <Box className="message-container" ref={messageListRef} sx={{ paddingTop: 2 }}>
         {messages.map((message) => (
           <Box 
             key={message.id}
@@ -475,21 +554,74 @@ const SimpleChat = () => {
                 },
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, marginBottom: 0.5 }}>
-                <Typography variant="subtitle2" fontWeight="bold" sx={{ 
-                  color: message.isUser ? '#ffffff !important' : '#4a148c !important', 
-                  fontSize: '0.85rem' 
-                }}>
-                  {message.isUser ? 'You' : selectedModel || 'Assistant'}
-                </Typography>
-                <Typography variant="caption" sx={{ 
-                  color: message.isUser ? '#ffffff !important' : 'rgba(74, 20, 140, 0.7) !important', 
-                  fontSize: '0.7rem' 
-                }}>
-                  {new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                </Typography>
+              <Box sx={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                width: '100%',
+                marginBottom: 0.5 
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ 
+                    color: message.isUser ? '#ffffff !important' : '#4a148c !important', 
+                    fontSize: '0.85rem' 
+                  }}>
+                    {message.isUser ? 'You' : 'Assistant'}
+                  </Typography>
+                  <Typography variant="caption" sx={{ 
+                    color: message.isUser ? '#ffffff !important' : 'rgba(74, 20, 140, 0.7) !important', 
+                    fontSize: '0.7rem' 
+                  }}>
+                    {new Date(message.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  </Typography>
+                </Box>
+                <Tooltip 
+                  title={copiedMessages[message.id] ? 'Copied!' : 'Copy message'} 
+                  arrow
+                  placement="top"
+                >
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyMessage(message.text, message.id);
+                    }}
+                    sx={{
+                      color: message.isUser ? 'rgba(255, 255, 255, 0.7)' : 'rgba(74, 20, 140, 0.5)',
+                      '&:hover': {
+                        color: message.isUser ? '#fff' : '#4a148c',
+                        backgroundColor: 'transparent'
+                      },
+                      padding: '4px',
+                      marginRight: '-8px',
+                      opacity: 0,
+                      transition: 'opacity 0.2s ease',
+                      '.MuiBox-root:hover &': {
+                        opacity: 1
+                      }
+                    }}
+                  >
+                    {copiedMessages[message.id] ? 
+                      <CheckIcon fontSize="small" sx={{ color: message.isUser ? '#4caf50' : '#4caf50' }} /> : 
+                      <ContentCopyIcon fontSize="small" />
+                    }
+                  </IconButton>
+                </Tooltip>
               </Box>
-              {message.text}
+              {renderMessageContent(message.text).map((part, index) => {
+                if (part.type === 'code') {
+                  return (
+                    <Box key={`code-${index}`} sx={{ my: 1 }}>
+                      <CodeBlock language={part.language} value={part.content} />
+                    </Box>
+                  );
+                }
+                return (
+                  <Typography key={`text-${index}`} component="span" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {part.content}
+                  </Typography>
+                );
+              })}
             </MessageBubble>
           </Box>
         ))}
@@ -541,11 +673,22 @@ const SimpleChat = () => {
                   {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                 </Typography>
               </Box>
-              <TypingIndicator>
-                <div></div>
-                <div></div>
-                <div></div>
-              </TypingIndicator>
+              <Box sx={{ whiteSpace: 'pre-wrap' }}>
+                {renderMessageContent('```python\n# Loading response...\n```').map((part, index) => {
+                  if (part.type === 'code') {
+                    return (
+                      <Box key={`typing-code-${index}`} sx={{ my: 1 }}>
+                        <CodeBlock language={part.language} value={part.content} />
+                      </Box>
+                    );
+                  }
+                  return (
+                    <Typography key={`typing-text-${index}`} component="span">
+                      {part.content}
+                    </Typography>
+                  );
+                })}
+              </Box>
             </MessageBubble>
           </Box>
         )}
@@ -579,92 +722,20 @@ const SimpleChat = () => {
       )}
 
       {/* Input area */}
-      <Box className="input-container" style={{ padding: '16px', backgroundColor: theme.palette.background.paper, borderTop: `1px solid ${theme.palette.divider}`, position: 'sticky', bottom: 0 }}>
-        <Box
-          component="form"
-          onSubmit={handleSubmit}
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
-            width: '100%',
-            maxWidth: '1200px',
-            margin: '0 auto',
-          }}
-        >
-          <FormControl size="small" sx={{ width: '100%', mb: 1 }}>
-            <InputLabel id="model-select-label">Model</InputLabel>
-            <Select
-              labelId="model-select-label"
-              value={selectedModel}
-              label="Model"
-              onChange={(e) => setSelectedModel(e.target.value)}
-              disabled={isLoading}
-              fullWidth
-              sx={{
-                '& .MuiSelect-select': {
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  padding: '8px 32px 8px 12px',
-                },
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: theme.palette.divider,
-                },
-                '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: theme.palette.primary.main,
-                },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: theme.palette.primary.main,
-                  borderWidth: '1px',
-                },
-              }}
-            >
-              {models.map((model) => (
-                <MenuItem 
-                  key={model.name} 
-                  value={model.name}
-                  disabled={model.disabled}
-                  sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 2,
-                    fontSize: '0.875rem',
-                    '&.Mui-selected': {
-                      backgroundColor: `${theme.palette.primary.main}15`,
-                      '&:hover': {
-                        backgroundColor: `${theme.palette.primary.main}20`,
-                      },
-                    },
-                  }}
-                >
-                  <Box sx={{ 
-                    flex: 1,
-                    fontWeight: model.disabled ? 400 : 500,
-                    color: model.disabled ? 'text.disabled' : 'text.primary',
-                  }}>
-                    {model.name}
-                  </Box>
-                  <Typography 
-                    variant="caption" 
-                    sx={{ 
-                      color: model.disabled ? 'text.disabled' : 'text.secondary',
-                      fontSize: '0.75rem',
-                    }}
-                  >
-                    {model.size}
-                  </Typography>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Box sx={{ display: 'flex', gap: 1 }}>
+      <Box className="input-container" sx={{ 
+        padding: 2,
+        backgroundColor: theme.palette.background.paper,
+        borderTop: `1px solid ${theme.palette.divider}`,
+        position: 'sticky',
+        bottom: 0,
+        zIndex: 1
+      }}>
+        <form onSubmit={handleSubmit}>
+          <Box sx={{ display: 'flex', gap: 1, maxWidth: '100%' }}>
             <TextField
-              inputRef={inputRef}
               fullWidth
               variant="outlined"
-              placeholder="Type your message..."
+              placeholder="Type a message..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -673,37 +744,44 @@ const SimpleChat = () => {
                   handleSubmit(e);
                 }
               }}
+              disabled={isLoading}
               multiline
               maxRows={4}
-              disabled={isLoading}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  borderRadius: theme.shape.borderRadius * 2,
+              InputProps={{
+                style: {
                   backgroundColor: theme.palette.background.paper,
+                  borderRadius: '24px',
                 },
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      type="submit"
+                      disabled={!input.trim() || isLoading}
+                      color="primary"
+                      sx={{
+                        backgroundColor: theme.palette.primary.main,
+                        color: theme.palette.primary.contrastText,
+                        '&:hover': {
+                          backgroundColor: theme.palette.primary.dark,
+                        },
+                        '&:disabled': {
+                          backgroundColor: theme.palette.action.disabledBackground,
+                          color: theme.palette.action.disabled,
+                        },
+                      }}
+                    >
+                      {isLoading ? (
+                        <CircularProgress size={24} color="inherit" />
+                      ) : (
+                        <SendIcon />
+                      )}
+                    </IconButton>
+                  </InputAdornment>
+                ),
               }}
             />
-            <Button
-              type="submit"
-              variant="contained"
-              color="primary"
-              disabled={!input.trim() || isLoading}
-              sx={{
-                minWidth: 48,
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                padding: 0,
-              }}
-            >
-              {isLoading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                <SendIcon />
-              )}
-            </Button>
           </Box>
-        </Box>
+        </form>
       </Box>
     </Box>
   );

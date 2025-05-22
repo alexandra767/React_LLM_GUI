@@ -6,19 +6,20 @@ const OllamaChatView = () => {
   return (
     <Box sx={{ 
       width: '100%',
-      height: '100vh',
+      height: '100%',
       display: 'flex',
       flexDirection: 'column',
       backgroundColor: 'background.default',
       overflow: 'hidden',
+      flex: 1,
       '& .simple-chat-container': {
         flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        height: '100vh',
         overflow: 'hidden',
         padding: 0,
-        margin: 0
+        margin: 0,
+        maxHeight: '100%'
       }
     }}>
       <Box className="simple-chat-container">
