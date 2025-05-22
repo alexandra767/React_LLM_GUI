@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useMemo } from 'react';
-import getLLMService from '../services/LLMService';
+import { useTheme } from './ThemeContext';
+import llmService from '../services/LLMService';
 
 export const AppContext = createContext();
 
@@ -54,10 +55,10 @@ const loadProfile = () => {
 };
 
 export const AppProvider = ({ children }) => {
-  // Initialize LLMService
-  const llmService = useMemo(() => getLLMService(), []);
+  // Initialize theme
+  const theme = useTheme();
   // State declarations first
-  const [currentModel, setCurrentModel] = useState('deepseek-r1:14b');
+  const [currentModel, setCurrentModel] = useState('deepseek-r1:8b-m4');
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -98,6 +99,8 @@ export const AppProvider = ({ children }) => {
     setTokenCount({ input: 0, output: 0, total: 0 });
   };
   
+
+  
   // Define other functions that will be used in the context value
   const toggleSidebar = () => {
     setAppState(prev => ({
@@ -123,7 +126,7 @@ export const AppProvider = ({ children }) => {
   // Handle chat selection and apply theme
   const handleChatSelect = (chat) => {
     setCurrentChat(chat);
-    localStorage.setItem('sephia_current_chat_id', chat.id);
+    // Don't save current chat ID - app should always start fresh
     
     try {
       // Apply the chat's theme if it has one
@@ -140,224 +143,16 @@ export const AppProvider = ({ children }) => {
         }
       }
       
-      // Update the app state to show the chat section
-      setAppState(prev => ({
-        ...prev,
-        activeSection: 'chat'
-      }));
+      // Keep the current section instead of switching to 'chat'
+      // setAppState(prev => ({
+      //   ...prev,
+      //   activeSection: 'chat'
+      // }));
     } catch (error) {
       console.error('Error in handleChatSelect:', error);
     }
   };
-  
-  // Create the context value object with all necessary values and methods
-  const contextValue = {
-    // State values
-    currentModel,
-    models,
-    loading,
-    error,
-    appState,
-    chats,
-    projects,
-    currentChat,
-    profile,
-    tokenCount,
-    messageDuration,
-    
-    // State setters
-    setCurrentModel,
-    setModels,
-    setLoading,
-    setError,
-    setAppState,
-    setChats,
-    setProjects,
-    setCurrentChat,
-    setProfile,
-    setTokenCount: updateTokenCount,
-    setMessageTime,
-    
-    // Methods
-    handleChatSelect,
-    sendMessage,
-    streamMessage,
-    updateProfile,
-    resetTokenCount,
-    toggleSidebar,
-    setActiveSection,
-    createNewChat,
-    createNewProject,
-    deleteChat,
-    deleteProject,
-    loadModel,
-    unloadModel,
-    toggleStarChat
-  };
-  
-  // Save chats to localStorage whenever they change
-  useEffect(() => {
-    try {
-      if (chats && Array.isArray(chats)) {
-        localStorage.setItem('sephia_chats', JSON.stringify(chats));
-        // Also save the current chat ID for persistence
-        if (currentChat) {
-          localStorage.setItem('sephia_current_chat_id', currentChat.id);
-          
-          // Update the chat in the chats array to keep it in sync
-          setChats(prev => {
-            if (!prev || !Array.isArray(prev)) return [];
-            const chatIndex = prev.findIndex(c => c.id === currentChat.id);
-            if (chatIndex >= 0) {
-              const updatedChats = [...prev];
-              updatedChats[chatIndex] = currentChat;
-              return updatedChats;
-            }
-            return prev;
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to save chats to localStorage:', error);
-    }
-  }, [chats, currentChat]);
-  
-  // Keep track of initial load to prevent duplicate theme application
-  const initialLoad = useRef(true);
-  
-  // Load current chat ID on initial load
-  useEffect(() => {
-    try {
-      const savedChatId = localStorage.getItem('sephia_current_chat_id');
-      if (savedChatId && chats.length > 0) {
-        const chat = chats.find(c => c.id === savedChatId);
-        if (chat) {
-          // Apply the chat's theme if it has one
-          if (chat.theme) {
-            localStorage.setItem('sephia_theme', chat.theme);
-            document.documentElement.setAttribute('data-theme', chat.theme);
-          }
-          setCurrentChat(chat);
-        } else if (chats.length > 0) {
-          setCurrentChat(chats[0]);
-        }
-      } else if (chats.length > 0) {
-        setCurrentChat(chats[0]);
-      }
-      initialLoad.current = false;
-    } catch (error) {
-      console.error('Failed to load current chat from localStorage:', error);
-    }
-  }, [chats.length]);
-  
-  // Apply theme when currentChat changes and has a theme
-  useEffect(() => {
-    // Skip the initial load since we handle it in the effect above
-    if (initialLoad.current) return;
-    
-    if (currentChat?.theme && theme?.setTheme) {
-      theme.setTheme(currentChat.theme);
-    }
-  }, [currentChat?.id]);
-  
-  // Save projects to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('sephia_projects', JSON.stringify(projects));
-  }, [projects]);
-  
-  // Save profile to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('sephia_profile', JSON.stringify(profile));
-  }, [profile]);
-  
-  // Fetch available models
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        setLoading(true);
-        setAppState(prev => ({
-          ...prev,
-          connectionStatus: 'connecting'
-        }));
-        
-        console.log("Fetching models from service and terminal...");
-        
-        // Immediately set hard-coded models that match what we know exists
-        const hardcodedModels = [
-          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
-          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
-          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
-          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
-          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
-        ];
-        
-        // Set hardcoded models immediately
-        setModels(hardcodedModels);
-        
-        // Try to get actual models from Ollama in the background
-        try {
-          const ollamaModels = await llmService.getAvailableModels();
-          
-          // Only update if we got real models back
-          if (ollamaModels && ollamaModels.length > 0) {
-            // Map to our format
-            const mappedModels = ollamaModels.map(model => ({
-              id: model.id || model.name || 'unknown',
-              name: model.name || 'Unknown Model',
-              type: 'local',
-              size: model.size || 'Unknown size',
-            }));
-            
-            console.log("Loaded models from Ollama:", mappedModels);
-            setModels(mappedModels);
-            
-            setAppState(prev => ({
-              ...prev,
-              connectionStatus: 'connected'
-            }));
-          }
-        } catch (apiError) {
-          console.error("Error fetching models from API:", apiError);
-          // We keep the hardcoded models already set
-        }
-        
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed in model fetch process:', err);
-        setError('Failed to fetch models');
-        
-        // Ensure we at least have the hardcoded models
-        setModels([
-          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
-          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
-          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
-          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
-          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
-        ]);
-        
-        setAppState(prev => ({
-          ...prev,
-          connectionStatus: 'disconnected'
-        }));
-        
-        setLoading(false);
-      }
-    };
-    
-    fetchModels();
-    
-    // Set up a refresh interval to periodically check for new models
-    const modelRefreshInterval = setInterval(() => {
-      fetchModels();
-    }, 60000); // Refresh every 60 seconds
-    
-    return () => {
-      clearInterval(modelRefreshInterval);
-    };
-  }, []);
-  
 
-  
   // Generate a description from the first message content
   const generateChatDescription = (message) => {
     if (!message) return 'New chat';
@@ -440,64 +235,66 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
-  // Generate a timestamp for the chat
-  const timestamp = new Date().toISOString();
-  
-  // Create the first message if provided
-  const firstMessageObj = firstMessage ? [{
-    id: `msg_${Date.now()}`,
-    role: 'user',
-    content: firstMessage,
-    timestamp: timestamp,
-    isUser: true
-  }] : [];
-  
-  // Generate a description from the first message or use a default
-  const description = firstMessage ? generateChatDescription(firstMessage) : 'New chat';
-  
-  // Create the chat object
-  const newChat = {
-    id: `chat_${Date.now()}`,
-    title: initialTitle,
-    description: description,
-    messages: firstMessageObj,
-    model: currentModel,
-    theme: themeName,
-    isStarred: false,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    tokenCount: 0,
-    isArchived: false
+  const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
+    // Generate a timestamp for the chat
+    const timestamp = new Date().toISOString();
+    
+    // Create the first message if provided
+    const firstMessageObj = firstMessage ? [{
+      id: `msg_${Date.now()}`,
+      role: 'user',
+      content: firstMessage,
+      timestamp: timestamp,
+      isUser: true
+    }] : [];
+    
+    // Generate a description from the first message or use a default
+    const description = firstMessage ? generateChatDescription(firstMessage) : 'New chat';
+    
+    // Use the generated description as the title if we have a first message
+    const chatTitle = firstMessage ? description : initialTitle;
+    
+    // Create the chat object
+    const newChat = {
+      id: `chat_${Date.now()}`,
+      title: chatTitle,
+      description: description,
+      messages: firstMessageObj,
+      model: currentModel,
+      theme: themeName,
+      isStarred: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      tokenCount: 0,
+      isArchived: false
+    };
+    
+    // Update the chats array with the new chat
+    setChats(prevChats => {
+      const updatedChats = Array.isArray(prevChats) ? [...prevChats] : [];
+      // Remove any existing chat with the same ID to avoid duplicates
+      const filteredChats = updatedChats.filter(chat => chat.id !== newChat.id);
+      return [newChat, ...filteredChats];
+    });
+    
+    // Set the new chat as the current chat
+    setCurrentChat(newChat);
+    
+    // Keep the current section instead of switching to 'chat'
+    // setAppState(prev => ({
+    //   ...prev,
+    //   activeSection: 'chat'
+    // }));
+    
+    // Apply the theme for the new chat if it's different from current
+    if (themeName && theme?.setTheme && themeName !== theme.themeName) {
+      theme.setTheme(themeName);
+    }
+    
+    // Don't save current chat ID - app should always start fresh
+    
+    return newChat;
   };
-  
-  // Update the chats array with the new chat
-  setChats(prevChats => {
-    const updatedChats = Array.isArray(prevChats) ? [...prevChats] : [];
-    // Remove any existing chat with the same ID to avoid duplicates
-    const filteredChats = updatedChats.filter(chat => chat.id !== newChat.id);
-    return [newChat, ...filteredChats];
-  });
-  
-  // Set the new chat as the current chat
-  setCurrentChat(newChat);
-  
-  // Update the app state to show the chat section
-  setAppState(prev => ({
-    ...prev,
-    activeSection: 'chat'
-  }));
-  
-  // Apply the theme for the new chat if it's different from current
-  if (themeName && theme?.setTheme && themeName !== theme.themeName) {
-    theme.setTheme(themeName);
-  }
-  
-  // Save the current chat ID to localStorage
-  localStorage.setItem('sephia_current_chat_id', newChat.id);
-  
-  return newChat;
-};
 
   const sendMessage = async (chatId, message, options = {}) => {
     try {
@@ -517,7 +314,7 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       // Add user message to chat
       const updatedChat = {
         ...chat,
-        messages: [...chat.messages, userMessage],
+        messages: [...(chat.messages || []), userMessage],
         updatedAt: new Date().toISOString()
       };
 
@@ -526,16 +323,17 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       setChats(updatedChats);
       setCurrentChat(updatedChat);
 
-      // If this is the first message, update the chat description
-      if (updatedChat.messages.length === 1) {
+      // If this is the first message, update the chat title and description
+      if ((updatedChat.messages || []).length === 1) {
         const description = generateChatDescription(message);
         updatedChat.description = description;
+        updatedChat.title = description; // Use description as title
         
         const updatedChatsWithDescription = updatedChats.map(c => 
-          c.id === chatId ? { ...c, description } : c
+          c.id === chatId ? { ...c, description, title: description } : c
         );
         setChats(updatedChatsWithDescription);
-        setCurrentChat(prev => ({ ...prev, description }));
+        setCurrentChat(prev => ({ ...prev, description, title: description }));
       }
 
       // Get AI response
@@ -554,7 +352,7 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       // Add AI response to chat
       const finalChat = {
         ...updatedChat,
-        messages: [...updatedChat.messages, aiMessage],
+        messages: [...(updatedChat.messages || []), aiMessage],
         updatedAt: new Date().toISOString()
       };
 
@@ -591,7 +389,7 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       // Add user message to chat
       const updatedChat = {
         ...chat,
-        messages: [...chat.messages, userMessage],
+        messages: [...(chat.messages || []), userMessage],
         updatedAt: new Date().toISOString()
       };
 
@@ -600,16 +398,17 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       setChats(updatedChats);
       setCurrentChat(updatedChat);
 
-      // If this is the first message, update the chat description
-      if (updatedChat.messages.length === 1) {
+      // If this is the first message, update the chat title and description
+      if ((updatedChat.messages || []).length === 1) {
         const description = generateChatDescription(message);
         updatedChat.description = description;
+        updatedChat.title = description; // Use description as title
         
         const updatedChatsWithDescription = updatedChats.map(c => 
-          c.id === chatId ? { ...c, description } : c
+          c.id === chatId ? { ...c, description, title: description } : c
         );
         setChats(updatedChatsWithDescription);
-        setCurrentChat(prev => ({ ...prev, description }));
+        setCurrentChat(prev => ({ ...prev, description, title: description }));
       }
 
       // Create a placeholder for the AI response that will be streamed
@@ -625,7 +424,7 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       // Add placeholder AI message to chat
       const chatWithPlaceholder = {
         ...updatedChat,
-        messages: [...updatedChat.messages, aiMessage],
+        messages: [...(updatedChat.messages || []), aiMessage],
         updatedAt: new Date().toISOString()
       };
 
@@ -641,7 +440,7 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
           const updatedChats = prevChats.map(chat => {
             if (chat.id !== chatId) return chat;
             
-            const updatedMessages = chat.messages.map(msg => {
+            const updatedMessages = (chat.messages || []).map(msg => {
               if (msg.id === aiMessageId) {
                 return {
                   ...msg,
@@ -674,7 +473,7 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
           const updatedChats = prevChats.map(chat => {
             if (chat.id !== chatId) return chat;
             
-            const updatedMessages = chat.messages.map(msg => {
+            const updatedMessages = (chat.messages || []).map(msg => {
               if (msg.id === aiMessageId) {
                 const { isStreaming, ...rest } = msg;
                 return rest; // Remove isStreaming flag
@@ -704,11 +503,70 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       };
 
       // Start streaming the response
-      await llmService.streamMessage(chatId, message, {
+      await llmService.streamMessage(message, {
         model: chat.model || currentModel,
-        ...options,
-        onChunk,
-        onComplete
+        ...options
+      }, (chunkString) => {
+        try {
+          const chunk = JSON.parse(chunkString);
+          if (chunk.error) {
+            // Handle error responses
+            console.error('Streaming error:', chunk.response);
+            setChats(prevChats => {
+              const updatedChats = prevChats.map(chat => {
+                if (chat.id !== chatId) return chat;
+                
+                const updatedMessages = (chat.messages || []).map(msg => {
+                  if (msg.id === aiMessageId) {
+                    return {
+                      ...msg,
+                      content: chunk.response || 'Failed to get response from model.',
+                      isError: true
+                    };
+                  }
+                  return msg;
+                });
+
+                return {
+                  ...chat,
+                  messages: updatedMessages,
+                  updatedAt: new Date().toISOString()
+                };
+              });
+
+              // Update current chat if it's the one being streamed to
+              setCurrentChat(prev => 
+                prev?.id === chatId 
+                  ? updatedChats.find(c => c.id === chatId)
+                  : prev
+              );
+
+              return updatedChats;
+            });
+            
+            if (chunk.done) {
+              onComplete();
+            }
+          } else if (chunk.response) {
+            // Call the onChunk from context
+            onChunk({ content: chunk.response });
+            
+            // Also call the onChunk from options if provided
+            if (options.onChunk) {
+              options.onChunk({ content: chunk.response });
+            }
+          }
+          if (chunk.done && !chunk.error) {
+            onComplete();
+            
+            // Also call onComplete from options if provided
+            if (options.onComplete) {
+              options.onComplete();
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse chunk:', e);
+        }
       });
 
       return aiMessageId;
@@ -889,6 +747,203 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
       });
     });
   };
+  
+  // Create the context value object with all necessary values and methods
+  const contextValue = {
+    // State values
+    currentModel,
+    models,
+    loading,
+    error,
+    appState,
+    chats,
+    projects,
+    currentChat,
+    profile,
+    tokenCount,
+    messageDuration,
+    
+    // State setters
+    setCurrentModel,
+    setModels,
+    setLoading,
+    setError,
+    setAppState,
+    setChats,
+    setProjects,
+    setCurrentChat,
+    setProfile,
+    setTokenCount: updateTokenCount,
+    setMessageTime,
+    
+    // Methods
+    handleChatSelect,
+    sendMessage,
+    streamMessage,
+    updateProfile,
+    resetTokenCount,
+    toggleSidebar,
+    setActiveSection,
+    createNewChat,
+    createNewProject,
+    deleteChat,
+    deleteProject,
+    loadModel,
+    unloadModel,
+    toggleStarChat
+  };
+  
+  // Save chats to localStorage whenever they change
+  useEffect(() => {
+    try {
+      if (chats && Array.isArray(chats)) {
+        localStorage.setItem('sephia_chats', JSON.stringify(chats));
+        // Don't save current chat ID - app should always start fresh
+      }
+    } catch (error) {
+      console.error('Failed to save chats to localStorage:', error);
+    }
+  }, [chats, currentChat]);
+  
+  // Keep track of initial load to prevent duplicate theme application
+  const initialLoad = useRef(true);
+  
+  // Load current chat ID on initial load - modified to not auto-select any chat
+  useEffect(() => {
+    // Only run this on initial app load, not when chats change
+    if (!initialLoad.current) return;
+    
+    try {
+      // Don't automatically load any previous chat
+      // The app should start with a clean new chat interface
+      // Users can manually select previous chats from the sidebar
+      
+      // Only load theme from the most recent chat if available
+      const savedChatId = localStorage.getItem('sephia_current_chat_id');
+      if (savedChatId && chats.length > 0) {
+        const chat = chats.find(c => c.id === savedChatId);
+        if (chat && chat.theme) {
+          // Apply the theme from the last chat but don't select it
+          localStorage.setItem('sephia_theme', chat.theme);
+          document.documentElement.setAttribute('data-theme', chat.theme);
+        }
+      }
+      
+      // Clear the saved chat ID so we start fresh
+      localStorage.removeItem('sephia_current_chat_id');
+      setCurrentChat(null);
+      
+      initialLoad.current = false;
+    } catch (error) {
+      console.error('Failed to clear current chat on startup:', error);
+    }
+  }, []);
+  
+  // Apply theme when currentChat changes and has a theme
+  useEffect(() => {
+    // Skip the initial load since we handle it in the effect above
+    if (initialLoad.current) return;
+    
+    if (currentChat?.theme && theme?.setTheme) {
+      theme.setTheme(currentChat.theme);
+    }
+  }, [currentChat?.id]);
+  
+  // Save projects to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('sephia_projects', JSON.stringify(projects));
+  }, [projects]);
+  
+  // Save profile to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('sephia_profile', JSON.stringify(profile));
+  }, [profile]);
+  
+  // Fetch available models
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        setLoading(true);
+        setAppState(prev => ({
+          ...prev,
+          connectionStatus: 'connecting'
+        }));
+        
+        console.log("Fetching models from service and terminal...");
+        
+        // Immediately set hard-coded models that match what we know exists
+        const hardcodedModels = [
+          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
+          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
+          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
+          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
+          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
+        ];
+        
+        // Set hardcoded models immediately
+        setModels(hardcodedModels);
+        
+        // Try to get actual models from Ollama in the background
+        try {
+          const ollamaModels = await llmService.getAvailableModels();
+          
+          // Only update if we got real models back
+          if (ollamaModels && ollamaModels.length > 0) {
+            // Map to our format
+            const mappedModels = ollamaModels.map(model => ({
+              id: model.id || model.name || 'unknown',
+              name: model.name || 'Unknown Model',
+              type: 'local',
+              size: model.size || 'Unknown size',
+            }));
+            
+            console.log("Loaded models from Ollama:", mappedModels);
+            setModels(mappedModels);
+            
+            setAppState(prev => ({
+              ...prev,
+              connectionStatus: 'connected'
+            }));
+          }
+        } catch (apiError) {
+          console.error("Error fetching models from API:", apiError);
+          // We keep the hardcoded models already set
+        }
+        
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed in model fetch process:', err);
+        setError('Failed to fetch models');
+        
+        // Ensure we at least have the hardcoded models
+        setModels([
+          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
+          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
+          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
+          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
+          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
+        ]);
+        
+        setAppState(prev => ({
+          ...prev,
+          connectionStatus: 'disconnected'
+        }));
+        
+        setLoading(false);
+      }
+    };
+    
+    fetchModels();
+    
+    // Set up a refresh interval to periodically check for new models
+    const modelRefreshInterval = setInterval(() => {
+      fetchModels();
+    }, 60000); // Refresh every 60 seconds
+    
+    return () => {
+      clearInterval(modelRefreshInterval);
+    };
+  }, []);
 
   return (
     <AppContext.Provider value={contextValue}>

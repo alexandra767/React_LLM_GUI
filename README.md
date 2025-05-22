@@ -1,58 +1,61 @@
 # Sephia - Modern LLM Interface
 
-Sephia is a high-performance desktop interface for interacting with LLMs, featuring a modern theme system and optimized performance. This version includes a complete theme system overhaul with improved stability and developer experience.
+Sephia is a high-performance desktop interface for interacting with LLMs through Ollama, featuring real-time streaming responses, live metrics, and a beautiful Material Design interface. Built with React, Material-UI, and Electron for a seamless desktop experience.
 
-## 🎨 Theme System Overhaul
+## ✨ Latest Updates (v1.2.0)
 
-### Recent Improvements
+### New Features & Fixes
 
-- **Theme Context API**: Implemented a robust theme management system using React Context
-- **Styled Components**: Converted all components to use Emotion's styled components with theme support
-- **Error Handling**: Added comprehensive error handling for theme access
-- **Performance**: Optimized theme access with proper memoization and fallbacks
-- **Consistency**: Ensured consistent theming across all UI components
+- **🚀 Real-time Streaming** - Fixed streaming responses with proper deduplication to prevent repetition during model reasoning
+- **📊 Live Metrics Display** - Added real-time streaming statistics showing duration, token count, and interrupt capability
+- **⚡ ESC Key Interrupt** - Implemented proper abort signal handling to cancel long-running responses instantly
+- **🎯 Smooth Animation** - Added configurable streaming speed with natural typing animation (50ms delay between chunks)
+- **🎨 Enhanced UI** - Beautiful purple-themed interface with Material Design components
+- **💾 Persistent History** - Chat history saved to local storage with automatic theme persistence
+- **🔧 M4 Mac Optimized** - Specially tuned for Apple Silicon performance
 
-### Theme Features
+### Theme System Features
 
 - **Dark/Light Mode**: Built-in support for multiple color schemes
-- **Custom Theming**: Easy to extend and customize themes
+- **Purple Accent Theme**: Modern, eye-friendly purple color scheme
 - **Responsive Design**: Adapts to different screen sizes and preferences
-- **Accessibility**: Improved contrast and readability
+- **Consistent Styling**: Unified design language across all components
 
-### Components Updated
+## 🚀 Quick Start
 
-- Header
-- ChatView
-- ChatInput
-- TokenDisplay
-- Sidebar
-- Settings
-- And more...
+### Prerequisites
 
-## 🚀 Performance Optimizations
+- Node.js 16 or higher
+- npm or yarn
+- [Ollama](https://ollama.ai/) installed and running
+- At least one Ollama model installed (e.g., `ollama pull deepseek-r1:8b`)
 
-### Apple Silicon M4 Optimizations
+### Installation
 
-- **Hardware Acceleration**: Full utilization of M4's GPU and Neural Engine
-- **Memory Management**: Optimized for 24GB unified memory with intelligent model loading
-- **GPU Acceleration**: Enhanced rendering with Metal and WebGL
-- **Energy Efficiency**: Reduced CPU/GPU usage for better battery life
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/React_LLM_GUI.git
+cd React_LLM_GUI
 
-## ⚡ Performance Optimizations
+# Install dependencies
+npm install
 
-### Apple Silicon M4 Optimizations
+# Start Ollama service (in separate terminal)
+ollama serve
 
-- **Hardware Acceleration**: Full utilization of M4's GPU and Neural Engine
-- **Memory Management**: Optimized for 24GB unified memory with intelligent model loading
-- **GPU Acceleration**: Enhanced rendering with Metal and WebGL
-- **Energy Efficiency**: Reduced CPU/GPU usage for better battery life
+# Start the development server
+npm start
+```
 
-### Key Improvements
+## 🎯 Key Features
 
-- **Faster Model Loading**: Up to 2x faster model loading times
-- **Smoother UI**: 60fps animations with hardware acceleration
-- **Lower Latency**: Optimized network requests and response streaming
-- **Better Memory Usage**: Intelligent caching and cleanup
+- **Real-time Streaming**: Watch AI responses appear with smooth, natural typing animation
+- **Live Metrics**: Monitor response generation with real-time duration and token count
+- **Interrupt Support**: Press ESC to instantly cancel long-running responses
+- **Code Highlighting**: Automatic syntax highlighting for code blocks
+- **Message Management**: Copy messages, view timestamps, track conversation history
+- **Model Switching**: Easily switch between different Ollama models
+- **Persistent Storage**: Chat history saved locally between sessions
 
 ## 🖥️ Running the App with Electron
 
@@ -82,18 +85,77 @@ This uses a simplified Electron configuration that loads directly from the file 
 ./run-sephia-simple.sh
 ```
 
-## Troubleshooting
+## 🛠️ Configuration
 
-If you encounter HTML rendering issues:
-1. Make sure the build is up to date
-2. Try the simple configuration
-3. Check the browser console for errors
+### Adjusting Streaming Speed
 
-## Development Notes
+To customize the text streaming speed, modify the delay in `src/services/LLMService.js` line 198:
 
-- The app uses Electron with React
-- Content Security Policy is configured to allow local resources
-- Files are served directly from the filesystem in production mode
+```javascript
+await new Promise(resolve => setTimeout(resolve, 50)); // Adjust this value
+```
+
+- **Faster**: Use 20-30ms for quicker streaming
+- **Slower**: Use 100-150ms for more natural typing effect
+
+### Supported Models
+
+The app works with any Ollama model. Popular choices:
+- `deepseek-r1:8b` - Fast, efficient reasoning model
+- `deepseek-r1:32b` - Larger, more capable model
+- `deepseek-r1:14b` - Balanced performance
+- `llama3` - Meta's latest open model
+- `mistral` - Fast and efficient
+
+## 🐛 Troubleshooting
+
+### Ollama Connection Issues
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
+
+# Verify models are installed
+ollama list
+
+# Pull a model if needed
+ollama pull deepseek-r1:8b
+```
+
+### Performance Tips for M4 Macs
+- Use quantized models (8b versions) for faster responses
+- Close other resource-intensive applications
+- Ensure at least 8GB RAM is available
+
+## 📁 Project Structure
+
+```
+src/
+├── components/
+│   ├── Chat/           # Chat UI components
+│   │   ├── ChatInput.js
+│   │   ├── ChatView.js
+│   │   ├── Message.js
+│   │   └── MessageList.js
+│   ├── Layout/         # App layout components
+│   │   ├── Header.js
+│   │   ├── MainLayout.js
+│   │   └── Sidebar.js
+│   └── SimpleChat.js   # Main chat component
+├── context/
+│   ├── AppContext.js   # Global app state management
+│   └── ThemeContext.js # Theme management
+├── services/
+│   └── LLMService.js   # Ollama API integration
+└── views/              # Main view components
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ---
 

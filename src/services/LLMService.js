@@ -179,21 +179,68 @@ class OllamaAdapter extends LLMAdapter {
         
         // Buffer for processing incomplete chunks
         let buffer = '';
-        let fullResponse = '';
+        let lastProcessedIndex = 0;
+        let chunkQueue = [];
+        let isProcessingQueue = false;
+        let accumulatedResponse = ''; // Track the full response so far
+        
+        // Handle abort signal if provided
+        if (options.signal) {
+          // Listen for abort signal
+          options.signal.addEventListener('abort', () => {
+            console.log('Aborting XHR request due to abort signal');
+            xhr.abort();
+            
+            // Clear the chunk queue
+            chunkQueue = [];
+            isProcessingQueue = false;
+            
+            // Send abort notification
+            if (onChunk) {
+              onChunk(JSON.stringify({ 
+                error: true, 
+                response: "Response generation was interrupted.",
+                done: true
+              }));
+            }
+          });
+        }
+        
+        // Process chunks with a delay for better readability
+        const processChunkQueue = async () => {
+          if (isProcessingQueue || chunkQueue.length === 0) return;
+          
+          isProcessingQueue = true;
+          while (chunkQueue.length > 0) {
+            const chunk = chunkQueue.shift();
+            if (onChunk) {
+              onChunk(chunk);
+            }
+            // Add delay between chunks for smoother streaming
+            // Adjust this value to control streaming speed (higher = slower)
+            await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay between chunks
+          }
+          isProcessingQueue = false;
+        };
         
         // Handle streaming response
         xhr.onprogress = function() {
-          const newData = xhr.responseText;
-          if (!newData || newData === fullResponse) return;
+          const fullText = xhr.responseText;
           
-          // Update our record of the full response
-          fullResponse = newData;
+          // Only process new data
+          if (lastProcessedIndex >= fullText.length) return;
           
-          // Process any new complete JSON objects
-          const lines = newData.split('\n');
+          const newData = fullText.substring(lastProcessedIndex);
+          lastProcessedIndex = fullText.length;
           
-          // Process each complete line as a separate JSON object
-          for (let i = 0; i < lines.length; i++) {
+          // Split into lines and handle incomplete lines
+          const lines = (buffer + newData).split('\n');
+          
+          // Save the last line as buffer if it's incomplete
+          buffer = lines[lines.length - 1];
+          
+          // Process all complete lines
+          for (let i = 0; i < lines.length - 1; i++) {
             const line = lines[i].trim();
             if (!line) continue;
             
@@ -206,45 +253,62 @@ class OllamaAdapter extends LLMAdapter {
               
               const data = JSON.parse(line);
               
-              // Debug only first 20 chars to avoid console spam
-              if (data.response) {
-                console.log('Received data chunk:', { 
-                  response: data.response.substring(0, 20) + '...',
-                  done: data.done 
-                });
-              }
-              
               // Make sure the response is properly formatted
-              if (data.response) {
+              if (data.response !== undefined) {
                 // Always ensure it's a proper string
-                data.response = String(data.response);
+                const responseText = String(data.response);
                 
-                // Send the chunk to the callback
-                if (onChunk) {
-                  onChunk(JSON.stringify(data));
+                // For Ollama streaming, each chunk might contain the full response so far
+                // We need to extract only the new content
+                let newContent = responseText;
+                
+                // If this response contains what we've already sent, extract only new part
+                if (data.model && !data.done) {
+                  // This is a streaming chunk from Ollama
+                  if (responseText.startsWith(accumulatedResponse)) {
+                    // Extract only the new part
+                    newContent = responseText.substring(accumulatedResponse.length);
+                  }
+                  // Update accumulated response
+                  accumulatedResponse = responseText;
+                } else {
+                  // For non-streaming or final chunks, just append
+                  newContent = responseText;
+                  accumulatedResponse += responseText;
+                }
+                
+                // Debug logging
+                if (newContent) {
+                  console.log('New chunk:', { 
+                    content: newContent.substring(0, Math.min(newContent.length, 20)) + (newContent.length > 20 ? '...' : ''),
+                    done: data.done 
+                  });
+                }
+                
+                // Only queue if there's new content
+                if (newContent || data.done) {
+                  chunkQueue.push(JSON.stringify({
+                    response: newContent,
+                    done: data.done
+                  }));
+                  processChunkQueue(); // Start processing if not already running
                 }
               }
             } catch (e) {
-              // This is likely an incomplete JSON object at the end
-              if (i === lines.length - 1) {
-                buffer = line;
-              } else {
-                console.warn('Error parsing JSON chunk:', e.message);
-                
-                // Try to handle any plaintext response - only if it seems to be actual content
-                if (typeof line === 'string' && line.length > 10 && !line.includes('HTTP/1.1')) {
-                  if (onChunk) {
-                    console.log('Sending plaintext chunk as fallback');
-                    onChunk(JSON.stringify({ response: line }));
-                  }
-                }
+              console.warn('Error parsing JSON chunk:', e.message);
+              
+              // Try to handle any plaintext response - only if it seems to be actual content
+              if (typeof line === 'string' && line.length > 10 && !line.includes('HTTP/1.1')) {
+                console.log('Sending plaintext chunk as fallback');
+                chunkQueue.push(JSON.stringify({ response: line }));
+                processChunkQueue();
               }
             }
           }
         };
         
         // Handle completion
-        xhr.onload = function() {
+        xhr.onload = async function() {
           if (xhr.status === 200) {
             console.log('Stream completed successfully');
             
@@ -252,15 +316,20 @@ class OllamaAdapter extends LLMAdapter {
             if (buffer && buffer.length > 0) {
               try {
                 const data = JSON.parse(buffer);
-                if (data.response && onChunk) {
-                  onChunk(JSON.stringify(data));
+                if (data.response) {
+                  chunkQueue.push(JSON.stringify(data));
                 }
               } catch (e) {
                 // If we can't parse as JSON but it looks like content, send as text
-                if (buffer.length > 10 && onChunk) {
-                  onChunk(JSON.stringify({ response: buffer, done: true }));
+                if (buffer.length > 10) {
+                  chunkQueue.push(JSON.stringify({ response: buffer, done: true }));
                 }
               }
+            }
+            
+            // Wait for the queue to finish processing
+            while (chunkQueue.length > 0 || isProcessingQueue) {
+              await new Promise(resolve => setTimeout(resolve, 100));
             }
             
             // Signal completion
@@ -288,7 +357,8 @@ class OllamaAdapter extends LLMAdapter {
           if (onChunk) {
             onChunk(JSON.stringify({ 
               error: true, 
-              response: "Network error when connecting to Ollama API. Check your connection and that Ollama is running." 
+              response: "Network error when connecting to Ollama API. Check your connection and that Ollama is running.",
+              done: true
             }));
           }
         };
@@ -301,7 +371,8 @@ class OllamaAdapter extends LLMAdapter {
           if (onChunk) {
             onChunk(JSON.stringify({ 
               error: true, 
-              response: "Connection to Ollama API timed out. The model might be taking too long to respond or Ollama might be unresponsive." 
+              response: "Connection to Ollama API timed out. The model might be taking too long to respond or Ollama might be unresponsive.",
+              done: true
             }));
           }
         };
@@ -539,6 +610,11 @@ class OllamaAdapter extends LLMAdapter {
       { id: 'mistral', name: 'Mistral (7B)' }
     ];
   }
+
+  // Add the missing getModels method that the base class expects
+  async getModels() {
+    return this.getAvailableModels();
+  }
 }
 
 class TerminalAdapter extends LLMAdapter {
@@ -654,27 +730,19 @@ class LLMService {
   }
 }
 
-// Create service instance
-let llmServiceInstance = null;
+// Create and configure service instance
+const llmService = new LLMService();
 
-const getLLMService = () => {
-  if (!llmServiceInstance) {
-    llmServiceInstance = new LLMService();
-    
-    // Register adapters
-    llmServiceInstance.registerAdapter('ollama', new OllamaAdapter({
-      baseUrl: 'http://localhost:11434'
-    }));
+// Register adapters
+llmService.registerAdapter('ollama', new OllamaAdapter({
+  baseUrl: 'http://localhost:11434'
+}));
 
-    llmServiceInstance.registerAdapter('terminal', new TerminalAdapter({
-      command: 'ollama'
-    }));
+llmService.registerAdapter('terminal', new TerminalAdapter({
+  command: 'ollama'
+}));
 
-    // Set default adapter
-    llmServiceInstance.setAdapter('ollama');
-  }
-  
-  return llmServiceInstance;
-};
+// Set default adapter
+llmService.setAdapter('ollama');
 
-export default getLLMService();
+export default llmService;
