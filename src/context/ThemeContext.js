@@ -1,132 +1,104 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext } from 'react';
 
-export const ThemeContext = createContext();
-
-// Theme definitions
-const THEMES = {
-  dark: {
-    name: 'dark',
-    colors: {
-      primaryBg: '#1E1E1E',
-      secondaryBg: '#252525',
-      accent: '#FF643D',
-      primaryText: '#FFFFFF',
-      secondaryText: '#F0F0F0',
-      tertiaryText: '#AAAAAA',
-      border: '#333333',
-    },
+// Dark theme definition - simplified and focused on dark theme only
+const darkTheme = {
+  name: 'dark',
+  colors: {
+    primaryBg: '#1E1E1E',
+    secondaryBg: '#252525',
+    accent: '#FF643D',
+    primaryText: '#FFFFFF',
+    secondaryText: '#F0F0F0',
+    tertiaryText: '#AAAAAA',
+    border: '#333333',
+    errorColor: '#d32f2f',
+    successColor: '#4caf50',
+    warningColor: '#ff9800',
+    infoColor: '#2196f3',
+    disabled: '#666666',
+    disabledText: '#666666',
+    accentHover: '#E55A36',
+    buttonText: '#FFFFFF'
   },
-  light: {
-    name: 'light',
-    colors: {
-      primaryBg: '#FFFFFF',
-      secondaryBg: '#F5F5F5',
-      accent: '#FF643D',
-      primaryText: '#333333',
-      secondaryText: '#555555',
-      tertiaryText: '#777777',
-      border: '#DDDDDD',
-    },
-  },
-};
-
-// Shared theme properties
-const sharedTheme = {
   typography: {
-    header: {
-      size: '24px',
-      weight: 300,
+    fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    header: { size: '24px', weight: '300' },
+    sectionTitle: { size: '18px', weight: '500' },
+    regularText: { size: '16px' },
+    secondaryInfo: { size: '13px' },
+    fontSize: {
+      small: '0.8rem',
+      medium: '1rem',
+      large: '1.2rem',
+      xlarge: '1.5rem',
+      xxlarge: '2rem',
     },
-    sectionTitle: {
-      size: '18px',
-      weight: 500,
-    },
-    regularText: {
-      size: '16px',
-      weight: 400,
-    },
-    secondaryInfo: {
-      size: '13px',
-      weight: 300,
-      color: '#888888',
-    },
+    fontWeight: {
+      light: 300,
+      regular: 400,
+      medium: 500,
+      bold: 700,
+    }
   },
-  // Define spacing as a function that takes a factor and returns a spacing value
-  // This matches Material-UI's spacing function signature
-  spacing: (factor) => {
-    const spacingValues = [0, 4, 8, 16, 24, 32, 40, 48, 56, 64];
-    return `${spacingValues[factor] || factor * 8}px`;
-  },
-  // Keep the spacing object for reference if needed
-  spacingValues: {
+  spacing: {
+    xsmall: '4px',
     small: '8px',
     medium: '16px',
     large: '24px',
     xlarge: '32px',
+    xxlarge: '48px',
   },
   borderRadius: {
     small: '4px',
     medium: '8px',
     large: '12px',
+    xlarge: '16px',
   },
-  palette: {
-    action: {
-      hover: 'rgba(255, 255, 255, 0.1)',
-    },
-    text: {
-      primary: '#FFFFFF',
-      secondary: '#888888',
-    },
+  shadows: {
+    small: '0 1px 3px rgba(0, 0, 0, 0.2)',
+    medium: '0 4px 6px rgba(0, 0, 0, 0.2)',
+    large: '0 10px 20px rgba(0, 0, 0, 0.2)'
   },
+  transitions: {
+    fast: 'all 0.15s ease',
+    normal: 'all 0.3s ease',
+    slow: 'all 0.5s ease',
+  },
+  zIndex: {
+    modal: 1000,
+    dropdown: 100,
+    tooltip: 200,
+    header: 50,
+    footer: 50,
+  },
+  hoverOpacity: 0.8,
+  focusRing: '0 0 0 2px rgba(255, 100, 61, 0.5)'
 };
 
+// Create the theme context
+export const ThemeContext = createContext(darkTheme);
+
+// Custom hook to use the theme
 export const useTheme = () => {
-  const context = useContext(ThemeContext);
+  const context = React.useContext(ThemeContext);
   if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    console.warn('useTheme must be used within a ThemeProvider');
+    return darkTheme;
   }
   return context;
 };
 
+// Theme provider component
 export const ThemeProvider = ({ children }) => {
-  const [themeName, setThemeName] = useState('dark');
-  
-  // Load saved theme from localStorage on initial load
-  useEffect(() => {
-    try {
-      const savedTheme = localStorage.getItem('sephia_theme');
-      if (savedTheme && THEMES[savedTheme]) {
-        setThemeName(savedTheme);
-      }
-    } catch (error) {
-      console.error('Failed to load theme from localStorage:', error);
-    }
+  // Set the theme attribute on the HTML element
+  React.useEffect(() => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.style.backgroundColor = darkTheme.colors.primaryBg;
+    document.documentElement.style.color = darkTheme.colors.primaryText;
   }, []);
-  
-  // Save theme to localStorage when it changes
-  useEffect(() => {
-    try {
-      localStorage.setItem('sephia_theme', themeName);
-      // Apply theme to document for CSS variables
-      document.documentElement.setAttribute('data-theme', themeName);
-    } catch (error) {
-      console.error('Failed to save theme to localStorage:', error);
-    }
-  }, [themeName]);
-  
-  const toggleTheme = () => {
-    setThemeName(prev => prev === 'dark' ? 'light' : 'dark');
-  };
-  
-  const theme = {
-    ...THEMES[themeName],
-    ...sharedTheme,
-    toggleTheme,
-    themeName,
-  };
-  
+
   return (
-    <ThemeContext.Provider value={theme}>
+    <ThemeContext.Provider value={darkTheme}>
       {children}
     </ThemeContext.Provider>
   );

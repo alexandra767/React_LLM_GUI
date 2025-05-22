@@ -1,91 +1,80 @@
 import React, { useEffect, useState } from 'react';
 import styled from '@emotion/styled';
-import { ThemeContext } from '../../context/ThemeContext';
 
-const TokenDisplayContainer = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
-  backgroundColor: theme?.colors?.secondaryBg || '#252525',
-  borderTop: `1px solid ${theme?.colors?.border || '#333333'}`,
-  fontSize: theme?.typography?.secondaryInfo?.size || '13px'
-}));
+// Simple styled components with inline styles
+const Container = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background-color: #252525;
+  border-top: 1px solid #333333;
+  font-size: 13px;
+  color: #AAAAAA;
+`;
 
-const TokenStats = styled('div')(({ theme }) => ({
-  display: 'flex',
-  gap: theme?.spacing?.medium || '16px'
-}));
+const Stats = styled.div`
+  display: flex;
+  gap: 16px;
+`;
 
-const TokenStat = styled('div')(({ theme, accent }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  color: theme?.colors?.tertiaryText || '#AAAAAA',
-  '.label': {
-    marginRight: theme?.spacing?.small || '8px',
-    color: accent ? (theme?.colors?.accent || '#FF643D') : (theme?.colors?.secondaryText || '#F0F0F0')
-  },
-  '.value': {
-    fontFamily: '"Menlo", monospace',
-    color: theme?.colors?.primaryText || '#FFFFFF',
-    fontWeight: 500
+const Stat = styled.div`
+  display: flex;
+  align-items: center;
+  .label {
+    margin-right: 8px;
+    color: ${props => props.accent ? '#FF643D' : '#F0F0F0'};
   }
-}));
-
-const ProcessInfo = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme?.spacing?.medium || '16px'
-}));
-
-const StopButton = styled('button')(({ theme }) => ({
-  backgroundColor: theme?.colors?.errorColor || '#d32f2f',
-  color: 'white',
-  border: 'none',
-  borderRadius: theme?.borderRadius?.small || '4px',
-  padding: '4px 8px',
-  fontSize: '0.8rem',
-  fontWeight: 500,
-  cursor: 'pointer',
-  '&:hover': {
-    opacity: 0.9
-  },
-  display: 'flex',
-  alignItems: 'center',
-  gap: '4px',
-  '&:disabled': {
-    backgroundColor: theme?.colors?.disabled || '#cccccc',
-    cursor: 'not-allowed'
-  },
-  '&:hover:not(:disabled)': {
-    opacity: 0.9
+  .value {
+    font-family: 'Menlo', monospace;
+    color: #FFFFFF;
+    font-weight: 500;
   }
-}));
+`;
+
+const StopButton = styled.button`
+  background-color: #d32f2f;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  &:hover {
+    opacity: 0.9;
+  }
+  &:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+`;
 
 const TokenDisplay = ({ 
-  isStreaming, 
-  tokenCount, 
-  streamDuration,
-  onStop
+  isStreaming = false, 
+  tokenCount = { output: 0 }, 
+  streamDuration = 0,
+  onStop = () => {}
 }) => {
   const [tokensPerSecond, setTokensPerSecond] = useState(0);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const theme = React.useContext(ThemeContext);
 
   // Calculate tokens per second
   useEffect(() => {
-    if (isStreaming && streamDuration > 0 && tokenCount.output > 0) {
+    if (isStreaming && streamDuration > 0 && tokenCount?.output > 0) {
       const tps = (tokenCount.output / streamDuration).toFixed(1);
       setTokensPerSecond(tps);
     } else if (!isStreaming) {
       setTokensPerSecond(0);
     }
-  }, [isStreaming, tokenCount.output, streamDuration]);
+  }, [isStreaming, tokenCount?.output, streamDuration]);
   
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isStreaming && onStop) {
+      if (e.key === 'Escape' && isStreaming && typeof onStop === 'function') {
         onStop();
       }
     };
@@ -96,43 +85,38 @@ const TokenDisplay = ({
     };
   }, [isStreaming, onStop]);
 
-  return (
-    <TokenDisplayContainer theme={theme}>
-      <TokenStats theme={theme}>
-        <TokenStat theme={theme}>
-          <span className="label">Input:</span>
-          <span className="value">{tokenCount.input}</span>
-        </TokenStat>
-        <TokenStat theme={theme}>
-          <span className="label">Output:</span>
-          <span className="value">{tokenCount.output}</span>
-        </TokenStat>
-        <TokenStat theme={theme}>
-          <span className="label">Total:</span>
-          <span className="value">{tokenCount.total}</span>
-        </TokenStat>
-      </TokenStats>
-      
-      {isStreaming && (
-        <ProcessInfo theme={theme}>
-          <TokenStat theme={theme} accent={true}>
-            <span className="label">{streamDuration}s</span>
-          </TokenStat>
-          <TokenStat theme={theme} accent={true}>
-            <span className="label">Tokens/sec:</span>
-            <span className="value">{tokensPerSecond}</span>
-          </TokenStat>
-          <StopButton 
-            theme={theme} 
-            onClick={onStop}
-            title="Press ESC to stop"
-          >
-            ESC
-          </StopButton>
-        </ProcessInfo>
-      )}
-    </TokenDisplayContainer>
-  );
+  try {
+    return (
+      <Container>
+        <Stats>
+          <Stat>
+            <span className="label">Output:</span>
+            <span className="value">{tokenCount?.output || 0}</span>
+          </Stat>
+          {tokensPerSecond > 0 && (
+            <Stat>
+              <span className="label">Speed:</span>
+              <span className="value">{tokensPerSecond} tokens/s</span>
+            </Stat>
+          )}
+        </Stats>
+        
+        {isStreaming && (
+          <div>
+            <StopButton 
+              onClick={onStop}
+              title="Stop generating (Esc)"
+            >
+              <span>Stop</span>
+            </StopButton>
+          </div>
+        )}
+      </Container>
+    );
+  } catch (error) {
+    console.error('Error in TokenDisplay:', error);
+    return null;
+  }
 };
 
 export default TokenDisplay;

@@ -1,55 +1,39 @@
 import React from 'react';
 import styled from '@emotion/styled';
-import { useTheme, ThemeContext } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import { FormControl, InputLabel, Select, MenuItem, Box } from '@mui/material';
 
-const HeaderContainer = styled('header')(({ theme }) => ({
+const HeaderContainer = styled('header')({
   height: '60px',
-  backgroundColor: theme.colors?.primaryBg || '#1E1E1E',
-  borderBottom: `1px solid ${theme.colors?.border || '#333333'}`,
+  backgroundColor: '#1E1E1E',
+  borderBottom: '1px solid #333333',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: `0 ${theme.spacing?.large || '24px'}`
-}));
+  padding: '0 24px'
+});
 
-const Logo = styled('div')(({ theme }) => ({
+const Logo = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: theme.spacing?.small || '8px'
-}));
+  gap: '8px'
+});
 
 const LogoImage = styled('img')({
   height: '32px',
   width: 'auto'
 });
 
-const LogoText = styled('h1')(({ theme }) => ({
-  fontSize: theme.typography?.header?.size || '24px',
-  fontWeight: theme.typography?.header?.weight || '300',
-  color: theme.colors?.primaryText || '#FFFFFF',
+const LogoText = styled('h1')({
+  fontSize: '24px',
+  fontWeight: 300,
+  color: '#FFFFFF',
   margin: 0
-}));
+});
 
 
 const Header = ({ selectedModel, onModelChange, models = [] }) => {
-  // Use the theme directly from the context
-  const theme = React.useContext(ThemeContext);
-  
-  if (!theme) {
-    console.error('Theme context is not available in Header component');
-    return (
-      <div style={{ 
-        height: '60px', 
-        backgroundColor: '#1E1E1E', 
-        display: 'flex', 
-        alignItems: 'center', 
-        padding: '0 24px' 
-      }}>
-        <div>Loading...</div>
-      </div>
-    );
-  }
+  // Theme is now handled by ThemeContext
   
   return (
     <HeaderContainer>
@@ -71,20 +55,20 @@ const Header = ({ selectedModel, onModelChange, models = [] }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 1,
-                backgroundColor: theme.colors.primaryBg,
-                color: theme.colors.primaryText,
+                backgroundColor: '#1E1E1E',
+                color: '#FFFFFF',
               },
               '& .MuiOutlinedInput-notchedOutline': {
-                borderColor: theme.colors.border,
+                borderColor: '#333333',
               },
               '&:hover .MuiOutlinedInput-notchedOutline': {
-                borderColor: theme.colors.primary,
+                borderColor: '#FF643D',
               },
               '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                borderColor: theme.colors.primary,
+                borderColor: '#FF643D',
               },
               '& .MuiSvgIcon-root': {
-                color: theme.colors.primaryText,
+                color: '#FFFFFF',
               },
             }}
           >

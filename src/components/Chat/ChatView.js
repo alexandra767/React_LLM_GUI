@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import styled from '@emotion/styled';
-import { useTheme, ThemeContext } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import { useApp } from '../../context/AppContext';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
@@ -18,57 +18,56 @@ const ChatContainer = styled('div')({
   margin: '0 auto'
 });
 
-const EmptyState = styled('div')(({ theme }) => ({
+const EmptyState = styled('div')({
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
   height: '100%',
-  color: theme?.colors?.tertiaryText || '#AAAAAA',
+  color: '#AAAAAA',
   textAlign: 'center'
-}));
+});
 
-const StatusBar = styled('div')(({ theme }) => ({
+const StatusBar = styled('div')({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
-  borderTop: `1px solid ${theme?.colors?.border || '#333333'}`,
-  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
-  color: theme?.colors?.tertiaryText || '#AAAAAA'
-}));
+  padding: '8px 16px',
+  borderTop: '1px solid #333333',
+  fontSize: '13px',
+  color: '#AAAAAA'
+});
 
 // Removed ChatActions and ActionButton as they'll be moved to the sidebar
 
-const TokenCounter = styled('div')(({ theme }) => ({
+const TokenCounter = styled('div')({
   display: 'flex',
-  gap: theme?.spacing?.small || '8px'
-}));
+  gap: '8px'
+});
 
-const ModelInfo = styled('div')(({ theme }) => ({
+const ModelInfo = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: theme?.spacing?.small || '8px',
+  gap: '8px',
   fontWeight: 500
-}));
+});
 
-const DurationIndicator = styled('div')(({ theme }) => ({
-  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
-  borderRadius: '4px',
-  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
-  color: theme?.colors?.tertiaryText || '#AAAAAA',
-  backgroundColor: theme?.colors?.secondaryBg || '#252525',
+const DurationIndicator = styled('div')({
+  padding: '8px 16px',
+  fontSize: '13px',
+  color: '#AAAAAA',
   display: 'flex',
   alignItems: 'center',
-  gap: theme?.spacing?.small || '8px'
-}));
+  gap: '8px'
+});
 
-const EmptyStateTitle = styled('h2')(({ theme }) => ({
-  fontSize: theme?.typography?.header?.size || '24px',
-  fontWeight: theme?.typography?.header?.weight || '300',
-  marginBottom: theme?.spacing?.medium || '24px',
-  margin: '0 0 16px 0'
-}));
+const EmptyStateTitle = styled('h2')({
+  fontSize: '24px',
+  fontWeight: '500',
+  marginBottom: '8px',
+  color: '#F0F0F0',
+  textAlign: 'center'
+});
 
 const EmptyStateText = styled('p')({
   fontSize: '16px',
@@ -77,32 +76,40 @@ const EmptyStateText = styled('p')({
   lineHeight: 1.5
 });
 
-const ModelImageContainer = styled('div')(({ theme }) => ({
+const EmptyStateDescription = styled('p')({
+  fontSize: '14px',
+  color: '#CCCCCC',
+  marginBottom: '24px',
+  maxWidth: '500px',
+  lineHeight: 1.6,
+  textAlign: 'center'
+});
+
+const ModelImageContainer = styled('div')({
   width: '120px',
   height: '120px',
-  marginBottom: theme?.spacing?.large || '24px',
   borderRadius: '50%',
-  backgroundColor: theme?.colors?.secondaryBg || '#252525',
+  backgroundColor: '#252525',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  margin: '0 auto 24px'
-}));
+  marginBottom: '24px',
+  overflow: 'hidden',
+  '& svg': {
+    width: '60px',
+    height: '60px',
+    color: '#FF643D'
+  }
+});
 
 const ChatView = () => {
-  const theme = React.useContext(ThemeContext);
   const { 
     currentChat, 
-    currentModel, 
-    models,
-    setCurrentChat, 
-    createNewChat: createNewChatFromContext,
-    updateTokenCount,
-    setMessageTime,
-    tokenCount,
-    messageDuration,
-    deleteChat,
-    chats
+    chats = [], 
+    updateChat, 
+    setCurrentChatId,
+    appState,
+    setAppState
   } = useApp();
   
   // Wrapper around createNewChat to include the current theme

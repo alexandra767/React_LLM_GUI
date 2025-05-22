@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import Message from './Message';
 
 const MessagesContainer = styled.div`
@@ -8,15 +8,14 @@ const MessagesContainer = styled.div`
   flex-direction: column;
   flex: 1;
   overflow-y: auto;
-  padding: ${props => props.theme.spacing.medium} 0;
+  padding: 16px 0;
 `;
 
 const MessageGroup = styled.div`
-  margin-bottom: ${props => props.theme.spacing.large};
+  margin-bottom: 24px;
 `;
 
 const MessageList = ({ messages = [], onDeleteMessage }) => {
-  const { theme } = useTheme();
   const messagesEndRef = useRef(null);
   const prevMessagesLength = useRef(0);
   

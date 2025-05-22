@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import { useApp } from '../../context/AppContext';
 import Sidebar from './Sidebar';
 import Header from './Header';
@@ -29,21 +29,29 @@ const ContentArea = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: ${props => props.theme.colors?.primaryBg || '#1E1E1E'};
+  background-color: #1E1E1E;
   padding: 0;
 `;
 
 const MainLayout = () => {
-  const theme = useTheme();
-  const { appState } = useApp();
+  const appContext = useApp();
+  
+  // Provide default values if appContext is not available
+  const { 
+    appState = { activeSection: 'ollama' }, 
+    setAppState = () => {} 
+  } = appContext || {};
   
   // Set default section if none is selected
   useEffect(() => {
-    if (!appState?.activeSection) {
+    if (appContext && !appState?.activeSection) {
       // Set default section to 'ollama' if not set
-      useApp.setState({ activeSection: 'ollama' });
+      setAppState(prev => ({
+        ...prev,
+        activeSection: 'ollama'
+      }));
     }
-  }, [appState?.activeSection]);
+  }, [appContext, appState?.activeSection, setAppState]);
   
   // State for model selection
   const [models, setModels] = useState([]);

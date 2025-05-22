@@ -654,19 +654,27 @@ class LLMService {
   }
 }
 
-// Create and configure service
-const llmService = new LLMService();
+// Create service instance
+let llmServiceInstance = null;
 
-// Register adapters
-llmService.registerAdapter('ollama', new OllamaAdapter({
-  baseUrl: 'http://localhost:11434'
-}));
+const getLLMService = () => {
+  if (!llmServiceInstance) {
+    llmServiceInstance = new LLMService();
+    
+    // Register adapters
+    llmServiceInstance.registerAdapter('ollama', new OllamaAdapter({
+      baseUrl: 'http://localhost:11434'
+    }));
 
-llmService.registerAdapter('terminal', new TerminalAdapter({
-  command: 'ollama'
-}));
+    llmServiceInstance.registerAdapter('terminal', new TerminalAdapter({
+      command: 'ollama'
+    }));
 
-// Set default adapter
-llmService.setAdapter('ollama');
+    // Set default adapter
+    llmServiceInstance.setAdapter('ollama');
+  }
+  
+  return llmServiceInstance;
+};
 
-export default llmService;
+export default getLLMService();

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { useTheme } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -19,7 +19,7 @@ const pulse = keyframes`
 `;
 
 // Styled component for code block container
-const CodeBlock = styled(Box)(({ theme }) => ({
+const CodeBlock = styled(Box)({
   position: 'relative',
   margin: '1rem 0',
   borderRadius: '8px',
@@ -45,7 +45,7 @@ const CodeBlock = styled(Box)(({ theme }) => ({
   '& code': {
     fontFamily: '"Fira Code", "Fira Mono", Menlo, Monaco, Consolas, "Courier New", monospace',
   },
-}));
+});
 
 // Inline styles
 const styles = {
@@ -160,9 +160,8 @@ const getStyle = (styleObj, ...args) => {
 // Styled components removed in favor of inline styles
 
 const Message = ({ message, isLastInGroup, onDelete }) => {
-  const { profile, currentChat } = useApp();
   const muiTheme = useMuiTheme();
-  const { theme } = useTheme();
+  const { profile, currentChat } = useApp();
   const [copyStatus, setCopyStatus] = useState({});
   
   // Ensure message has required fields

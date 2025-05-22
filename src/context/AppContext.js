@@ -1,9 +1,16 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import llmService from '../services/LLMService';
+import React, { createContext, useState, useContext, useEffect, useRef, useMemo } from 'react';
+import getLLMService from '../services/LLMService';
 
-const AppContext = createContext();
+export const AppContext = createContext();
 
-export const useApp = () => useContext(AppContext);
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    console.warn('useApp must be used within an AppProvider');
+    return { appState: { activeSection: 'ollama' } };
+  }
+  return context;
+};
 
 // Load chats from localStorage
 const loadChats = () => {
@@ -47,23 +54,146 @@ const loadProfile = () => {
 };
 
 export const AppProvider = ({ children }) => {
+  // Initialize LLMService
+  const llmService = useMemo(() => getLLMService(), []);
+  // State declarations first
   const [currentModel, setCurrentModel] = useState('deepseek-r1:14b');
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [appState, setAppState] = useState({
     sidebarCollapsed: false,
-    activeSection: 'ollama', // Default to ollama chat view
-    connectionStatus: 'disconnected', // 'connected', 'connecting', 'disconnected',
-    ollamaStatus: 'disconnected' // 'connected', 'connecting', 'disconnected'
+    activeSection: 'ollama',
+    connectionStatus: 'disconnected',
+    ollamaStatus: 'disconnected'
   });
-  
-  const [chats, setChats] = useState(loadChats());
-  const [projects, setProjects] = useState(loadProjects());
+  const [chats, setChats] = useState(loadChats);
+  const [projects, setProjects] = useState(loadProjects);
   const [currentChat, setCurrentChat] = useState(null);
-  const [profile, setProfile] = useState(loadProfile());
+  const [profile, setProfile] = useState(loadProfile);
   const [tokenCount, setTokenCount] = useState({ input: 0, output: 0, total: 0 });
   const [messageDuration, setMessageDuration] = useState(0);
+  
+  // Function declarations next
+  const updateTokenCount = (newCount) => {
+    if (typeof newCount === 'function') {
+      setTokenCount(prev => {
+        const updated = newCount(prev);
+        return { ...prev, ...updated };
+      });
+    } else {
+      setTokenCount(prev => ({
+        input: prev.input + (newCount?.input || 0),
+        output: prev.output + (newCount?.output || 0),
+        total: prev.total + (newCount?.input || 0) + (newCount?.output || 0)
+      }));
+    }
+  };
+  
+  const setMessageTime = (time) => {
+    setMessageDuration(time);
+  };
+  
+  const resetTokenCount = () => {
+    setTokenCount({ input: 0, output: 0, total: 0 });
+  };
+  
+  // Define other functions that will be used in the context value
+  const toggleSidebar = () => {
+    setAppState(prev => ({
+      ...prev,
+      sidebarCollapsed: !prev.sidebarCollapsed
+    }));
+  };
+  
+  const setActiveSection = (section) => {
+    setAppState(prev => ({
+      ...prev,
+      activeSection: section
+    }));
+  };
+  
+  const updateProfile = (newProfileData) => {
+    setProfile(prev => ({
+      ...prev,
+      ...newProfileData
+    }));
+  };
+  
+  // Handle chat selection and apply theme
+  const handleChatSelect = (chat) => {
+    setCurrentChat(chat);
+    localStorage.setItem('sephia_current_chat_id', chat.id);
+    
+    try {
+      // Apply the chat's theme if it has one
+      if (chat.theme) {
+        // Update the theme in localStorage
+        localStorage.setItem('sephia_theme', chat.theme);
+        
+        // Update the document attribute for CSS variables
+        document.documentElement.setAttribute('data-theme', chat.theme);
+        
+        // If the theme context is available, update it as well
+        if (typeof window !== 'undefined' && window.__themeContext) {
+          window.__themeContext.setTheme(chat.theme);
+        }
+      }
+      
+      // Update the app state to show the chat section
+      setAppState(prev => ({
+        ...prev,
+        activeSection: 'chat'
+      }));
+    } catch (error) {
+      console.error('Error in handleChatSelect:', error);
+    }
+  };
+  
+  // Create the context value object with all necessary values and methods
+  const contextValue = {
+    // State values
+    currentModel,
+    models,
+    loading,
+    error,
+    appState,
+    chats,
+    projects,
+    currentChat,
+    profile,
+    tokenCount,
+    messageDuration,
+    
+    // State setters
+    setCurrentModel,
+    setModels,
+    setLoading,
+    setError,
+    setAppState,
+    setChats,
+    setProjects,
+    setCurrentChat,
+    setProfile,
+    setTokenCount: updateTokenCount,
+    setMessageTime,
+    
+    // Methods
+    handleChatSelect,
+    sendMessage,
+    streamMessage,
+    updateProfile,
+    resetTokenCount,
+    toggleSidebar,
+    setActiveSection,
+    createNewChat,
+    createNewProject,
+    deleteChat,
+    deleteProject,
+    loadModel,
+    unloadModel,
+    toggleStarChat
+  };
   
   // Save chats to localStorage whenever they change
   useEffect(() => {
@@ -92,6 +222,9 @@ export const AppProvider = ({ children }) => {
     }
   }, [chats, currentChat]);
   
+  // Keep track of initial load to prevent duplicate theme application
+  const initialLoad = useRef(true);
+  
   // Load current chat ID on initial load
   useEffect(() => {
     try {
@@ -99,7 +232,7 @@ export const AppProvider = ({ children }) => {
       if (savedChatId && chats.length > 0) {
         const chat = chats.find(c => c.id === savedChatId);
         if (chat) {
-          // Apply the chat's saved theme if it exists
+          // Apply the chat's theme if it has one
           if (chat.theme) {
             localStorage.setItem('sephia_theme', chat.theme);
             document.documentElement.setAttribute('data-theme', chat.theme);
@@ -111,10 +244,21 @@ export const AppProvider = ({ children }) => {
       } else if (chats.length > 0) {
         setCurrentChat(chats[0]);
       }
+      initialLoad.current = false;
     } catch (error) {
       console.error('Failed to load current chat from localStorage:', error);
     }
   }, [chats.length]);
+  
+  // Apply theme when currentChat changes and has a theme
+  useEffect(() => {
+    // Skip the initial load since we handle it in the effect above
+    if (initialLoad.current) return;
+    
+    if (currentChat?.theme && theme?.setTheme) {
+      theme.setTheme(currentChat.theme);
+    }
+  }, [currentChat?.id]);
   
   // Save projects to localStorage whenever they change
   useEffect(() => {
@@ -212,75 +356,145 @@ export const AppProvider = ({ children }) => {
     };
   }, []);
   
-  const toggleSidebar = () => {
-    setAppState(prev => ({
-      ...prev,
-      sidebarCollapsed: !prev.sidebarCollapsed
-    }));
-  };
-  
-  const setActiveSection = (section) => {
-    setAppState(prev => ({
-      ...prev,
-      activeSection: section
-    }));
-  };
 
-  const updateProfile = (newProfileData) => {
-    setProfile(prev => ({
-      ...prev,
-      ...newProfileData
-    }));
-  };
   
   // Generate a description from the first message content
-  const generateChatDescription = (content) => {
-    if (!content) return 'New chat';
+  const generateChatDescription = (message) => {
+    if (!message) return 'New chat';
     
-    // Take first 100 characters and remove line breaks
-    let description = content
-      .replace(/\n/g, ' ') // Replace newlines with spaces
-      .substring(0, 100)   // Take first 100 characters
-      .trim();
+    try {
+      // Extract text from message (handling both string and object messages)
+      let text = '';
+      if (typeof message === 'string') {
+        text = message;
+      } else if (typeof message === 'object') {
+        // Handle different message formats
+        if (Array.isArray(message.content)) {
+          // Handle array content (e.g., from OpenAI format)
+          text = message.content
+            .filter(part => typeof part === 'string' || (part && typeof part.text === 'string'))
+            .map(part => typeof part === 'string' ? part : part.text)
+            .join(' ');
+        } else if (message.content) {
+          text = message.content;
+        } else if (message.text) {
+          text = message.text;
+        } else if (message.message) {
+          text = message.message;
+        } else if (message.parts && Array.isArray(message.parts)) {
+          text = message.parts
+            .filter(part => typeof part === 'string' || (part && typeof part.text === 'string'))
+            .map(part => typeof part === 'string' ? part : part.text)
+            .join(' ');
+        }
+      }
       
-    // Add ellipsis if we cut off the text
-    if (content.length > 100) {
-      description += '...';
+      // If we still don't have text, return a default description
+      if (!text || typeof text !== 'string') {
+        return 'New chat';
+      }
+      
+      // Clean up the text for the description
+      let description = text.trim();
+      
+      // Remove markdown formatting, code blocks, etc.
+      description = description
+        .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+        .replace(/`[^`]+`/g, '')        // Remove inline code
+        .replace(/[#*_~]/g, '')         // Remove markdown formatting
+        .replace(/\n+/g, ' ')           // Replace newlines with spaces
+        .replace(/\s+/g, ' ')           // Collapse multiple spaces
+        .trim();
+      
+      // Truncate if needed (shorter for mobile, longer for desktop)
+      const maxLength = window.innerWidth < 768 ? 30 : 50;
+      if (description.length > maxLength) {
+        // Try to truncate at a sentence or word boundary
+        const truncated = description.substring(0, maxLength);
+        const lastSpace = truncated.lastIndexOf(' ');
+        const lastPunctuation = Math.max(
+          truncated.lastIndexOf('.'),
+          truncated.lastIndexOf('!'),
+          truncated.lastIndexOf('?')
+        );
+        
+        if (lastPunctuation > 0 && (maxLength - lastPunctuation) < 10) {
+          description = truncated.substring(0, lastPunctuation + 1);
+        } else if (lastSpace > 0 && (maxLength - lastSpace) < 10) {
+          description = truncated.substring(0, lastSpace);
+        } else {
+          description = truncated;
+        }
+        
+        // Add ellipsis if we truncated
+        if (description.length < text.length) {
+          description += '...';
+        }
+      }
+      
+      return description || 'New chat';
+      
+    } catch (error) {
+      console.error('Error generating chat description:', error);
+      return 'New chat';
     }
-    
-    return description || 'New chat';
   };
 
 const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
+  // Generate a timestamp for the chat
+  const timestamp = new Date().toISOString();
+  
+  // Create the first message if provided
+  const firstMessageObj = firstMessage ? [{
+    id: `msg_${Date.now()}`,
+    role: 'user',
+    content: firstMessage,
+    timestamp: timestamp,
+    isUser: true
+  }] : [];
+  
+  // Generate a description from the first message or use a default
+  const description = firstMessage ? generateChatDescription(firstMessage) : 'New chat';
+  
+  // Create the chat object
   const newChat = {
-    id: Date.now().toString(),
+    id: `chat_${Date.now()}`,
     title: initialTitle,
-    description: firstMessage ? generateChatDescription(firstMessage) : 'New chat',
-    messages: [],
+    description: description,
+    messages: firstMessageObj,
     model: currentModel,
-    theme: themeName, // Save the theme with the chat
+    theme: themeName,
     isStarred: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    tokenCount: 0
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    tokenCount: 0,
+    isArchived: false
   };
   
-  setChats(prev => {
-    const newChats = prev && Array.isArray(prev) ? [...prev] : [];
-    return [newChat, ...newChats];
+  // Update the chats array with the new chat
+  setChats(prevChats => {
+    const updatedChats = Array.isArray(prevChats) ? [...prevChats] : [];
+    // Remove any existing chat with the same ID to avoid duplicates
+    const filteredChats = updatedChats.filter(chat => chat.id !== newChat.id);
+    return [newChat, ...filteredChats];
   });
   
+  // Set the new chat as the current chat
   setCurrentChat(newChat);
+  
+  // Update the app state to show the chat section
   setAppState(prev => ({
     ...prev,
     activeSection: 'chat'
   }));
   
-  // Apply the theme for the new chat
-  if (themeName) {
-    localStorage.setItem('sephia_theme', themeName);
-    document.documentElement.setAttribute('data-theme', themeName);
+  // Apply the theme for the new chat if it's different from current
+  if (themeName && theme?.setTheme && themeName !== theme.themeName) {
+    theme.setTheme(themeName);
   }
+  
+  // Save the current chat ID to localStorage
+  localStorage.setItem('sephia_current_chat_id', newChat.id);
   
   return newChat;
 };
@@ -632,8 +846,9 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
   
   const unloadModel = async (modelId) => {
     try {
-      // In a real implementation, this would call Ollama's API to unload the model
-      // await llmService.unloadModel(modelId);
+      if (!modelId) {
+        throw new Error('Model ID is required');
+      }
       
       // Simulate unloading
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -650,60 +865,37 @@ const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessa
     }
   };
   
-  const updateTokenCount = (newTokens) => {
-    setTokenCount(prev => ({
-      input: prev.input + (newTokens?.input || 0),
-      output: prev.output + (newTokens?.output || 0),
-      total: prev.total + (newTokens?.input || 0) + (newTokens?.output || 0)
-    }));
+  // Toggle star status of a chat
+  const toggleStarChat = (chatId) => {
+    setChats(prevChats => {
+      if (!Array.isArray(prevChats)) return [];
+      
+      return prevChats.map(chat => {
+        if (chat.id === chatId) {
+          const updatedChat = { 
+            ...chat, 
+            isStarred: !chat.isStarred,
+            updatedAt: new Date().toISOString()
+          };
+          
+          // Update current chat if it's the one being modified
+          if (currentChat?.id === chatId) {
+            setCurrentChat(updatedChat);
+          }
+          
+          return updatedChat;
+        }
+        return chat;
+      });
+    });
   };
-  
-  const resetTokenCount = () => {
-    setTokenCount({ input: 0, output: 0, total: 0 });
-  };
-  
-  const setMessageTime = (duration) => {
-    setMessageDuration(duration);
-  };
-  
-  const value = {
-    currentModel,
-    setCurrentModel,
-    models,
-    loading,
-    error,
-    appState,
-    setAppState,
-    chats,
-    setChats,
-    projects,
-    setProjects,
-    currentChat,
-    setCurrentChat,
-    sendMessage,
-    streamMessage,
-    profile,
-    updateProfile,
-    tokenCount,
-    updateTokenCount,
-    resetTokenCount,
-    messageDuration,
-    setMessageTime,
-    toggleSidebar,
-    setActiveSection,
-    createNewChat,
-    createNewProject,
-    deleteChat,
-    deleteProject,
-    loadModel,
-    unloadModel
-  };
-  
+
   return (
-    <AppContext.Provider value={value}>
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );
 };
 
-export default AppContext;
+// Export the provider as default for better IDE support
+export { AppProvider as default };

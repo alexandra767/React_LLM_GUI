@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import { useApp } from '../../context/AppContext';
 
 const ProjectsContainer = styled.div`
@@ -9,36 +9,39 @@ const ProjectsContainer = styled.div`
   height: 100%;
   max-width: 900px;
   margin: 0 auto;
+  padding: 20px;
 `;
 
 const Header = styled.div`
-  margin-bottom: ${props => props.theme.spacing.large};
+  margin-bottom: 24px;
 `;
 
 const Title = styled.h1`
-  font-size: ${props => props.theme.typography.header.size};
-  font-weight: ${props => props.theme.typography.header.weight};
-  color: ${props => props.theme.colors.primaryText};
-  margin-bottom: ${props => props.theme.spacing.small};
+  font-size: 24px;
+  font-weight: 600;
+  color: #F0F0F0;
+  margin-bottom: 8px;
 `;
 
 const Description = styled.p`
-  font-size: ${props => props.theme.typography.regularText.size};
-  color: ${props => props.theme.colors.tertiaryText};
+  font-size: 14px;
+  color: #AAAAAA;
+  margin: 0;
 `;
 
 const ProjectGrid = styled.div`
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: ${props => props.theme.spacing.large};
+  gap: 24px;
 `;
 
 const ProjectCard = styled.div`
-  background-color: ${props => props.theme.colors.secondaryBg};
-  border-radius: ${props => props.theme.borderRadius.medium};
-  padding: ${props => props.theme.spacing.large};
+  background-color: #252525;
+  border-radius: 8px;
+  padding: 24px;
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid #333333;
   
   &:hover {
     transform: translateY(-3px);
@@ -47,21 +50,23 @@ const ProjectCard = styled.div`
 `;
 
 const ProjectTitle = styled.h3`
-  font-size: ${props => props.theme.typography.sectionTitle.size};
-  font-weight: ${props => props.theme.typography.sectionTitle.weight};
-  color: ${props => props.theme.colors.primaryText};
-  margin-bottom: ${props => props.theme.spacing.small};
+  font-size: 18px;
+  font-weight: 600;
+  color: #F0F0F0;
+  margin: 0 0 8px 0;
 `;
 
 const ProjectInfo = styled.div`
-  font-size: ${props => props.theme.typography.secondaryInfo.size};
-  color: ${props => props.theme.colors.tertiaryText};
-  margin-bottom: ${props => props.theme.spacing.medium};
+  font-size: 14px;
+  color: #CCCCCC;
+  margin-bottom: 16px;
 `;
 
 const ProjectDescription = styled.p`
-  font-size: ${props => props.theme.typography.regularText.size};
-  color: ${props => props.theme.colors.secondaryText};
+  font-size: 14px;
+  color: #CCCCCC;
+  margin-bottom: 16px;
+  line-height: 1.5;
 `;
 
 const EmptyState = styled.div`
@@ -69,43 +74,72 @@ const EmptyState = styled.div`
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  padding: 32px;
+  background-color: #252525;
+  border-radius: 8px;
   text-align: center;
-  padding: ${props => props.theme.spacing.xlarge};
-  background-color: ${props => props.theme.colors.secondaryBg};
-  border-radius: ${props => props.theme.borderRadius.medium};
+  border: 1px solid #333333;
 `;
 
-const EmptyStateTitle = styled.h2`
-  font-size: ${props => props.theme.typography.sectionTitle.size};
-  font-weight: ${props => props.theme.typography.sectionTitle.weight};
-  color: ${props => props.theme.colors.primaryText};
-  margin-bottom: ${props => props.theme.spacing.medium};
+const EmptyStateTitle = styled.h3`
+  font-size: 18px;
+  font-weight: 600;
+  color: #F0F0F0;
+  margin-bottom: 16px;
 `;
 
-const EmptyStateMessage = styled.p`
-  font-size: ${props => props.theme.typography.regularText.size};
-  color: ${props => props.theme.colors.tertiaryText};
+const EmptyStateText = styled.p`
+  font-size: 14px;
+  color: #AAAAAA;
   max-width: 500px;
-  margin-bottom: ${props => props.theme.spacing.large};
+  margin-bottom: 24px;
+  line-height: 1.5;
+`;
+
+const CreateProjectButton = styled.button`
+  background-color: #FF643D;
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background-color: #FF8C6B;
+    transform: translateY(-1px);
+  }
+  
+  &:active {
+    transform: translateY(0);
+  }
 `;
 
 const Button = styled.button`
-  background-color: ${props => props.theme.colors.accent};
-  color: ${props => props.theme.colors.primaryText};
+  background-color: #FF643D;
+  color: #FFFFFF;
   border: none;
-  border-radius: ${props => props.theme.borderRadius.medium};
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.large};
-  font-size: ${props => props.theme.typography.regularText.size};
+  border-radius: 8px;
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
   
   &:hover {
-    background-color: ${props => props.theme.colors.accent}dd;
+    background-color: #FF8C6B;
+    transform: translateY(-1px);
+  }
+  
+  &:active {
+    transform: translateY(0);
   }
 `;
 
 const ProjectsView = () => {
-  const { theme } = useTheme();
   const { projects, createNewProject } = useApp();
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newProject, setNewProject] = useState({ title: '', description: '' });
@@ -120,34 +154,34 @@ const ProjectsView = () => {
   
   return (
     <ProjectsContainer>
-      <Header theme={theme}>
-        <Title theme={theme}>Projects</Title>
-        <Description theme={theme}>
+      <Header>
+        <Title>Projects</Title>
+        <Description>
           Create and manage projects to organize your conversations and knowledge files.
         </Description>
       </Header>
       
       {projects.length > 0 ? (
-        <ProjectGrid theme={theme}>
+        <ProjectGrid>
           {projects.map(project => (
-            <ProjectCard key={project.id} theme={theme}>
-              <ProjectTitle theme={theme}>{project.title}</ProjectTitle>
-              <ProjectInfo theme={theme}>
+            <ProjectCard key={project.id}>
+              <ProjectTitle>{project.title}</ProjectTitle>
+              <ProjectInfo>
                 Created {new Date(project.createdAt).toLocaleDateString()}
               </ProjectInfo>
-              <ProjectDescription theme={theme}>
+              <ProjectDescription>
                 {project.description}
               </ProjectDescription>
             </ProjectCard>
           ))}
         </ProjectGrid>
       ) : (
-        <EmptyState theme={theme}>
-          <EmptyStateTitle theme={theme}>No Projects Yet</EmptyStateTitle>
-          <EmptyStateMessage theme={theme}>
+        <EmptyState>
+          <EmptyStateTitle>No Projects Yet</EmptyStateTitle>
+          <EmptyStateText>
             Projects help you organize related conversations and files together.
             Create your first project to get started.
-          </EmptyStateMessage>
+          </EmptyStateText>
           
           {showCreateForm ? (
             <div style={{ width: '100%', maxWidth: '400px', marginBottom: '20px' }}>
@@ -161,9 +195,9 @@ const ProjectsView = () => {
                   padding: '10px',
                   marginBottom: '10px',
                   borderRadius: '4px',
-                  border: `1px solid ${theme.colors.border}`,
-                  background: theme.colors.primaryBg,
-                  color: theme.colors.primaryText,
+                  border: '1px solid #333333',
+                  background: '#252525',
+                  color: '#F0F0F0',
                 }}
               />
               <textarea
@@ -175,26 +209,25 @@ const ProjectsView = () => {
                   padding: '10px',
                   marginBottom: '10px',
                   borderRadius: '4px',
-                  border: `1px solid ${theme.colors.border}`,
-                  background: theme.colors.primaryBg,
-                  color: theme.colors.primaryText,
+                  border: '1px solid #333333',
+                  background: '#252525',
+                  color: '#F0F0F0',
                   height: '80px',
                   resize: 'vertical',
                 }}
               />
               <div style={{ display: 'flex', gap: '10px' }}>
-                <Button theme={theme} onClick={handleCreateProject}>Create</Button>
+                <Button onClick={handleCreateProject}>Create</Button>
                 <Button 
-                  theme={theme} 
                   onClick={() => setShowCreateForm(false)}
-                  style={{ background: 'transparent', border: `1px solid ${theme.colors.border}` }}
+                  style={{ background: 'transparent', border: '1px solid #333333' }}
                 >
                   Cancel
                 </Button>
               </div>
             </div>
           ) : (
-            <Button theme={theme} onClick={() => setShowCreateForm(true)}>Create New Project</Button>
+            <Button onClick={() => setShowCreateForm(true)}>Create New Project</Button>
           )}
         </EmptyState>
       )}

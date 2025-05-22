@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { styled } from '@mui/material/styles';
-// Theme is now handled by ThemeContext
+import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import BrainIcon from '../Chat/BrainIcon';
 import { 
@@ -32,51 +32,65 @@ import {
 
 const SidebarContainer = styled('div', {
   shouldForwardProp: (prop) => prop !== 'collapsed',
-})(({ collapsed }) => ({
-  width: collapsed ? '64px' : '220px',
-  height: '100vh',
-  backgroundColor: '#1E1E1E',
-  borderRight: '1px solid #333333',
-  display: 'flex',
-  flexDirection: 'column',
-  transition: 'width 0.3s ease',
-  overflowX: 'hidden',
-  position: 'relative',
-}));
+})(({ theme, collapsed }) => {
+  const colors = theme?.colors || {};
+  return {
+    width: collapsed ? '64px' : '220px',
+    height: '100vh',
+    backgroundColor: colors.primaryBg || '#1E1E1E',
+    borderRight: `1px solid ${colors.border || '#333333'}`,
+    display: 'flex',
+    flexDirection: 'column',
+    transition: 'width 0.3s ease',
+    overflowX: 'hidden',
+    position: 'relative',
+  };
+});
 
-const SidebarSection = styled('div')({
+const SidebarSection = styled('div')(({ theme }) => ({
   padding: '16px',
   display: 'flex',
   flexDirection: 'column',
   gap: '8px',
-});
+}));
 
 const SidebarButton = styled('button', {
   shouldForwardProp: (prop) => prop !== 'active',
-})(({ active }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  backgroundColor: active ? '#252525' : 'transparent',
-  color: active ? '#FFFFFF' : '#AAAAAA',
-  border: 'none',
-  borderRadius: '4px',
-  padding: '8px 16px',
-  fontSize: '0.875rem',
-  fontWeight: 400,
-  cursor: 'pointer',
-  transition: 'background-color 0.2s, color 0.2s',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  '&:hover': {
-    backgroundColor: '#252525',
-    color: '#FFFFFF',
-  },
-  '& svg': {
-    flexShrink: 0,
-  },
-}));
+})(({ theme, active }) => {
+  const colors = theme?.colors || {};
+  const defaultSecondaryBg = '#252525';
+  const defaultPrimaryText = '#FFFFFF';
+  const defaultTertiaryText = '#AAAAAA';
+  
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    backgroundColor: active 
+      ? (colors.secondaryBg || defaultSecondaryBg)
+      : 'transparent',
+    color: active 
+      ? (colors.primaryText || defaultPrimaryText)
+      : (colors.tertiaryText || defaultTertiaryText),
+    border: 'none',
+    borderRadius: '4px',
+    padding: '8px 16px',
+    fontSize: '0.875rem',
+    fontWeight: 400,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s, color 0.2s',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    '&:hover': {
+      backgroundColor: colors.secondaryBg || 'rgba(255, 255, 255, 0.1)',
+      color: colors.primaryText || defaultPrimaryText,
+    },
+    '& svg': {
+      flexShrink: 0,
+    },
+  };
+});
 
 const ChatActions = styled('div')({
   position: 'absolute',
@@ -350,42 +364,31 @@ const LogoText = styled('h1', {
 
 const SidebarWrapper = styled('div')({
   position: 'relative',
-  backgroundColor: '#1E1E1E',
-  color: '#FFFFFF',
 });
 
 const Sidebar = () => {
   const [hoveredChatId, setHoveredChatId] = useState(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const theme = useTheme();
   const { 
-    appState, 
-    setAppState, 
     currentChat, 
     chats = [], 
     createNewChat, 
     deleteChat, 
-    updateChat, 
-    setCurrentChatId,
-    projects = [],
-    createNewProject,
-    deleteProject,
-    updateProject,
-    setCurrentProjectId,
-    currentProjectId,
+    setCurrentChat,
+    handleChatSelect,
+    toggleStarChat,
     profile = { name: 'User', picture: null },
     connectionStatus = 'connected',
     sidebarCollapsed = false,
     toggleSidebar = () => {},
     activeSection,
-    setActiveSection = () => {},
-    handleChatSelect,
-    toggleStarChat,
+    setActiveSection = () => {}
   } = useApp();
   
   // Wrapper for handleChatSelect that includes the theme context
   // Handle chat selection with theme
   const handleChatSelectWithTheme = (chat) => {
-    handleChatSelect(chat);
+    handleChatSelect(chat, theme);
   };
   
   // Handle new chat creation with theme
@@ -394,7 +397,7 @@ const Sidebar = () => {
       if (createNewChat) {
         const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
         const newChat = createNewChat('New Chat', currentTheme);
-        handleChatSelect(newChat); // Use handleChatSelect directly since we don't need to pass theme
+        handleChatSelectWithTheme(newChat);
         setActiveSection('chat');
       } else {
         console.error('createNewChat is not defined');
@@ -596,7 +599,7 @@ const Sidebar = () => {
                     >
                       <SidebarButton 
                         theme={theme}
-                        onClick={() => handleChatSelectWithTheme(chat)}
+                        onClick={() => handleChatSelect(chat)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -716,7 +719,7 @@ const Sidebar = () => {
                     >
                       <SidebarButton 
                         theme={theme}
-                        onClick={() => handleChatSelectWithTheme(chat)}
+                        onClick={() => handleChatSelect(chat)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',

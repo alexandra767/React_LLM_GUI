@@ -1,34 +1,34 @@
 import React, { useState } from 'react';
 import styled from '@emotion/styled';
-import { ThemeContext } from '../../context/ThemeContext';
+// Theme is now handled by ThemeContext
 import { useApp } from '../../context/AppContext';
 import { Send as SendIcon } from '@mui/icons-material';
 
-const InputContainer = styled('div')(({ theme }) => ({
-  padding: `${theme?.spacing?.medium || '16px'} 0`,
-  borderTop: `1px solid ${theme?.colors?.border || '#333333'}`,
-  marginTop: theme?.spacing?.medium || '16px'
-}));
+const InputContainer = styled('div')({
+  padding: '16px 0',
+  borderTop: '1px solid #333333',
+  marginTop: '16px'
+});
 
-const Form = styled('form')(({ theme }) => ({
+const Form = styled('form')({
   display: 'flex',
-  gap: theme?.spacing?.medium || '16px',
+  gap: '16px',
   alignItems: 'flex-end',
   flexWrap: 'wrap'
-}));
+});
 
-const ModelSelectorContainer = styled('div')(({ theme }) => ({
+const ModelSelectorContainer = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: theme?.spacing?.small || '8px',
-  marginBottom: theme?.spacing?.small || '8px',
+  gap: '8px',
+  marginBottom: '8px',
   width: '100%'
-}));
+});
 
-const ModelLabel = styled('span')(({ theme }) => ({
-  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
-  color: theme?.colors?.tertiaryText || '#AAAAAA'
-}));
+const ModelLabel = styled('span')({
+  fontSize: '13px',
+  color: '#AAAAAA'
+});
 
 const StatusDot = styled('span')(({ status }) => ({
   display: 'inline-block',
@@ -42,90 +42,98 @@ const StatusDot = styled('span')(({ status }) => ({
     '#F44336'
 }));
 
-const Select = styled('select')(({ theme }) => ({
-  backgroundColor: theme?.colors?.secondaryBg || '#252525',
-  color: theme?.colors?.primaryText || '#FFFFFF',
-  border: `1px solid ${theme?.colors?.border || '#333333'}`,
-  borderRadius: theme?.borderRadius?.small || '4px',
-  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
-  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
+const Select = styled('select')({
+  backgroundColor: '#252525',
+  color: '#FFFFFF',
+  border: '1px solid #333333',
+  borderRadius: '4px',
+  padding: '8px 16px',
+  fontSize: '13px',
   cursor: 'pointer',
   '&:focus': {
     outline: 'none',
-    borderColor: theme?.colors?.accent || '#FF643D'
+    borderColor: '#FF643D',
+    boxShadow: '0 0 0 2px rgba(255, 100, 61, 0.2)'
+  },
+  '&:disabled': {
+    opacity: 0.7,
+    cursor: 'not-allowed'
   }
-}));
+});
 
-const InputRow = styled('div')(({ theme }) => ({
+const InputRow = styled('div')({
   display: 'flex',
-  gap: theme?.spacing?.medium || '16px',
-  alignItems: 'flex-end',
-  width: '100%'
-}));
-
-const TextareaWrapper = styled('div')({
-  flex: 1,
+  gap: '8px',
+  width: '100%',
+  alignItems: 'center',
   position: 'relative'
 });
 
-const Textarea = styled('textarea')(({ theme }) => ({
+const TextareaWrapper = styled('div')({
   flex: 1,
-  minHeight: '24px',
+  position: 'relative',
+  width: '100%'
+});
+
+const Textarea = styled('textarea')(({ disabled }) => ({
+  flex: 1,
+  minHeight: '56px',
   maxHeight: '200px',
-  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
-  border: `1px solid ${theme?.colors?.border || '#333333'}`,
-  borderRadius: theme?.borderRadius?.medium || '8px',
-  backgroundColor: theme?.colors?.secondaryBg || '#252525',
-  color: theme?.colors?.primaryText || '#FFFFFF',
-  fontFamily: 'inherit',
-  fontSize: theme?.typography?.regularText?.size || '16px',
-  resize: 'none',
-  overflowY: 'auto',
+  padding: '16px 48px 16px 16px',
+  borderRadius: '8px',
+  border: '1px solid #333333',
+  backgroundColor: '#252525',
+  color: '#FFFFFF',
+  fontSize: '14px',
   lineHeight: 1.5,
+  resize: 'none',
+  fontFamily: 'inherit',
   '&:focus': {
     outline: 'none',
-    borderColor: theme?.colors?.accent || '#FF643D',
-    boxShadow: `0 0 0 1px ${theme?.colors?.accent || '#FF643D'}`
+    borderColor: '#FF643D',
+    boxShadow: '0 0 0 2px rgba(255, 100, 61, 0.2)'
+  },
+  '&:disabled': {
+    backgroundColor: '#333333',
+    color: '#666666',
+    cursor: 'not-allowed'
   },
   '&::placeholder': {
-    color: theme?.colors?.tertiaryText || '#AAAAAA',
-    opacity: 0.7
+    color: '#666666'
   }
 }));
 
-const SendButton = styled('button')(({ theme }) => ({
+const SendButton = styled('button')(({ disabled }) => ({
+  position: 'absolute',
+  right: '12px',
+  bottom: '12px',
+  width: '32px',
+  height: '32px',
+  borderRadius: '50%',
+  backgroundColor: '#FF643D',
+  color: '#FFFFFF',
+  border: 'none',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '40px',
-  height: '40px',
-  border: 'none',
-  borderRadius: '50%',
-  backgroundColor: theme?.colors?.accent || '#FF643D',
-  color: 'white',
-  cursor: 'pointer',
-  transition: 'all 0.2s',
-  flexShrink: 0,
-  '&:hover': {
-    backgroundColor: theme?.colors?.accentHover || '#e64a19',
-    transform: 'translateY(-1px)'
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.7 : 1,
+  transition: 'opacity 0.2s',
+  '&:hover:not(:disabled)': {
+    opacity: 0.9
   },
-  '&:active': {
-    transform: 'translateY(0)'
-  },
-  '&:disabled': {
-    backgroundColor: theme?.colors?.disabled || '#bdbdbd',
-    cursor: 'not-allowed',
-    transform: 'none'
+  '& svg': {
+    width: '16px',
+    height: '16px'
   }
 }));
 
 const ChatInput = ({ onSendMessage, disabled }) => {
-  const theme = React.useContext(ThemeContext);
-  const { currentModel, models, appState, loadModel } = useApp();
   const [message, setMessage] = useState('');
+  const [selectedModel, setSelectedModel] = useState('llama2');
+  const [isComposing, setIsComposing] = useState(false);
+  const { appState, setAppState } = useApp();
   
-  // Get connection status
   const connectionStatus = appState?.connectionStatus || 'disconnected';
   
   const handleSubmit = (e) => {
@@ -158,15 +166,14 @@ const ChatInput = ({ onSendMessage, disabled }) => {
   };
   
   return (
-    <InputContainer theme={theme}>
-      <Form onSubmit={handleSubmit} theme={theme}>
-        <ModelSelectorContainer theme={theme}>
-          <ModelLabel theme={theme}>
+    <InputContainer>
+      <Form onSubmit={handleSubmit}>
+        <ModelSelectorContainer>
+          <ModelLabel>
             Model:
             <StatusDot status={connectionStatus} title={`Status: ${connectionStatus}`} />
           </ModelLabel>
           <Select 
-            theme={theme}
             value={currentModel || ''}
             onChange={handleModelChange}
             disabled={connectionStatus === 'connecting'}
@@ -191,10 +198,9 @@ const ChatInput = ({ onSendMessage, disabled }) => {
           </Select>
         </ModelSelectorContainer>
         
-        <InputRow theme={theme}>
+        <InputRow>
           <TextareaWrapper>
             <Textarea
-              theme={theme}
               value={message}
               onChange={handleTextareaChange}
               onKeyDown={handleKeyDown}
@@ -206,7 +212,6 @@ const ChatInput = ({ onSendMessage, disabled }) => {
           
           <SendButton 
             type="submit" 
-            theme={theme}
             disabled={!message.trim() || disabled}
           >
             <SendIcon />
