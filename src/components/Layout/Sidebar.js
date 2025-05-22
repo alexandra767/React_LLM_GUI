@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { styled } from '@mui/material/styles';
-import { useTheme } from '@mui/material/styles';
+import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import BrainIcon from '../Chat/BrainIcon';
 import { 
@@ -32,57 +32,65 @@ import {
 
 const SidebarContainer = styled('div', {
   shouldForwardProp: (prop) => prop !== 'collapsed',
-})(({ theme, collapsed }) => ({
-  width: collapsed ? '64px' : '220px',
-  height: '100vh',
-  backgroundColor: theme.colors?.secondaryBg || theme.palette.background.paper,
-  borderRight: `1px solid ${theme.colors?.border || theme.palette.divider}`,
-  display: 'flex',
-  flexDirection: 'column',
-  transition: 'width 0.3s ease',
-  overflowX: 'hidden',
-  position: 'relative',
-}));
+})(({ theme, collapsed }) => {
+  const colors = theme?.colors || {};
+  return {
+    width: collapsed ? '64px' : '220px',
+    height: '100vh',
+    backgroundColor: colors.primaryBg || '#1E1E1E',
+    borderRight: `1px solid ${colors.border || '#333333'}`,
+    display: 'flex',
+    flexDirection: 'column',
+    transition: 'width 0.3s ease',
+    overflowX: 'hidden',
+    position: 'relative',
+  };
+});
 
 const SidebarSection = styled('div')(({ theme }) => ({
-  padding: theme.spacing(2),
+  padding: '16px',
   display: 'flex',
   flexDirection: 'column',
-  gap: theme.spacing(1),
+  gap: '8px',
 }));
 
 const SidebarButton = styled('button', {
   shouldForwardProp: (prop) => prop !== 'active',
-})(({ theme, active }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  gap: theme.spacing(1),
-  backgroundColor: active 
-    ? (theme.colors?.primaryBg || theme.palette.action.selected) 
-    : 'transparent',
-  color: active 
-    ? (theme.colors?.primaryText || theme.palette.text.primary)
-    : (theme.colors?.tertiaryText || theme.palette.text.secondary),
-  border: 'none',
-  borderRadius: theme.shape.borderRadius,
-  padding: `${theme.spacing(1)} ${theme.spacing(2)}`,
-  fontSize: theme.typography.body2.fontSize,
-  fontWeight: theme.typography.fontWeightRegular,
-  cursor: 'pointer',
-  textAlign: 'left',
-  transition: 'background-color 0.2s ease',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  '&:hover': {
+})(({ theme, active }) => {
+  const colors = theme?.colors || {};
+  const defaultSecondaryBg = '#252525';
+  const defaultPrimaryText = '#FFFFFF';
+  const defaultTertiaryText = '#AAAAAA';
+  
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
     backgroundColor: active 
-      ? (theme.colors?.primaryBg || theme.palette.action.selected)
-      : (theme.colors?.border ? `${theme.colors.border}30` : theme.palette.action.hover),
-  },
-  '& svg': {
-    flexShrink: 0,
-  },
-}));
+      ? (colors.secondaryBg || defaultSecondaryBg)
+      : 'transparent',
+    color: active 
+      ? (colors.primaryText || defaultPrimaryText)
+      : (colors.tertiaryText || defaultTertiaryText),
+    border: 'none',
+    borderRadius: '4px',
+    padding: '8px 16px',
+    fontSize: '0.875rem',
+    fontWeight: 400,
+    cursor: 'pointer',
+    transition: 'background-color 0.2s, color 0.2s',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    '&:hover': {
+      backgroundColor: colors.secondaryBg || 'rgba(255, 255, 255, 0.1)',
+      color: colors.primaryText || defaultPrimaryText,
+    },
+    '& svg': {
+      flexShrink: 0,
+    },
+  };
+});
 
 const ChatActions = styled('div')({
   position: 'absolute',
@@ -94,31 +102,51 @@ const ChatActions = styled('div')({
   transition: 'opacity 0.2s ease',
 });
 
-const ActionButton = styled('button')(({ theme }) => ({
-  background: 'none',
-  border: 'none',
-  color: theme.palette.text.secondary,
-  cursor: 'pointer',
-  padding: '4px',
-  borderRadius: '4px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  transition: 'all 0.2s ease',
-  '&:hover': {
-    backgroundColor: theme.palette.action.hover,
-    color: theme.palette.text.primary,
-  },
-}));
+const ActionButton = styled('button')(({ theme }) => {
+  const palette = theme?.palette || {};
+  const text = palette?.text || {};
+  const action = palette?.action || {};
+  
+  // Default values for colors
+  const defaultTextSecondary = '#AAAAAA';
+  const defaultTextPrimary = '#FFFFFF';
+  const defaultHoverBg = 'rgba(255, 255, 255, 0.1)';
+  
+  return {
+    background: 'none',
+    border: 'none',
+    color: text?.secondary || defaultTextSecondary,
+    cursor: 'pointer',
+    padding: '4px',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      backgroundColor: action?.hover || defaultHoverBg,
+      color: text?.primary || defaultTextPrimary,
+    },
+  };
+});
 
-const SectionTitle = styled('div')(({ theme }) => ({
-  padding: `${theme.spacing(1)} ${theme.spacing(2)}`,
-  color: theme.palette.text.secondary,
-  fontSize: theme.typography.caption.fontSize,
-  fontWeight: theme.typography.fontWeightMedium,
-  textTransform: 'uppercase',
-  letterSpacing: '0.5px',
-}));
+const SectionTitle = styled('div')(({ theme }) => {
+  // Safely access theme properties with defaults
+  const spacing = theme?.spacing || ((value) => `${value * 8}px`);
+  const textColor = theme?.palette?.text?.secondary || '#888888';
+  const fontSize = '0.75rem';
+  const fontWeight = 500;
+  
+  return {
+    padding: `${spacing(1)} ${spacing(2)}`,
+    color: textColor,
+    fontSize: fontSize,
+    fontWeight: fontWeight,
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+    margin: 0,
+  };
+});
 
 const Divider = styled(MuiDivider)({
   margin: '8px 0',
@@ -126,220 +154,313 @@ const Divider = styled(MuiDivider)({
 
 const ProfileSection = styled('div', {
   shouldForwardProp: (prop) => prop !== 'collapsed',
-})(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  padding: theme.spacing(2),
-  gap: theme.spacing(1),
-  borderTop: `1px solid ${theme.palette.divider}`,
-  marginTop: 'auto',
-  position: 'relative',
-  minHeight: '72px',
-}));
+})(({ theme, collapsed }) => {
+  const colors = theme?.colors || {};
+  return {
+    marginTop: 'auto',
+    padding: '16px',
+    borderTop: `1px solid ${colors.border || '#333333'}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    backgroundColor: colors.primaryBg || '#1E1E1E',
+    '&:hover $profileActions': {
+      opacity: 1,
+    },
+  };
+});
 
-const ProfileImage = styled('div')(({ theme }) => ({
-  width: '40px',
-  height: '40px',
-  borderRadius: '50%',
-  backgroundColor: theme.palette.action.selected,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  cursor: 'pointer',
-  flexShrink: 0,
-  overflow: 'hidden',
-  '& img': {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-  },
-  '& svg': {
-    color: theme.palette.text.secondary,
-    fontSize: '24px',
-  },
-}));
+const ProfileImage = styled('div')(({ theme }) => {
+  const colors = theme?.colors || {};
+  // Default values
+  const defaultSecondaryBg = '#252525';
+  const defaultPrimaryText = '#FFFFFF';
+  
+  return {
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    backgroundColor: colors?.secondaryBg || defaultSecondaryBg,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    color: colors?.primaryText || defaultPrimaryText,
+    '& img': {
+      width: '100%',
+      height: '100%',
+      objectFit: 'cover',
+    },
+  };
+});
 
 const ProfileInfo = styled('div', {
   shouldForwardProp: (prop) => prop !== 'collapsed',
-})(({ theme, collapsed }) => ({
-  display: collapsed ? 'none' : 'flex',
-  flexDirection: 'column',
-  gap: '2px',
-  minWidth: 0,
-  flex: 1,
-}));
+})(({ theme, collapsed }) => {
+  const colors = theme?.colors || {};
+  // Default value
+  const defaultPrimaryText = '#FFFFFF';
+  
+  return {
+    display: collapsed ? 'none' : 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    minWidth: 0,
+    flex: 1,
+    color: colors?.primaryText || defaultPrimaryText,
+  };
+});
 
-const ProfileName = styled('span')(({ theme }) => ({
-  fontWeight: theme.typography.fontWeightMedium,
-  color: theme.palette.text.primary,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-}));
+const ProfileName = styled('div')(({ theme }) => {
+  const colors = theme?.colors || {};
+  return {
+    flex: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    fontWeight: 500,
+    color: colors.primaryText || '#FFFFFF',
+  };
+});
 
-const ConnectionStatus = styled('span')(({ theme, status }) => ({
-  fontSize: '0.75rem',
-  color: 
-    status === 'Connected' ? theme.palette.success.main :
-    status === 'Connecting' ? theme.palette.warning.main :
-    theme.palette.error.main,
-}));
+const ConnectionStatus = styled('div')(({ theme, status }) => {
+  // Safely get spacing function
+  const spacing = theme?.spacing || ((value) => `${value * 8}px`);
+  
+  // Safely get colors with defaults
+  const colors = {
+    success: theme?.colors?.success || '#4caf50',
+    warning: theme?.colors?.warning || '#ff9800',
+    error: theme?.colors?.error || '#f44336',
+  };
+  
+  // Determine status color
+  const statusColors = {
+    connected: colors.success,
+    connecting: colors.warning,
+    disconnected: colors.error,
+  };
+  
+  const statusColor = statusColors[status?.toLowerCase()] || colors.error;
+  
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    fontSize: '0.75rem',
+    color: statusColor,
+    '&::before': {
+      content: '""',
+      display: 'inline-block',
+      width: '8px',
+      height: '8px',
+      borderRadius: '50%',
+      backgroundColor: statusColor,
+      marginRight: spacing(1),
+    },
+  };
+});
 
-const ProfileActions = styled('div')(({ theme }) => ({
-  position: 'absolute',
-  top: '10px',
-  right: '10px',
-  opacity: 0,
-  transition: 'opacity 0.2s ease',
-  display: 'flex',
-  gap: '4px',
-  backgroundColor: theme.palette.background.paper,
-  padding: '4px',
-  borderRadius: '4px',
-  boxShadow: theme.shadows[2],
-  '&:hover': {
-    opacity: 1,
-  },
-}));
+const ProfileActions = styled('div')(({ theme }) => {
+  const colors = theme?.colors || {};
+  const shadows = theme?.shadows || [];
+  
+  return {
+    position: 'absolute',
+    top: '10px',
+    right: '10px',
+    opacity: 0,
+    transition: 'opacity 0.2s ease',
+    display: 'flex',
+    gap: '4px',
+    backgroundColor: colors.secondaryBg || '#252525',
+    padding: '4px',
+    borderRadius: '4px',
+    boxShadow: shadows[2] || '0px 3px 5px -1px rgba(0,0,0,0.2), 0px 6px 10px 0px rgba(0,0,0,0.14), 0px 1px 18px 0px rgba(0,0,0,0.12)',
+    '&:hover': {
+      opacity: 1,
+    },
+  };
+});
 
-const ProfileActionButton = styled('button')(({ theme }) => ({
-  background: 'none',
-  border: 'none',
-  color: theme.palette.text.secondary,
-  cursor: 'pointer',
-  padding: '4px',
-  borderRadius: '4px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  transition: 'all 0.2s ease',
-  '&:hover': {
-    backgroundColor: theme.palette.action.hover,
-    color: theme.palette.text.primary,
-  },
-}));
+const ProfileActionButton = styled('button')(({ theme }) => {
+  const colors = theme?.colors || {};
+  
+  return {
+    background: 'none',
+    border: 'none',
+    color: colors.tertiaryText || '#AAAAAA',
+    cursor: 'pointer',
+    padding: '4px',
+    borderRadius: '4px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease',
+    '&:hover': {
+      backgroundColor: colors.secondaryBg || 'rgba(255, 255, 255, 0.1)',
+      color: colors.primaryText || '#FFFFFF',
+    },
+  };
+});
 
 const FileInput = styled('input')({
   display: 'none',
 });
 
-const ToggleButton = styled(IconButton)(({ theme }) => ({
-  position: 'absolute',
-  top: '50%',
-  right: '-12px',
-  transform: 'translateY(-50%)',
-  width: '24px',
-  height: '48px',
-  backgroundColor: theme.palette.background.paper,
-  border: `1px solid ${theme.palette.divider}`,
-  borderLeft: 'none',
-  borderRadius: '0 12px 12px 0',
-  cursor: 'pointer',
-  color: theme.palette.text.secondary,
-  transition: 'all 0.2s ease',
-  zIndex: 10,
-  '&:hover': {
-    backgroundColor: theme.palette.action.hover,
-    color: theme.palette.text.primary,
-  },
-}));
+const ToggleButton = styled(IconButton)(({ theme }) => {
+  const colors = theme?.colors || {};
+  
+  return {
+    position: 'absolute',
+    top: '50%',
+    right: '-12px',
+    transform: 'translateY(-50%)',
+    width: '24px',
+    height: '48px',
+    backgroundColor: colors.secondaryBg || '#252525',
+    border: `1px solid ${colors.border || '#333333'}`,
+    borderLeft: 'none',
+    borderRadius: '0 12px 12px 0',
+    cursor: 'pointer',
+    color: colors.tertiaryText || '#AAAAAA',
+    transition: 'all 0.2s ease',
+    zIndex: 10,
+    '&:hover': {
+      backgroundColor: colors.secondaryBg || 'rgba(255, 255, 255, 0.1)',
+      color: colors.primaryText || '#FFFFFF',
+    },
+  };
+});
 
-const LogoSection = styled('div')(({ theme }) => ({
-  display: 'flex',
-  alignItems: 'center',
-  padding: theme.spacing(2),
-  gap: theme.spacing(1),
-  borderBottom: `1px solid ${theme.palette.divider}`,
-}));
+const LogoSection = styled('div')(({ theme }) => {
+  const colors = theme?.colors || {};
+  
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    padding: '16px',
+    gap: '8px',
+    borderBottom: `1px solid ${colors.border || '#333333'}`,
+  };
+});
 
 const LogoText = styled('h1', {
   shouldForwardProp: (prop) => prop !== 'collapsed',
-})(({ theme, collapsed }) => ({
-  fontSize: theme.typography.h6.fontSize,
-  fontWeight: theme.typography.fontWeightLight,
-  color: theme.palette.text.primary,
-  margin: 0,
-  marginLeft: theme.spacing(1),
-  whiteSpace: 'nowrap',
-  opacity: collapsed ? 0 : 1,
-  transition: 'opacity 0.2s ease',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-}));
+})(({ theme, collapsed }) => {
+  const colors = theme?.colors || {};
+  
+  return {
+    fontSize: '1.25rem',
+    fontWeight: 300,
+    color: colors.primaryText || '#FFFFFF',
+    margin: 0,
+    opacity: collapsed ? 0 : 1,
+    transition: 'opacity 0.2s ease',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  };
+});
 
 const SidebarWrapper = styled('div')({
   position: 'relative',
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
 });
 
 const Sidebar = () => {
-  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [newName, setNewName] = useState('');
-  const { theme } = useTheme();
+  const theme = useTheme();
   const { 
-    appState, 
-    toggleSidebar, 
-    setActiveSection,
-    createNewChat,
-    chats,
-    deleteChat,
-    profile,
-    updateProfile 
+    currentChat, 
+    chats = [], 
+    createNewChat, 
+    deleteChat, 
+    setCurrentChat,
+    profile = { name: 'User', picture: null },
+    connectionStatus = 'connected',
+    sidebarCollapsed = false,
+    toggleSidebar = () => {},
+    activeSection,
+    setActiveSection = () => {}
   } = useApp();
   
-  const { sidebarCollapsed, activeSection, connectionStatus } = appState;
+  // Safely access theme colors with defaults
+  const colors = {
+    ...(theme?.colors || {}),
+    primaryBg: theme?.colors?.primaryBg || '#1E1E1E',
+    secondaryBg: theme?.colors?.secondaryBg || '#252525',
+    primaryText: theme?.palette?.text?.primary || '#FFFFFF',
+    secondaryText: theme?.colors?.secondaryText || '#F0F0F0',
+    tertiaryText: theme?.colors?.tertiaryText || '#AAAAAA',
+    border: theme?.colors?.border || '#333333',
+    error: theme?.colors?.error || '#f44336',
+    success: theme?.colors?.success || '#4CAF50',
+    warning: theme?.colors?.warning || '#FFC107'
+  };
   
-  const fileInputRef = React.useRef(null);
+  // Get spacing function from theme or use a default
+  const spacing = theme?.spacing || ((value) => `${value * 8}px`);
+  
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editName, setEditName] = useState(profile.name);
+  const fileInputRef = useRef(null);
   
   const handleNewChat = () => {
-    createNewChat();
-  };
-  
-  const handleProfileClick = () => {
-    fileInputRef.current.click();
-  };
-  
-  const handleFileChange = (event) => {
-    const file = event.target.files[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const imageDataUrl = e.target.result;
-        updateProfile({ picture: imageDataUrl });
-      };
-      reader.readAsDataURL(file);
+    if (createNewChat) {
+      createNewChat('New Chat');
+    } else {
+      console.error('createNewChat is not defined');
     }
   };
   
-  const handleEditProfile = () => {
-    setNewName(profile.name || '');
-    setIsEditDialogOpen(true);
-  };
-
   const handleSaveProfile = () => {
-    if (newName.trim()) {
-      updateProfile({ name: newName.trim() });
-      setIsEditDialogOpen(false);
-    }
+    // Save profile logic here
+    setIsEditDialogOpen(false);
   };
 
   const handleCancelEdit = () => {
+    setEditName(profile.name);
     setIsEditDialogOpen(false);
   };
-  
-  const handleRemoveProfilePicture = () => {
-    updateProfile({ picture: null });
+
+  const handleProfileClick = () => {
+    fileInputRef.current?.click();
   };
-  
-  // Get recent chats for the sidebar
-  const recentChats = chats.slice(0, 3);
-  
-  // Get starred chats (just mimicking this with the first chat if available)
-  const starredChats = chats.length > 0 ? [chats[0]] : [];
-  
+
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      // Handle file upload logic here
+      console.log('File selected:', file);
+    }
+  };
+
+  const handleEditProfile = () => {
+    setEditName(profile.name);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleRemoveProfilePicture = () => {
+    // Handle remove profile picture logic here
+    console.log('Remove profile picture');
+  };
+
+  const handleChatSelect = (chat) => {
+    setCurrentChat(chat);
+  };
+
+  const toggleStarChat = (chatId, e) => {
+    e.stopPropagation();
+    // Toggle star status logic here
+    console.log('Toggle star for chat:', chatId);
+  };
+
+  // Get recent chats (most recent first)
+  const recentChats = [...chats].sort((a, b) => 
+    new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+  );
+
+  // Get starred chats (chats with isStarred flag)
+  const starredChats = chats.filter(chat => chat.isStarred);
+
   return (
     <>
       <Dialog open={isEditDialogOpen} onClose={handleCancelEdit}>
@@ -352,16 +473,13 @@ const Sidebar = () => {
             type="text"
             fullWidth
             variant="outlined"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSaveProfile()}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCancelEdit} color="primary">
-            Cancel
-          </Button>
-          <Button onClick={handleSaveProfile} color="primary" variant="contained">
+          <Button onClick={handleCancelEdit}>Cancel</Button>
+          <Button onClick={handleSaveProfile} color="primary">
             Save
           </Button>
         </DialogActions>
@@ -439,20 +557,42 @@ const Sidebar = () => {
                         }
                       }}
                     >
+                      <div style={{ position: 'relative', width: '100%', display: 'flex', alignItems: 'center' }}>
                       <SidebarButton 
                         theme={theme}
-                        onClick={() => {
-                          setActiveSection('chat');
-                          // In real implementation, would set current chat here
+                        active={currentChat?.id === chat.id}
+                        onClick={() => handleChatSelect(chat)}
+                        style={{ 
+                          width: '100%',
+                          paddingRight: '40px', // Make room for the star button
+                          backgroundColor: currentChat?.id === chat.id ? colors.primaryBg || '#252525' : 'transparent'
                         }}
-                        style={{ width: '100%' }}
                       >
                         <StarIcon />
                         <span style={{flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
                           {chat.title}
                         </span>
                       </SidebarButton>
-                      <ChatActions className="chat-actions">
+                      <div style={{ 
+                        position: 'absolute', 
+                        right: '8px',
+                        display: 'flex',
+                        gap: '4px'
+                      }}>
+                        <ActionButton 
+                          theme={theme}
+                          onClick={(e) => toggleStarChat(chat.id, e)}
+                          title={chat.isStarred ? 'Unstar chat' : 'Star chat'}
+                          style={{ 
+                            color: chat.isStarred ? '#FFD700' : colors.tertiaryText,
+                            padding: '4px',
+                            '&:hover': {
+                              color: '#FFD700'
+                            }
+                          }}
+                        >
+                          <StarIcon fontSize="small" />
+                        </ActionButton>
                         <ActionButton 
                           theme={theme} 
                           onClick={(e) => {
@@ -462,14 +602,16 @@ const Sidebar = () => {
                             }
                           }}
                           title="Delete chat"
+                          style={{ padding: '4px' }}
                         >
                           <DeleteIcon fontSize="small" />
                         </ActionButton>
-                      </ChatActions>
+                      </div>
+                    </div>
                     </div>
                   ))
                 ) : (
-                  <div style={{ padding: '0 16px', color: theme.colors.tertiaryText, fontSize: '13px' }}>
+                  <div style={{ padding: '0 16px', color: colors.tertiaryText || '#AAAAAA', fontSize: '13px' }}>
                     No starred items
                   </div>
                 )}
@@ -491,37 +633,90 @@ const Sidebar = () => {
                         }
                       }}
                     >
-                      <SidebarButton 
-                        theme={theme}
-                        onClick={() => {
-                          setActiveSection('chat');
-                          // In real implementation, would set current chat here
-                        }}
-                        style={{ width: '100%' }}
-                      >
-                        <ChatIcon />
-                        <span style={{flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}>
-                          {chat.title}
-                        </span>
-                      </SidebarButton>
-                      <ChatActions className="chat-actions">
-                        <ActionButton 
-                          theme={theme} 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (window.confirm('Are you sure you want to delete this chat?')) {
-                              deleteChat(chat.id);
-                            }
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <SidebarButton 
+                          theme={theme}
+                          active={currentChat?.id === chat.id}
+                          onClick={() => handleChatSelect(chat)}
+                          style={{ 
+                            width: '100%',
+                            padding: '8px 12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            textAlign: 'left'
                           }}
-                          title="Delete chat"
                         >
-                          <DeleteIcon fontSize="small" />
-                        </ActionButton>
-                      </ChatActions>
+                          <div style={{
+                            width: '100%',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {chat.title || 'New Chat'}
+                          </div>
+                          {chat.description && (
+                            <div style={{ 
+                            fontSize: '0.8em',
+                            color: colors.tertiaryText || '#AAAAAA',
+                            width: '100%',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap'
+                          }}>
+                              {chat.description}
+                            </div>
+                          )}
+                        </SidebarButton>
+                        <div style={{ 
+                          position: 'absolute', 
+                          right: '8px',
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          display: 'flex',
+                          gap: '4px',
+                          backgroundColor: colors.secondaryBg || '#252525',
+                          padding: '2px 4px',
+                          borderRadius: '4px'
+                        }}>
+                          <ActionButton 
+                            theme={theme}
+                            onClick={(e) => toggleStarChat(chat.id, e)}
+                            title={chat.isStarred ? 'Unstar chat' : 'Star chat'}
+                            style={{ 
+                              color: chat.isStarred ? '#FFD700' : colors.tertiaryText || '#AAAAAA',
+                              padding: '2px',
+                              '&:hover': {
+                                color: '#FFD700'
+                              }
+                            }}
+                          >
+                            <StarIcon fontSize="small" />
+                          </ActionButton>
+                          <ActionButton 
+                            theme={theme} 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (window.confirm('Are you sure you want to delete this chat?')) {
+                                deleteChat(chat.id);
+                              }
+                            }}
+                            title="Delete chat"
+                            style={{ 
+                              padding: '2px',
+                              '&:hover': {
+                                color: colors.error
+                              }
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </ActionButton>
+                        </div>
+                      </div>
                     </div>
                   ))
                 ) : (
-                  <div style={{ padding: '0 16px', color: theme.colors.tertiaryText, fontSize: '13px' }}>
+                  <div style={{ padding: '0 16px', color: colors.tertiaryText || '#AAAAAA', fontSize: '13px' }}>
                     No recent chats
                   </div>
                 )}

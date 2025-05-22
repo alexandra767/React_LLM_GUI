@@ -1,0 +1,637 @@
+import React, { createContext, useState, useContext, useEffect } from 'react';
+import llmService from '../services/LLMService';
+
+const AppContext = createContext();
+
+export const useApp = () => useContext(AppContext);
+
+// Load chats from localStorage
+const loadChats = () => {
+  try {
+    const savedChats = localStorage.getItem('sephia_chats');
+    return savedChats ? JSON.parse(savedChats) : [];
+  } catch (error) {
+    console.error('Failed to load chats from localStorage:', error);
+    return [];
+  }
+};
+
+// Load projects from localStorage
+const loadProjects = () => {
+  try {
+    const savedProjects = localStorage.getItem('sephia_projects');
+    return savedProjects ? JSON.parse(savedProjects) : [];
+  } catch (error) {
+    console.error('Failed to load projects from localStorage:', error);
+    return [];
+  }
+};
+
+// Load profile from localStorage
+const loadProfile = () => {
+  try {
+    const savedProfile = localStorage.getItem('sephia_profile');
+    return savedProfile ? JSON.parse(savedProfile) : {
+      name: 'User',
+      picture: null,
+      bio: '',
+    };
+  } catch (error) {
+    console.error('Failed to load profile from localStorage:', error);
+    return {
+      name: 'User',
+      picture: null,
+      bio: '',
+    };
+  }
+};
+
+export const AppProvider = ({ children }) => {
+  const [currentModel, setCurrentModel] = useState('deepseek-r1:14b');
+  const [models, setModels] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [appState, setAppState] = useState({
+    sidebarCollapsed: false,
+    activeSection: 'ollama', // Default to ollama chat view
+    connectionStatus: 'disconnected', // 'connected', 'connecting', 'disconnected',
+    ollamaStatus: 'disconnected' // 'connected', 'connecting', 'disconnected'
+  });
+  
+  const [chats, setChats] = useState(loadChats());
+  const [projects, setProjects] = useState(loadProjects());
+  const [currentChat, setCurrentChat] = useState(null);
+  const [profile, setProfile] = useState(loadProfile());
+  const [tokenCount, setTokenCount] = useState({ input: 0, output: 0, total: 0 });
+  const [messageDuration, setMessageDuration] = useState(0);
+  
+  // Save chats to localStorage whenever they change
+  useEffect(() => {
+    try {
+      if (chats && Array.isArray(chats)) {
+        localStorage.setItem('sephia_chats', JSON.stringify(chats));
+        // Also save the current chat ID for persistence
+        if (currentChat) {
+          localStorage.setItem('sephia_current_chat_id', currentChat.id);
+          
+          // Update the chat in the chats array to keep it in sync
+          setChats(prev => {
+            if (!prev || !Array.isArray(prev)) return [];
+            const chatIndex = prev.findIndex(c => c.id === currentChat.id);
+            if (chatIndex >= 0) {
+              const updatedChats = [...prev];
+              updatedChats[chatIndex] = currentChat;
+              return updatedChats;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save chats to localStorage:', error);
+    }
+  }, [chats, currentChat]);
+  
+  // Load current chat ID on initial load
+  useEffect(() => {
+    try {
+      const savedChatId = localStorage.getItem('sephia_current_chat_id');
+      if (savedChatId && chats.length > 0) {
+        const chat = chats.find(c => c.id === savedChatId);
+        if (chat) {
+          setCurrentChat(chat);
+        }
+      } else if (chats.length > 0) {
+        // If no saved chat ID but we have chats, select the most recent one
+        const mostRecentChat = [...chats].sort(
+          (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+        )[0];
+        setCurrentChat(mostRecentChat);
+      }
+    } catch (error) {
+      console.error('Failed to load current chat:', error);
+    }
+  }, []);
+  
+  // Save profile to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('sephia_profile', JSON.stringify(profile));
+    } catch (error) {
+      console.error('Failed to save profile to localStorage:', error);
+    }
+  }, [profile]);
+  
+  // Save projects to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('sephia_projects', JSON.stringify(projects));
+    } catch (error) {
+      console.error('Failed to save projects to localStorage:', error);
+    }
+  }, [projects]);
+  
+  // Initialize models on mount
+  useEffect(() => {
+    const fetchModels = async () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        // First, check if we have a valid connection
+        try {
+          await llmService.checkConnection();
+          setAppState(prev => ({
+            ...prev,
+            connectionStatus: 'connected',
+            ollamaStatus: 'connected'
+          }));
+        } catch (error) {
+          console.error('Failed to connect to LLM service:', error);
+          setAppState(prev => ({
+            ...prev,
+            connectionStatus: 'disconnected',
+            ollamaStatus: 'disconnected',
+            activeSection: 'settings' // Switch to settings if no connection
+          }));
+          setError('Failed to connect to LLM service. Please check your connection settings.');
+          setLoading(false);
+          return;
+        }
+        
+        // If we have a connection, fetch the models
+        try {
+          const availableModels = await llmService.listModels();
+          
+          if (availableModels && availableModels.length > 0) {
+            setModels(availableModels);
+            
+            // If we have models but no current model selected, use the first one
+            if (!currentModel && availableModels.length > 0) {
+              setCurrentModel(availableModels[0].id);
+            }
+          } else {
+            setError('No models found. Please install at least one model.');
+          }
+        } catch (error) {
+          console.error('Failed to fetch models:', error);
+          setError('Failed to fetch models. The LLM service might be running but not properly configured.');
+        }
+      } catch (error) {
+        console.error('Error initializing app:', error);
+        setError('Failed to initialize application. Please check your connection and try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchModels();
+    
+    // Set up a refresh interval to periodically check for new models
+    const modelRefreshInterval = setInterval(() => {
+      llmService.listModels()
+        .then(availableModels => {
+          if (availableModels && availableModels.length > 0) {
+            setModels(availableModels);
+          }
+        })
+        .catch(error => console.error('Error refreshing models:', error));
+    }, 5 * 60 * 1000); // Check every 5 minutes
+    
+    return () => clearInterval(modelRefreshInterval);
+  }, []);
+  
+  const toggleSidebar = () => {
+    setAppState(prev => ({
+      ...prev,
+      sidebarCollapsed: !prev.sidebarCollapsed
+    }));
+  };
+  
+  const setActiveSection = (section) => {
+    setAppState(prev => ({
+      ...prev,
+      activeSection: section
+    }));
+  };
+  
+  const updateProfile = (newProfileData) => {
+    setProfile(prev => ({
+      ...prev,
+      ...newProfileData
+    }));
+  };
+  
+  // Generate a description from the first message content
+  const generateChatDescription = (content) => {
+    if (!content) return 'New chat';
+    
+    // Take first 100 characters and remove line breaks
+    let description = content
+      .replace(/\n/g, ' ') // Replace newlines with spaces
+      .substring(0, 100)   // Take first 100 characters
+      .trim();
+      
+    // Add ellipsis if we cut off the text
+    if (content.length > 100) {
+      description += '...';
+    }
+    
+    return description || 'New chat';
+  };
+
+  const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
+    const newChat = {
+      id: Date.now().toString(),
+      title: initialTitle,
+      description: firstMessage ? generateChatDescription(firstMessage) : 'New chat',
+      messages: [],
+      model: currentModel,
+      theme: themeName, // Save the theme with the chat
+      isStarred: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      tokenCount: 0
+    };
+    
+    setChats(prev => {
+      const newChats = prev && Array.isArray(prev) ? [...prev] : [];
+      return [newChat, ...newChats];
+    });
+    
+    setCurrentChat(newChat);
+    setAppState(prev => ({
+      ...prev,
+      activeSection: 'chat'
+    }));
+    
+    // Apply the theme for the new chat
+    if (themeName) {
+      localStorage.setItem('sephia_theme', themeName);
+      document.documentElement.setAttribute('data-theme', themeName);
+    }
+    
+    return newChat;
+  };
+
+  const sendMessage = async (chatId, message, options = {}) => {
+    try {
+      // Find the chat to update
+      const chatIndex = chats.findIndex(c => c.id === chatId);
+      if (chatIndex === -1) {
+        throw new Error(`Chat with ID ${chatId} not found`);
+      }
+      
+      const chatToUpdate = { ...chats[chatIndex] };
+      
+      // Add user message to chat
+      const userMessage = {
+        id: Date.now().toString(),
+        content: message,
+        role: 'user',
+        timestamp: new Date().toISOString(),
+      };
+      
+      chatToUpdate.messages = [...chatToUpdate.messages, userMessage];
+      chatToUpdate.updatedAt = new Date().toISOString();
+      
+      // Update the chat with the user message
+      const updatedChats = [...chats];
+      updatedChats[chatIndex] = chatToUpdate;
+      setChats(updatedChats);
+      
+      // Get response from the LLM service
+      const response = await llmService.generateResponse(message, {
+        model: currentModel,
+        ...options
+      });
+      
+      // Add the AI response to the chat
+      const aiMessage = {
+        id: (Date.now() + 1).toString(),
+        content: response.text,
+        role: 'assistant',
+        timestamp: new Date().toISOString(),
+      };
+      
+      chatToUpdate.messages = [...chatToUpdate.messages, aiMessage];
+      chatToUpdate.updatedAt = new Date().toISOString();
+      
+      // Update token counts
+      chatToUpdate.tokenCount = (chatToUpdate.tokenCount || 0) + 
+        (response.tokens?.input || 0) + 
+        (response.tokens?.output || 0);
+      
+      // Update the chat with the AI response
+      updatedChats[chatIndex] = chatToUpdate;
+      setChats(updatedChats);
+      
+      // Update application token counts
+      updateTokenCount(response.tokens);
+      
+      // Update message generation duration
+      setMessageTime(response.duration);
+      
+      return aiMessage;
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      throw error;
+    }
+  };
+
+  // Function to support streaming messages
+  const streamMessage = async (message, options = {}, onChunk) => {
+    try {
+      console.log(`AppContext: Streaming message using model ${currentModel}`);
+      
+      // Update connection status to connecting
+      setAppState(prev => ({
+        ...prev,
+        connectionStatus: 'connecting'
+      }));
+      
+      // Wrap the onChunk callback to update connection status based on responses
+      const enhancedCallback = (chunkData) => {
+        try {
+          const data = JSON.parse(chunkData);
+          
+          // If we get a successful response, update connection status
+          if (data.response && !data.error) {
+            if (appState.connectionStatus !== 'connected') {
+              console.log('Received valid response, updating connection status to connected');
+              setAppState(prev => ({
+                ...prev,
+                connectionStatus: 'connected'
+              }));
+            }
+          } 
+          // If we get an error response, update connection status
+          else if (data.error) {
+            console.log('Received error response, updating connection status to disconnected');
+            setAppState(prev => ({
+              ...prev,
+              connectionStatus: 'disconnected'
+            }));
+          }
+          
+          // Pass the data to the original callback
+          if (onChunk) {
+            onChunk(chunkData);
+          }
+        } catch (e) {
+          console.error('Error processing chunk in enhanced callback:', e);
+          // Still try to pass the data to the original callback
+          if (onChunk) {
+            onChunk(chunkData);
+          }
+        }
+      };
+      
+      return await llmService.streamMessage(message, { 
+        model: currentModel,
+        ...options 
+      }, enhancedCallback);
+    } catch (error) {
+      console.error('Error streaming message:', error);
+      
+      // Update connection status on error
+      setAppState(prev => ({
+        ...prev,
+        connectionStatus: 'disconnected'
+      }));
+      
+      throw error;
+    }
+  };
+
+  const handleSendMessage = async (messageText) => {
+    console.log('handleSendMessage called with text:', messageText);
+    
+    // Validate input
+    if (!messageText || typeof messageText !== 'string' || !messageText.trim()) {
+      console.warn('handleSendMessage: Empty or invalid message text');
+      return;
+    }
+    
+    // If this is the first message in a new chat, update the chat description
+    if (currentChat?.messages?.length === 0) {
+      const description = generateChatDescription(messageText);
+      setCurrentChat(prev => ({
+        ...prev,
+        description
+      }));
+    }
+    
+    // Rest of the handleSendMessage implementation...
+  };
+
+  const createNewProject = (projectData) => {
+    const newProject = {
+      id: Date.now().toString(),
+      title: projectData.title || 'New Project',
+      description: projectData.description || '',
+      chats: [],
+      files: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    setProjects(prev => [newProject, ...prev]);
+    return newProject;
+  };
+  
+  const deleteChat = (chatId) => {
+    setChats(prev => {
+      if (!prev || !Array.isArray(prev)) return [];
+      return prev.filter(chat => chat.id !== chatId);
+    });
+    
+    if (currentChat && currentChat.id === chatId) {
+      // If we're deleting the current chat, select the most recent chat if available
+      setChats(prev => {
+        if (!prev || !Array.isArray(prev) || prev.length === 0) {
+          setCurrentChat(null);
+          return [];
+        }
+        
+        // Find the most recent chat that's not the one being deleted
+        const otherChats = prev.filter(chat => chat.id !== chatId);
+        if (otherChats.length > 0) {
+          const mostRecentChat = [...otherChats].sort(
+            (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+          )[0];
+          setCurrentChat(mostRecentChat);
+          
+          // Apply the chat's theme if it has one
+          if (mostRecentChat.theme) {
+            localStorage.setItem('sephia_theme', mostRecentChat.theme);
+            document.documentElement.setAttribute('data-theme', mostRecentChat.theme);
+          }
+        } else {
+          setCurrentChat(null);
+        }
+        
+        return otherChats;
+      });
+    }
+  };
+  
+  const deleteProject = (projectId) => {
+    setProjects(prev => prev.filter(project => project.id !== projectId));
+  };
+  
+  const loadModel = async (modelId) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Update connection status to connecting
+      setAppState(prev => ({
+        ...prev,
+        connectionStatus: 'connecting'
+      }));
+      
+      try {
+        // First check if the model is already loaded
+        const loadedModels = await llmService.listLoadedModels();
+        if (loadedModels.some(m => m.id === modelId)) {
+          console.log(`Model ${modelId} is already loaded`);
+          setCurrentModel(modelId);
+          
+          setAppState(prev => ({
+            ...prev,
+            connectionStatus: 'connected'
+          }));
+          
+          return true;
+        }
+        
+        // If not loaded, try to load it
+        console.log(`Attempting to load model: ${modelId}`);
+        const result = await llmService.loadModel(modelId);
+        
+        if (result && result.success) {
+          console.log(`Successfully loaded model: ${modelId}`);
+          setCurrentModel(modelId);
+          
+          // Update the models list to reflect the loaded model
+          const availableModels = await llmService.listModels();
+          if (availableModels) {
+            setModels(availableModels);
+          }
+          
+          setAppState(prev => ({
+            ...prev,
+            connectionStatus: 'connected'
+          }));
+          
+          return true;
+        } else {
+          throw new Error(result?.error || `Failed to load model: ${modelId}`);
+        }
+      } catch (error) {
+        console.error(`Error loading model ${modelId}:`, error);
+        
+        setAppState(prev => ({
+          ...prev,
+          connectionStatus: 'disconnected'
+        }));
+        
+        setError(`Failed to load model: ${error.message}`);
+        return false;
+      }
+    } catch (error) {
+      console.error('Error in loadModel:', error);
+      setError(`Failed to load model: ${error.message}`);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const unloadModel = async (modelId) => {
+    try {
+      setLoading(true);
+      
+      // Don't unload if it's the current model
+      if (modelId === currentModel) {
+        console.warn(`Cannot unload the currently active model: ${modelId}`);
+        return false;
+      }
+      
+      const result = await llmService.unloadModel(modelId);
+      
+      if (result && result.success) {
+        // Update the models list to reflect the unloaded model
+        const availableModels = await llmService.listModels();
+        if (availableModels) {
+          setModels(availableModels);
+        }
+        return true;
+      } else {
+        throw new Error(result?.error || `Failed to unload model: ${modelId}`);
+      }
+    } catch (error) {
+      console.error(`Error unloading model ${modelId}:`, error);
+      setError(`Failed to unload model: ${error.message}`);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const updateTokenCount = (newTokens) => {
+    setTokenCount(prev => ({
+      input: (prev.input || 0) + (newTokens.input || 0),
+      output: (prev.output || 0) + (newTokens.output || 0),
+      total: (prev.total || 0) + (newTokens.input || 0) + (newTokens.output || 0)
+    }));
+  };
+  
+  const resetTokenCount = () => {
+    setTokenCount({ input: 0, output: 0, total: 0 });
+  };
+  
+  const setMessageTime = (duration) => {
+    setMessageDuration(duration);
+  };
+  
+  const value = {
+    currentModel,
+    setCurrentModel,
+    models,
+    loading,
+    error,
+    appState,
+    toggleSidebar,
+    setActiveSection,
+    chats,
+    currentChat,
+    setCurrentChat,
+    createNewChat,
+    deleteChat,
+    projects,
+    createNewProject,
+    deleteProject,
+    profile,
+    updateProfile,
+    sendMessage,
+    streamMessage,
+    handleSendMessage,
+    loadModel,
+    unloadModel,
+    tokenCount,
+    updateTokenCount,
+    resetTokenCount,
+    messageDuration,
+    setMessageTime
+  };
+  
+  return (
+    <AppContext.Provider value={value}>
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export default AppContext;

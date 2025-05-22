@@ -15,7 +15,7 @@ const MessageGroup = styled.div`
   margin-bottom: ${props => props.theme.spacing.large};
 `;
 
-const MessageList = ({ messages = [] }) => {
+const MessageList = ({ messages = [], onDeleteMessage }) => {
   const { theme } = useTheme();
   const messagesEndRef = useRef(null);
   const prevMessagesLength = useRef(0);
@@ -136,6 +136,7 @@ const MessageList = ({ messages = [] }) => {
             message={group}
             isFirstInGroup={group.isFirstInGroup}
             isLastInGroup={group.isLastInGroup}
+            onDelete={onDeleteMessage}
           />
         </MessageGroup>
       ))}

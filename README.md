@@ -1,8 +1,44 @@
-# Sephia - Optimized for Apple Silicon M4
+# Sephia - Modern LLM Interface
 
-Sephia is a high-performance desktop interface for interacting with LLMs, now optimized for Apple Silicon M4 with 24GB unified memory. This version includes significant performance improvements for faster model loading and response times.
+Sephia is a high-performance desktop interface for interacting with LLMs, featuring a modern theme system and optimized performance. This version includes a complete theme system overhaul with improved stability and developer experience.
+
+## 🎨 Theme System Overhaul
+
+### Recent Improvements
+
+- **Theme Context API**: Implemented a robust theme management system using React Context
+- **Styled Components**: Converted all components to use Emotion's styled components with theme support
+- **Error Handling**: Added comprehensive error handling for theme access
+- **Performance**: Optimized theme access with proper memoization and fallbacks
+- **Consistency**: Ensured consistent theming across all UI components
+
+### Theme Features
+
+- **Dark/Light Mode**: Built-in support for multiple color schemes
+- **Custom Theming**: Easy to extend and customize themes
+- **Responsive Design**: Adapts to different screen sizes and preferences
+- **Accessibility**: Improved contrast and readability
+
+### Components Updated
+
+- Header
+- ChatView
+- ChatInput
+- TokenDisplay
+- Sidebar
+- Settings
+- And more...
 
 ## 🚀 Performance Optimizations
+
+### Apple Silicon M4 Optimizations
+
+- **Hardware Acceleration**: Full utilization of M4's GPU and Neural Engine
+- **Memory Management**: Optimized for 24GB unified memory with intelligent model loading
+- **GPU Acceleration**: Enhanced rendering with Metal and WebGL
+- **Energy Efficiency**: Reduced CPU/GPU usage for better battery life
+
+## ⚡ Performance Optimizations
 
 ### Apple Silicon M4 Optimizations
 

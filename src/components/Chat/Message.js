@@ -4,8 +4,8 @@ import { useTheme } from '../../context/ThemeContext';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ContentCopy as CopyIcon, Check as CheckIcon } from '@mui/icons-material';
-import { Tooltip, IconButton, Box, styled, keyframes } from '@mui/material';
+import { ContentCopy as CopyIcon, Check as CheckIcon, Delete as DeleteIcon } from '@mui/icons-material';
+import { Tooltip, IconButton, Box, styled, keyframes, useTheme as useMuiTheme } from '@mui/material';
 import BrainIcon from './BrainIcon';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
@@ -159,8 +159,9 @@ const getStyle = (styleObj, ...args) => {
 
 // Styled components removed in favor of inline styles
 
-const Message = ({ message, isLastInGroup }) => {
-  const { profile } = useApp();
+const Message = ({ message, isLastInGroup, onDelete }) => {
+  const { profile, currentChat } = useApp();
+  const muiTheme = useMuiTheme();
   const { theme } = useTheme();
   const [copyStatus, setCopyStatus] = useState({});
   
@@ -511,21 +512,44 @@ const Message = ({ message, isLastInGroup }) => {
         }
       }}>
         <div style={getStyle(styles.messageActions)} className="message-actions">
-          <Tooltip title={copyStatus.message ? 'Copied!' : 'Copy message'} arrow>
-            <IconButton 
-              size="small" 
-              onClick={handleCopyMessage}
-              sx={{
-                color: isUser ? 'rgba(255, 255, 255, 0.8)' : 'text.secondary',
-                backgroundColor: isUser ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.05)',
-                '&:hover': {
-                  backgroundColor: isUser ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.1)',
-                },
-              }}
-            >
-              {copyStatus.message ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
-            </IconButton>
-          </Tooltip>
+          <Box sx={{ display: 'flex', gap: '4px' }}>
+            <Tooltip title={copyStatus.message ? 'Copied!' : 'Copy message'} arrow>
+              <IconButton 
+                size="small" 
+                onClick={handleCopyMessage}
+                sx={{
+                  color: isUser ? 'rgba(255, 255, 255, 0.8)' : 'text.secondary',
+                  backgroundColor: isUser ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.05)',
+                  '&:hover': {
+                    backgroundColor: isUser ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.1)',
+                  },
+                }}
+              >
+                {copyStatus.message ? <CheckIcon fontSize="small" /> : <CopyIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+            
+            {onDelete && (
+              <Tooltip title="Delete message" arrow>
+                <IconButton 
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(safeMessage.id);
+                  }}
+                  sx={{
+                    color: muiTheme.palette.error.main,
+                    backgroundColor: 'rgba(211, 47, 47, 0.1)',
+                    '&:hover': {
+                      backgroundColor: 'rgba(211, 47, 47, 0.2)',
+                    },
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         </div>
         
         <div style={getStyle(styles.messageBubble, safeMessage.role)}>

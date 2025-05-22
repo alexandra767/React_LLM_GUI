@@ -1,44 +1,61 @@
 import React from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme, ThemeContext } from '../../context/ThemeContext';
 import { FormControl, InputLabel, Select, MenuItem, Box } from '@mui/material';
 
-const HeaderContainer = styled.header`
-  height: 60px;
-  background-color: ${props => props.theme.colors.primaryBg};
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 ${props => props.theme.spacing.large};
-`;
+const HeaderContainer = styled('header')(({ theme }) => ({
+  height: '60px',
+  backgroundColor: theme.colors?.primaryBg || '#1E1E1E',
+  borderBottom: `1px solid ${theme.colors?.border || '#333333'}`,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: `0 ${theme.spacing?.large || '24px'}`
+}));
 
-const Logo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-`;
+const Logo = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme.spacing?.small || '8px'
+}));
 
-const LogoImage = styled.img`
-  height: 32px;
-  width: auto;
-`;
+const LogoImage = styled('img')({
+  height: '32px',
+  width: 'auto'
+});
 
-const LogoText = styled.h1`
-  font-size: ${props => props.theme.typography.header.size};
-  font-weight: ${props => props.theme.typography.header.weight};
-  color: ${props => props.theme.colors.primaryText};
-`;
+const LogoText = styled('h1')(({ theme }) => ({
+  fontSize: theme.typography?.header?.size || '24px',
+  fontWeight: theme.typography?.header?.weight || '300',
+  color: theme.colors?.primaryText || '#FFFFFF',
+  margin: 0
+}));
 
 
 const Header = ({ selectedModel, onModelChange, models = [] }) => {
-  const { theme } = useTheme();
+  // Use the theme directly from the context
+  const theme = React.useContext(ThemeContext);
+  
+  if (!theme) {
+    console.error('Theme context is not available in Header component');
+    return (
+      <div style={{ 
+        height: '60px', 
+        backgroundColor: '#1E1E1E', 
+        display: 'flex', 
+        alignItems: 'center', 
+        padding: '0 24px' 
+      }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
   
   return (
-    <HeaderContainer theme={theme}>
-      <Logo theme={theme}>
+    <HeaderContainer>
+      <Logo>
         <LogoImage src="/images/brain-computer.svg" alt="Sephia Logo" />
-        <LogoText theme={theme}>Sephia</LogoText>
+        <LogoText>Sephia</LogoText>
       </Logo>
       <Box sx={{ minWidth: 200, ml: 'auto', mr: 2 }}>
         <FormControl fullWidth size="small">

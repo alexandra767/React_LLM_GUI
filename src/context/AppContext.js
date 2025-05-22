@@ -67,8 +67,54 @@ export const AppProvider = ({ children }) => {
   
   // Save chats to localStorage whenever they change
   useEffect(() => {
-    localStorage.setItem('sephia_chats', JSON.stringify(chats));
-  }, [chats]);
+    try {
+      if (chats && Array.isArray(chats)) {
+        localStorage.setItem('sephia_chats', JSON.stringify(chats));
+        // Also save the current chat ID for persistence
+        if (currentChat) {
+          localStorage.setItem('sephia_current_chat_id', currentChat.id);
+          
+          // Update the chat in the chats array to keep it in sync
+          setChats(prev => {
+            if (!prev || !Array.isArray(prev)) return [];
+            const chatIndex = prev.findIndex(c => c.id === currentChat.id);
+            if (chatIndex >= 0) {
+              const updatedChats = [...prev];
+              updatedChats[chatIndex] = currentChat;
+              return updatedChats;
+            }
+            return prev;
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to save chats to localStorage:', error);
+    }
+  }, [chats, currentChat]);
+  
+  // Load current chat ID on initial load
+  useEffect(() => {
+    try {
+      const savedChatId = localStorage.getItem('sephia_current_chat_id');
+      if (savedChatId && chats.length > 0) {
+        const chat = chats.find(c => c.id === savedChatId);
+        if (chat) {
+          // Apply the chat's saved theme if it exists
+          if (chat.theme) {
+            localStorage.setItem('sephia_theme', chat.theme);
+            document.documentElement.setAttribute('data-theme', chat.theme);
+          }
+          setCurrentChat(chat);
+        } else if (chats.length > 0) {
+          setCurrentChat(chats[0]);
+        }
+      } else if (chats.length > 0) {
+        setCurrentChat(chats[0]);
+      }
+    } catch (error) {
+      console.error('Failed to load current chat from localStorage:', error);
+    }
+  }, [chats.length]);
   
   // Save projects to localStorage whenever they change
   useEffect(() => {
@@ -187,158 +233,273 @@ export const AppProvider = ({ children }) => {
     }));
   };
   
-  const createNewChat = () => {
-    const newChat = {
-      id: Date.now().toString(),
-      title: 'New Chat',
-      messages: [],
-      model: currentModel,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tokenCount: 0
-    };
+  // Generate a description from the first message content
+  const generateChatDescription = (content) => {
+    if (!content) return 'New chat';
     
-    setChats(prev => [newChat, ...prev]);
-    setCurrentChat(newChat);
-    setAppState(prev => ({
-      ...prev,
-      activeSection: 'chat'
-    }));
+    // Take first 100 characters and remove line breaks
+    let description = content
+      .replace(/\n/g, ' ') // Replace newlines with spaces
+      .substring(0, 100)   // Take first 100 characters
+      .trim();
+      
+    // Add ellipsis if we cut off the text
+    if (content.length > 100) {
+      description += '...';
+    }
     
-    return newChat;
+    return description || 'New chat';
   };
+
+const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
+  const newChat = {
+    id: Date.now().toString(),
+    title: initialTitle,
+    description: firstMessage ? generateChatDescription(firstMessage) : 'New chat',
+    messages: [],
+    model: currentModel,
+    theme: themeName, // Save the theme with the chat
+    isStarred: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    tokenCount: 0
+  };
+  
+  setChats(prev => {
+    const newChats = prev && Array.isArray(prev) ? [...prev] : [];
+    return [newChat, ...newChats];
+  });
+  
+  setCurrentChat(newChat);
+  setAppState(prev => ({
+    ...prev,
+    activeSection: 'chat'
+  }));
+  
+  // Apply the theme for the new chat
+  if (themeName) {
+    localStorage.setItem('sephia_theme', themeName);
+    document.documentElement.setAttribute('data-theme', themeName);
+  }
+  
+  return newChat;
+};
 
   const sendMessage = async (chatId, message, options = {}) => {
     try {
-      // Find the chat to update
-      const chatIndex = chats.findIndex(c => c.id === chatId);
-      if (chatIndex === -1) {
-        throw new Error(`Chat with ID ${chatId} not found`);
+      const chat = chats.find(c => c.id === chatId);
+      if (!chat) {
+        console.error('Chat not found');
+        return;
       }
-      
-      // Add the user message to the chat
-      const chatToUpdate = { ...chats[chatIndex] };
+
       const userMessage = {
         id: Date.now().toString(),
-        content: message,
         role: 'user',
-        timestamp: new Date().toISOString(),
+        content: message,
+        timestamp: new Date().toISOString()
       };
-      
-      chatToUpdate.messages = [...chatToUpdate.messages, userMessage];
-      chatToUpdate.updatedAt = new Date().toISOString();
-      
-      // Update the chat with the user message
-      const updatedChats = [...chats];
-      updatedChats[chatIndex] = chatToUpdate;
+
+      // Add user message to chat
+      const updatedChat = {
+        ...chat,
+        messages: [...chat.messages, userMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update chats state
+      const updatedChats = chats.map(c => c.id === chatId ? updatedChat : c);
       setChats(updatedChats);
-      
-      // Get response from the LLM service
-      const response = await llmService.generateResponse(message, {
-        model: currentModel,
+      setCurrentChat(updatedChat);
+
+      // If this is the first message, update the chat description
+      if (updatedChat.messages.length === 1) {
+        const description = generateChatDescription(message);
+        updatedChat.description = description;
+        
+        const updatedChatsWithDescription = updatedChats.map(c => 
+          c.id === chatId ? { ...c, description } : c
+        );
+        setChats(updatedChatsWithDescription);
+        setCurrentChat(prev => ({ ...prev, description }));
+      }
+
+      // Get AI response
+      const response = await llmService.sendMessage(chatId, message, {
+        model: chat.model || currentModel,
         ...options
       });
-      
-      // Add the AI response to the chat
+
       const aiMessage = {
         id: (Date.now() + 1).toString(),
-        content: response.text,
         role: 'assistant',
-        timestamp: new Date().toISOString(),
+        content: response.content,
+        timestamp: new Date().toISOString()
       };
-      
-      chatToUpdate.messages = [...chatToUpdate.messages, aiMessage];
-      chatToUpdate.updatedAt = new Date().toISOString();
-      
-      // Update token counts
-      chatToUpdate.tokenCount = (chatToUpdate.tokenCount || 0) + 
-        (response.tokens?.input || 0) + 
-        (response.tokens?.output || 0);
-      
-      // Update the chat with the AI response
-      updatedChats[chatIndex] = chatToUpdate;
-      setChats(updatedChats);
-      
-      // Update application token counts
-      updateTokenCount(response.tokens);
-      
-      // Update message generation duration
-      setMessageTime(response.duration);
-      
+
+      // Add AI response to chat
+      const finalChat = {
+        ...updatedChat,
+        messages: [...updatedChat.messages, aiMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update chats state with AI response
+      const finalChats = updatedChats.map(c => c.id === chatId ? finalChat : c);
+      setChats(finalChats);
+      setCurrentChat(finalChat);
+
+      // Save to localStorage
+      localStorage.setItem('sephia_chats', JSON.stringify(finalChats));
+
       return aiMessage;
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('Error sending message:', error);
       throw error;
     }
   };
 
-  // Function to support streaming messages
-  const streamMessage = async (message, options = {}, onChunk) => {
+  const streamMessage = async (chatId, message, options = {}) => {
     try {
-      console.log(`AppContext: Streaming message using model ${currentModel}`);
-      
-      // First validate the connection status
-      if (appState.connectionStatus !== 'connected') {
-        console.log('Connection not established, setting to connecting state...');
-        setAppState(prev => ({
-          ...prev,
-          connectionStatus: 'connecting'
-        }));
-        
-        // Add a short delay to ensure UI updates
-        await new Promise(resolve => setTimeout(resolve, 100));
+      const chat = chats.find(c => c.id === chatId);
+      if (!chat) {
+        console.error('Chat not found');
+        return;
       }
-      
-      // Wrap the onChunk callback to update connection status based on responses
-      const enhancedCallback = (chunkData) => {
-        try {
-          const data = JSON.parse(chunkData);
-          
-          // If we get a successful response, update connection status
-          if (data.response && !data.error) {
-            if (appState.connectionStatus !== 'connected') {
-              console.log('Received valid response, updating connection status to connected');
-              setAppState(prev => ({
-                ...prev,
-                connectionStatus: 'connected'
-              }));
-            }
-          } 
-          // If we get an error response, update connection status
-          else if (data.error) {
-            console.log('Received error response, updating connection status to disconnected');
-            setAppState(prev => ({
-              ...prev,
-              connectionStatus: 'disconnected'
-            }));
-          }
-          
-          // Pass the data to the original callback
-          if (onChunk) {
-            onChunk(chunkData);
-          }
-        } catch (e) {
-          console.error('Error processing chunk in enhanced callback:', e);
-          // Still try to pass the data to the original callback
-          if (onChunk) {
-            onChunk(chunkData);
-          }
-        }
+
+      const userMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: message,
+        timestamp: new Date().toISOString()
       };
-      
-      return await llmService.streamMessage(message, { 
-        model: currentModel,
-        ...options 
-      }, enhancedCallback);
+
+      // Add user message to chat
+      const updatedChat = {
+        ...chat,
+        messages: [...chat.messages, userMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update chats state
+      const updatedChats = chats.map(c => c.id === chatId ? updatedChat : c);
+      setChats(updatedChats);
+      setCurrentChat(updatedChat);
+
+      // If this is the first message, update the chat description
+      if (updatedChat.messages.length === 1) {
+        const description = generateChatDescription(message);
+        updatedChat.description = description;
+        
+        const updatedChatsWithDescription = updatedChats.map(c => 
+          c.id === chatId ? { ...c, description } : c
+        );
+        setChats(updatedChatsWithDescription);
+        setCurrentChat(prev => ({ ...prev, description }));
+      }
+
+      // Create a placeholder for the AI response that will be streamed
+      const aiMessageId = (Date.now() + 1).toString();
+      const aiMessage = {
+        id: aiMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        isStreaming: true
+      };
+
+      // Add placeholder AI message to chat
+      const chatWithPlaceholder = {
+        ...updatedChat,
+        messages: [...updatedChat.messages, aiMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      const chatsWithPlaceholder = updatedChats.map(c => 
+        c.id === chatId ? chatWithPlaceholder : c
+      );
+      setChats(chatsWithPlaceholder);
+      setCurrentChat(chatWithPlaceholder);
+
+      // Stream the response
+      const onChunk = (chunk) => {
+        setChats(prevChats => {
+          const updatedChats = prevChats.map(chat => {
+            if (chat.id !== chatId) return chat;
+            
+            const updatedMessages = chat.messages.map(msg => {
+              if (msg.id === aiMessageId) {
+                return {
+                  ...msg,
+                  content: msg.content + (chunk.content || '')
+                };
+              }
+              return msg;
+            });
+
+            return {
+              ...chat,
+              messages: updatedMessages,
+              updatedAt: new Date().toISOString()
+            };
+          });
+
+          // Update current chat if it's the one being streamed to
+          setCurrentChat(prev => 
+            prev?.id === chatId 
+              ? updatedChats.find(c => c.id === chatId)
+              : prev
+          );
+
+          return updatedChats;
+        });
+      };
+
+      const onComplete = () => {
+        setChats(prevChats => {
+          const updatedChats = prevChats.map(chat => {
+            if (chat.id !== chatId) return chat;
+            
+            const updatedMessages = chat.messages.map(msg => {
+              if (msg.id === aiMessageId) {
+                const { isStreaming, ...rest } = msg;
+                return rest; // Remove isStreaming flag
+              }
+              return msg;
+            });
+
+            return {
+              ...chat,
+              messages: updatedMessages,
+              updatedAt: new Date().toISOString()
+            };
+          });
+
+          // Save to localStorage when streaming is complete
+          localStorage.setItem('sephia_chats', JSON.stringify(updatedChats));
+          
+          // Update current chat if it's the one being streamed to
+          setCurrentChat(prev => 
+            prev?.id === chatId 
+              ? updatedChats.find(c => c.id === chatId)
+              : prev
+          );
+
+          return updatedChats;
+        });
+      };
+
+      // Start streaming the response
+      await llmService.streamMessage(chatId, message, {
+        model: chat.model || currentModel,
+        ...options,
+        onChunk,
+        onComplete
+      });
+
+      return aiMessageId;
     } catch (error) {
       console.error('Error streaming message:', error);
-      
-      // Update connection status on error
-      setAppState(prev => ({
-        ...prev,
-        connectionStatus: 'disconnected'
-      }));
-      
       throw error;
     }
   };
@@ -359,9 +520,38 @@ export const AppProvider = ({ children }) => {
   };
   
   const deleteChat = (chatId) => {
-    setChats(prev => prev.filter(chat => chat.id !== chatId));
+    setChats(prev => {
+      if (!prev || !Array.isArray(prev)) return [];
+      return prev.filter(chat => chat.id !== chatId);
+    });
+    
     if (currentChat && currentChat.id === chatId) {
-      setCurrentChat(null);
+      // If we're deleting the current chat, select the most recent chat if available
+      setChats(prev => {
+        if (!prev || !Array.isArray(prev) || prev.length === 0) {
+          setCurrentChat(null);
+          return [];
+        }
+        
+        // Find the most recent chat that's not the one being deleted
+        const otherChats = prev.filter(chat => chat.id !== chatId);
+        if (otherChats.length > 0) {
+          const mostRecentChat = [...otherChats].sort(
+            (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+          )[0];
+          setCurrentChat(mostRecentChat);
+          
+          // Apply the chat's theme if it has one
+          if (mostRecentChat.theme) {
+            localStorage.setItem('sephia_theme', mostRecentChat.theme);
+            document.documentElement.setAttribute('data-theme', mostRecentChat.theme);
+          }
+        } else {
+          setCurrentChat(null);
+        }
+        
+        return otherChats;
+      });
     }
   };
   
@@ -515,3 +705,5 @@ export const AppProvider = ({ children }) => {
     </AppContext.Provider>
   );
 };
+
+export default AppContext;

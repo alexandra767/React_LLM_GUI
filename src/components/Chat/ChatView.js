@@ -1,96 +1,102 @@
 import React, { useState, useCallback } from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme, ThemeContext } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import TokenDisplay from './TokenDisplay';
 import BrainIcon from './BrainIcon';
 import llmService from '../../services/LLMService';
-import { Delete as DeleteIcon } from '@mui/icons-material';
+// DeleteIcon import removed as it's no longer needed here
 
-const ChatContainer = styled.div`
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  max-width: 1200px;
-  width: 100%;
-  margin: 0 auto;
-`;
+const ChatContainer = styled('div')({
+  display: 'flex',
+  flexDirection: 'column',
+  height: '100%',
+  maxWidth: '1200px',
+  width: '100%',
+  margin: '0 auto'
+});
 
-const EmptyState = styled.div`
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: ${props => props.theme.colors.tertiaryText};
-  text-align: center;
-`;
+const EmptyState = styled('div')(({ theme }) => ({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: '100%',
+  color: theme?.colors?.tertiaryText || '#AAAAAA',
+  textAlign: 'center'
+}));
 
-const StatusBar = styled.div`
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  border-top: 1px solid ${props => props.theme.colors.border};
-  font-size: ${props => props.theme.typography.secondaryInfo.size};
-  color: ${props => props.theme.colors.tertiaryText};
-`;
+const StatusBar = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
+  borderTop: `1px solid ${theme?.colors?.border || '#333333'}`,
+  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
+  color: theme?.colors?.tertiaryText || '#AAAAAA'
+}));
 
 // Removed ChatActions and ActionButton as they'll be moved to the sidebar
 
-const TokenCounter = styled.div`
-  display: flex;
-  gap: ${props => props.theme.spacing.small};
-`;
+const TokenCounter = styled('div')(({ theme }) => ({
+  display: 'flex',
+  gap: theme?.spacing?.small || '8px'
+}));
 
-const ModelInfo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-  
-  .model-name {
-    font-weight: 500;
-  }
-`;
+const ModelInfo = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme?.spacing?.small || '8px',
+  fontWeight: 500
+}));
 
-const DurationIndicator = styled.div`
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  border-radius: ${props => props.theme.borderRadius.small};
-  background-color: ${props => props.theme.colors.secondaryBg};
-`;
+const DurationIndicator = styled('div')(({ theme }) => ({
+  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
+  borderRadius: '4px',
+  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
+  color: theme?.colors?.tertiaryText || '#AAAAAA',
+  backgroundColor: theme?.colors?.secondaryBg || '#252525',
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme?.spacing?.small || '8px'
+}));
 
-const EmptyStateTitle = styled.h2`
-  font-size: ${props => props.theme.typography.header.size};
-  font-weight: ${props => props.theme.typography.header.weight};
-  margin-bottom: ${props => props.theme.spacing.medium};
-`;
+const EmptyStateTitle = styled('h2')(({ theme }) => ({
+  fontSize: theme?.typography?.header?.size || '24px',
+  fontWeight: theme?.typography?.header?.weight || '300',
+  marginBottom: theme?.spacing?.medium || '24px',
+  margin: '0 0 16px 0'
+}));
 
-const EmptyStateText = styled.p`
-  font-size: ${props => props.theme.typography.regularText.size};
-  max-width: 500px;
-`;
+const EmptyStateText = styled('p')({
+  fontSize: '16px',
+  maxWidth: '500px',
+  margin: '0 0 24px 0',
+  lineHeight: 1.5
+});
 
-const ModelImageContainer = styled.div`
-  width: 120px;
-  height: 120px;
-  margin-bottom: ${props => props.theme.spacing.large};
-  border-radius: 50%;
-  background-color: ${props => props.theme.colors.secondaryBg};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-`;
+const ModelImageContainer = styled('div')(({ theme }) => ({
+  width: '120px',
+  height: '120px',
+  marginBottom: theme?.spacing?.large || '24px',
+  borderRadius: '50%',
+  backgroundColor: theme?.colors?.secondaryBg || '#252525',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  margin: '0 auto 24px'
+}));
 
 const ChatView = () => {
-  const { theme } = useTheme();
+  const theme = React.useContext(ThemeContext);
   const { 
     currentChat, 
     currentModel, 
     models,
     setCurrentChat, 
-    createNewChat,
+    createNewChat: createNewChatFromContext,
     updateTokenCount,
     setMessageTime,
     tokenCount,
@@ -99,25 +105,31 @@ const ChatView = () => {
     chats
   } = useApp();
   
-  // Debug logs
-  console.log('ChatView render - currentChat:', currentChat);
-  console.log('ChatView render - chats:', chats);
-  console.log('ChatView render - currentModel:', currentModel);
-  console.log('ChatView render - models:', models);
+  // Wrapper around createNewChat to include the current theme
+  const createNewChat = useCallback((title = 'New Chat') => {
+    const themeName = theme?.themeName || 'dark'; // Default to 'dark' if theme is not available
+    return createNewChatFromContext(title, themeName);
+  }, [createNewChatFromContext, theme]);
+  
+  // Debug logs (commented out for production)
+  // console.log('ChatView render - currentChat:', currentChat);
+  // console.log('ChatView render - chats:', chats);
+  // console.log('ChatView render - currentModel:', currentModel);
+  // console.log('ChatView render - models:', models);
   
   // Log chat messages if they exist
-  if (currentChat && currentChat.messages) {
-    console.log('ChatView - currentChat.messages:', currentChat.messages);
-    console.log('ChatView - currentChat.messages count:', currentChat.messages.length);
-    if (currentChat.messages.length > 0) {
-      console.log('First message in currentChat:', {
-        id: currentChat.messages[0].id,
-        role: currentChat.messages[0].role,
-        content: currentChat.messages[0].content ? `${currentChat.messages[0].content.substring(0, 50)}...` : 'No content',
-        timestamp: currentChat.messages[0].timestamp
-      });
-    }
-  }
+  // if (currentChat?.messages) {
+  //   console.log('ChatView - currentChat.messages:', currentChat.messages);
+  //   console.log('ChatView - currentChat.messages count:', currentChat.messages.length);
+  //   if (currentChat.messages.length > 0) {
+  //     console.log('First message in currentChat:', {
+  //       id: currentChat.messages[0].id,
+  //       role: currentChat.messages[0].role,
+  //       content: currentChat.messages[0].content ? `${currentChat.messages[0].content.substring(0, 50)}...` : 'No content',
+  //       timestamp: currentChat.messages[0].timestamp
+  //     });
+  //   }
+  // }
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamStart, setStreamStart] = useState(null);
   const [tokenRate, setTokenRate] = useState(0);
@@ -341,6 +353,24 @@ const ChatView = () => {
       };
     });
   };
+  
+  // Handle message deletion
+  const handleDeleteMessage = (messageId) => {
+    if (!currentChat) return;
+    
+    setCurrentChat(prev => {
+      if (!prev) return null;
+      
+      // Filter out the deleted message
+      const updatedMessages = prev.messages.filter(msg => msg.id !== messageId);
+      
+      return {
+        ...prev,
+        messages: updatedMessages,
+        updatedAt: new Date().toISOString()
+      };
+    });
+  };
 
   // Add a new message to the current chat
   const addMessage = (chatId, content, role, id = Date.now().toString()) => {
@@ -421,7 +451,10 @@ const ChatView = () => {
   // Render chat interface when a chat is selected
   return (
     <ChatContainer>
-      <MessageList messages={currentChat.messages} />
+      <MessageList 
+        messages={currentChat.messages}
+        onDeleteMessage={handleDeleteMessage}
+      />
       
       <TokenDisplay 
         isStreaming={isStreaming}

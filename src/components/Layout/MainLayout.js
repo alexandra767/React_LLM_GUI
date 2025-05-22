@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import Sidebar from './Sidebar';
+import Header from './Header';
 import ChatView from '../Chat/ChatView';
 import ProjectsView from '../Projects/ProjectsView';
 import SettingsView from '../Settings/SettingsView';
 import OllamaChatView from '../../views/OllamaChatView';
 import TerminalView from '../../views/TerminalView';
-import { Box, Typography, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
+import ollamaService from '../../services/OllamaService';
 
 const LayoutContainer = styled.div`
   display: flex;
@@ -28,178 +29,182 @@ const ContentArea = styled.div`
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background-color: ${props => props.theme.colors.primaryBg};
+  background-color: ${props => props.theme.colors?.primaryBg || '#1E1E1E'};
   padding: 0;
 `;
 
 const MainLayout = () => {
-  const { theme } = useTheme();
+  const theme = useTheme();
   const { appState } = useApp();
+  
+  // Set default section if none is selected
+  useEffect(() => {
+    if (!appState?.activeSection) {
+      // Set default section to 'ollama' if not set
+      useApp.setState({ activeSection: 'ollama' });
+    }
+  }, [appState?.activeSection]);
   
   // State for model selection
   const [models, setModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [isLoadingModels, setIsLoadingModels] = useState(true);
+  const [error, setError] = useState(null);
 
   // Fetch available models from Ollama
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        setIsLoadingModels(true);
-        const response = await fetch('http://localhost:11434/api/tags');
-        if (!response.ok) {
-          throw new Error('Failed to fetch models');
-        }
-        const data = await response.json();
-        
-        const availableModels = data.models.map(model => ({
-          name: model.name,
-          size: (model.size / 1024 / 1024 / 1024).toFixed(1) + 'GB',
-          modified: new Date(model.modified_at).toLocaleDateString()
+  const fetchModels = useCallback(async () => {
+    try {
+      setIsLoadingModels(true);
+      setError(null);
+      
+      // Get models from Ollama service
+      const ollamaModels = await ollamaService.listModels();
+      
+      if (ollamaModels && ollamaModels.length > 0) {
+        const formattedModels = ollamaModels.map(model => ({
+          name: model.name || model.id,
+          size: model.size ? formatFileSize(model.size) : '',
+          disabled: false
         }));
         
-        setModels(availableModels);
-        if (availableModels.length > 0) {
-          setSelectedModel(availableModels[0].name);
+        setModels(formattedModels);
+        
+        // Set the first model as selected if none is selected
+        if (!selectedModel && formattedModels.length > 0) {
+          setSelectedModel(formattedModels[0].name);
         }
-      } catch (err) {
-        console.error('Error fetching models:', err);
-        // Fallback to default models if API call fails
-        const defaultModels = [
-          { name: 'llama3:8b', size: '4.7GB' },
-          { name: 'mistral:7b', size: '4.1GB' }
-        ];
-        setModels(defaultModels);
-        setSelectedModel(defaultModels[0].name);
-      } finally {
-        setIsLoadingModels(false);
+      } else {
+        // Fallback to mock data if no models found
+        setModels([
+          { name: 'llama2', size: '7B', disabled: false },
+          { name: 'mistral', size: '4.1B', disabled: false }
+        ]);
+        setSelectedModel('llama2');
       }
-    };
-
-    fetchModels();
-  }, []);
-  
-  const renderContent = () => {
-    switch (appState.activeSection) {
-      case 'chat':
-        return <ChatView />;
-      case 'ollama':
-        return <OllamaChatView />;
-      case 'terminal':
-        return <TerminalView />;
-      case 'projects':
-        return <ProjectsView />;
-      case 'settings':
-        return <SettingsView />;
-      default:
-        return <TerminalView />;
+    } catch (err) {
+      console.error('Error fetching models:', err);
+      setError('Failed to load models. Please ensure Ollama is running.');
+      
+      // Fallback to mock data on error
+      setModels([
+        { name: 'llama2', size: '7B', disabled: true },
+        { name: 'mistral', size: '4.1B', disabled: true }
+      ]);
+      setSelectedModel('llama2');
+    } finally {
+      setIsLoadingModels(false);
     }
+  }, [selectedModel]);
+
+  // Format file size to human readable format
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
-  
-  // Simple header component
-  const AppHeader = styled('header')(({ theme }) => ({
-    height: '60px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '0 24px',
-    backgroundColor: theme.palette.background.paper,
-    borderBottom: `1px solid ${theme.palette.divider}`,
-    position: 'sticky',
-    top: 0,
-    zIndex: 1100
-  }));
 
-  const HeaderLeft = styled('div')({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '24px'
-  });
+  // Load models on mount
+  useEffect(() => {
+    fetchModels();
+  }, [fetchModels]);
 
-  const Logo = styled('div')({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px'
-  });
+  // Handle model change
+  const handleModelChange = (event) => {
+    const newModel = event.target.value;
+    setSelectedModel(newModel);
+    // Here you can add logic to update the current model in your app state
+    // For example: updateAppState({ currentModel: newModel });
+  };
 
-  const LogoImage = styled('img')({
-    height: '32px',
-    width: 'auto'
-  });
+  // Render loading state
+  if (isLoadingModels) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        backgroundColor: theme.colors?.primaryBg || '#1E1E1E',
+        color: theme.colors?.primaryText || '#FFFFFF'
+      }}>
+        <div>Loading application...</div>
+      </div>
+    );
+  }
 
-  const HeaderRight = styled('div')({
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px'
-  });
+  // Render error state
+  if (error) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        padding: '20px',
+        textAlign: 'center',
+        backgroundColor: theme.colors?.primaryBg || '#1E1E1E',
+        color: theme.colors?.primaryText || '#FFFFFF'
+      }}>
+        <h2>Oops! Something went wrong</h2>
+        <p style={{ color: theme.colors?.error || '#ff4444' }}>{error}</p>
+        <p>You can still use the application, but some features may be limited.</p>
+        <button 
+          onClick={() => window.location.reload()}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            backgroundColor: theme.colors?.accent || '#FF643D',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Reload Application
+        </button>
+      </div>
+    );
+  }
 
+  // Main layout
   return (
     <LayoutContainer>
       <Sidebar />
       <MainContent>
-        <AppHeader>
-          <HeaderLeft>
-            <Logo>
-              <LogoImage src="/images/brain-computer.svg" alt="Sephia Logo" />
-              <Typography variant="h6" component="h1" sx={{ 
-                fontWeight: 600,
-                background: 'linear-gradient(45deg, #FE6B8B 30%, #FF8E53 90%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-                textFillColor: 'transparent'
-              }}>
-                Sephia
-              </Typography>
-            </Logo>
-          </HeaderLeft>
-          <HeaderRight>
-            <FormControl size="small" sx={{ width: 250 }}>
-              <InputLabel id="model-select-label">
-                {isLoadingModels ? 'Loading models...' : 'Select Model'}
-              </InputLabel>
-              <Select
-                labelId="model-select-label"
-                value={selectedModel}
-                label={isLoadingModels ? 'Loading models...' : 'Select Model'}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                size="small"
-                disabled={isLoadingModels || models.length === 0}
-              >
-                {isLoadingModels ? (
-                  <MenuItem disabled>Loading models...</MenuItem>
-                ) : models.length === 0 ? (
-                  <MenuItem disabled>No models available</MenuItem>
-                ) : (
-                  models.map((model) => (
-                    <MenuItem key={model.name} value={model.name}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                        <Box component="span" sx={{ 
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          maxWidth: '70%'
-                        }}>
-                          {model.name}
-                        </Box>
-                        <Box component="span" sx={{ 
-                          opacity: 0.7, 
-                          fontSize: '0.8em',
-                          flexShrink: 0,
-                          ml: 1
-                        }}>
-                          {model.size}
-                        </Box>
-                      </Box>
-                    </MenuItem>
-                  ))
-                )}
-              </Select>
-            </FormControl>
-          </HeaderRight>
-        </AppHeader>
+        <Header 
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
+          models={models}
+        />
         <ContentArea theme={theme}>
-          {renderContent()}
+          {(() => {
+            try {
+              switch(appState?.activeSection || 'ollama') {
+                case 'chat':
+                  return <ChatView />;
+                case 'projects':
+                  return <ProjectsView />;
+                case 'ollama':
+                  return <OllamaChatView />;
+                case 'settings':
+                  return <SettingsView />;
+                case 'terminal':
+                  return <TerminalView />;
+                default:
+                  return <OllamaChatView />;
+              }
+            } catch (error) {
+              console.error('Error rendering section:', error);
+              return (
+                <div style={{ padding: '20px', color: theme.colors?.error || '#ff4444' }}>
+                  Error loading {appState?.activeSection} view. Please try again.
+                </div>
+              );
+            }
+          })()}
         </ContentArea>
       </MainContent>
     </LayoutContainer>

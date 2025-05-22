@@ -1,130 +1,128 @@
 import React, { useState } from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
+import { ThemeContext } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import { Send as SendIcon } from '@mui/icons-material';
 
-const InputContainer = styled.div`
-  padding: ${props => props.theme.spacing.medium} 0;
-  border-top: 1px solid ${props => props.theme.colors.border};
-  margin-top: ${props => props.theme.spacing.medium};
-`;
+const InputContainer = styled('div')(({ theme }) => ({
+  padding: `${theme?.spacing?.medium || '16px'} 0`,
+  borderTop: `1px solid ${theme?.colors?.border || '#333333'}`,
+  marginTop: theme?.spacing?.medium || '16px'
+}));
 
-const Form = styled.form`
-  display: flex;
-  gap: ${props => props.theme.spacing.medium};
-  align-items: flex-end;
-  flex-wrap: wrap;
-`;
+const Form = styled('form')(({ theme }) => ({
+  display: 'flex',
+  gap: theme?.spacing?.medium || '16px',
+  alignItems: 'flex-end',
+  flexWrap: 'wrap'
+}));
 
-const ModelSelectorContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-  margin-bottom: ${props => props.theme.spacing.small};
-  width: 100%;
-`;
+const ModelSelectorContainer = styled('div')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: theme?.spacing?.small || '8px',
+  marginBottom: theme?.spacing?.small || '8px',
+  width: '100%'
+}));
 
-const ModelLabel = styled.span`
-  font-size: ${props => props.theme.typography.secondaryInfo.size};
-  color: ${props => props.theme.colors.tertiaryText};
-`;
+const ModelLabel = styled('span')(({ theme }) => ({
+  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
+  color: theme?.colors?.tertiaryText || '#AAAAAA'
+}));
 
-const StatusDot = styled.span`
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-left: 8px;
-  background-color: ${props => 
-    props.status === 'connected' ? '#4CAF50' :
-    props.status === 'connecting' ? '#FFC107' : 
-    '#F44336'};
-`;
+const StatusDot = styled('span')(({ status }) => ({
+  display: 'inline-block',
+  width: '8px',
+  height: '8px',
+  borderRadius: '50%',
+  marginLeft: '8px',
+  backgroundColor: 
+    status === 'connected' ? '#4CAF50' :
+    status === 'connecting' ? '#FFC107' : 
+    '#F44336'
+}));
 
-const Select = styled.select`
-  background-color: ${props => props.theme.colors.secondaryBg};
-  color: ${props => props.theme.colors.primaryText};
-  border: 1px solid ${props => props.theme.colors.border};
-  border-radius: ${props => props.theme.borderRadius.small};
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  font-size: ${props => props.theme.typography.secondaryInfo.size};
-  cursor: pointer;
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.colors.accent};
+const Select = styled('select')(({ theme }) => ({
+  backgroundColor: theme?.colors?.secondaryBg || '#252525',
+  color: theme?.colors?.primaryText || '#FFFFFF',
+  border: `1px solid ${theme?.colors?.border || '#333333'}`,
+  borderRadius: theme?.borderRadius?.small || '4px',
+  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
+  fontSize: theme?.typography?.secondaryInfo?.size || '13px',
+  cursor: 'pointer',
+  '&:focus': {
+    outline: 'none',
+    borderColor: theme?.colors?.accent || '#FF643D'
   }
-`;
+}));
 
-const InputRow = styled.div`
-  display: flex;
-  gap: ${props => props.theme.spacing.medium};
-  align-items: flex-end;
-  width: 100%;
-`;
+const InputRow = styled('div')(({ theme }) => ({
+  display: 'flex',
+  gap: theme?.spacing?.medium || '16px',
+  alignItems: 'flex-end',
+  width: '100%'
+}));
 
-const TextareaWrapper = styled.div`
-  flex: 1;
-  position: relative;
-`;
+const TextareaWrapper = styled('div')({
+  flex: 1,
+  position: 'relative'
+});
 
-const Textarea = styled.textarea`
-  width: 100%;
-  min-height: 48px;
-  max-height: 200px;
-  padding: ${props => props.theme.spacing.medium};
-  background-color: ${props => props.theme.colors.secondaryBg};
-  color: ${props => props.theme.colors.primaryText};
-  border: 1px solid ${props => props.theme.colors.border};
-  border-radius: ${props => props.theme.borderRadius.medium};
-  font-family: inherit;
-  font-size: ${props => props.theme.typography.regularText.size};
-  resize: none;
-  outline: none;
-  transition: border-color 0.2s ease;
-  
-  &:focus {
-    border-color: ${props => props.theme.colors.accent};
+const Textarea = styled('textarea')(({ theme }) => ({
+  flex: 1,
+  minHeight: '24px',
+  maxHeight: '200px',
+  padding: `${theme?.spacing?.small || '8px'} ${theme?.spacing?.medium || '16px'}`,
+  border: `1px solid ${theme?.colors?.border || '#333333'}`,
+  borderRadius: theme?.borderRadius?.medium || '8px',
+  backgroundColor: theme?.colors?.secondaryBg || '#252525',
+  color: theme?.colors?.primaryText || '#FFFFFF',
+  fontFamily: 'inherit',
+  fontSize: theme?.typography?.regularText?.size || '16px',
+  resize: 'none',
+  overflowY: 'auto',
+  lineHeight: 1.5,
+  '&:focus': {
+    outline: 'none',
+    borderColor: theme?.colors?.accent || '#FF643D',
+    boxShadow: `0 0 0 1px ${theme?.colors?.accent || '#FF643D'}`
+  },
+  '&::placeholder': {
+    color: theme?.colors?.tertiaryText || '#AAAAAA',
+    opacity: 0.7
   }
-  
-  &::placeholder {
-    color: ${props => props.theme.colors.tertiaryText};
-  }
-  
-  &:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
-`;
+}));
 
-const SendButton = styled.button`
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background-color: ${props => props.disabled ? props.theme.colors.secondaryBg : props.theme.colors.accent};
-  color: ${props => props.disabled ? props.theme.colors.tertiaryText : props.theme.colors.primaryText};
-  border: none;
-  cursor: ${props => props.disabled ? 'not-allowed' : 'pointer'};
-  transition: background-color 0.2s ease;
-  opacity: ${props => props.disabled ? 0.7 : 1};
-  
-  &:hover:not(:disabled) {
-    background-color: ${props => props.theme.colors.accent}dd;
+const SendButton = styled('button')(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '40px',
+  height: '40px',
+  border: 'none',
+  borderRadius: '50%',
+  backgroundColor: theme?.colors?.accent || '#FF643D',
+  color: 'white',
+  cursor: 'pointer',
+  transition: 'all 0.2s',
+  flexShrink: 0,
+  '&:hover': {
+    backgroundColor: theme?.colors?.accentHover || '#e64a19',
+    transform: 'translateY(-1px)'
+  },
+  '&:active': {
+    transform: 'translateY(0)'
+  },
+  '&:disabled': {
+    backgroundColor: theme?.colors?.disabled || '#bdbdbd',
+    cursor: 'not-allowed',
+    transform: 'none'
   }
-`;
+}));
 
 const ChatInput = ({ onSendMessage, disabled }) => {
-  const { theme } = useTheme();
-  const { 
-    currentModel, 
-    models, 
-    appState,
-    loadModel
-  } = useApp();
+  const theme = React.useContext(ThemeContext);
+  const { currentModel, models, appState, loadModel } = useApp();
   const [message, setMessage] = useState('');
   
   // Get connection status
