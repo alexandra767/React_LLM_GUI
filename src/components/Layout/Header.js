@@ -1,88 +1,107 @@
 import React from 'react';
 import styled from '@emotion/styled';
-// Theme is now handled by ThemeContext
-import { FormControl, InputLabel, Select, MenuItem, Box } from '@mui/material';
+import { useTheme } from '../../context/ThemeContext';
 
 const HeaderContainer = styled('header')({
-  height: '60px',
+  height: '50px',
   backgroundColor: '#1E1E1E',
   borderBottom: '1px solid #333333',
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '0 24px'
+  justifyContent: 'center',
+  padding: '0 24px',
+  position: 'relative'
 });
 
-const Logo = styled('div')({
+const HeaderTitle = styled('h1')({
+  fontSize: '16px',
+  fontWeight: 400,
+  color: '#FFFFFF',
+  margin: 0,
+  opacity: 0.9
+});
+
+const ModelSelector = styled('div')({
+  position: 'absolute',
+  right: '24px',
   display: 'flex',
   alignItems: 'center',
-  gap: '8px'
+  gap: '8px',
+  fontSize: '13px',
+  color: '#AAAAAA'
 });
 
-const LogoImage = styled('img')({
-  height: '32px',
-  width: 'auto'
-});
-
-const LogoText = styled('h1')({
-  fontSize: '24px',
-  fontWeight: 300,
+const ModelDropdown = styled('select')({
+  backgroundColor: '#252525',
   color: '#FFFFFF',
-  margin: 0
+  border: '1px solid rgba(255, 255, 255, 0.2)',
+  borderRadius: '4px',
+  padding: '6px 12px',
+  fontSize: '13px',
+  outline: 'none',
+  cursor: 'pointer',
+  minWidth: '180px',
+  transition: 'all 0.2s ease',
+  appearance: 'none',
+  backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3e%3cpolyline points=%276 9 12 15 18 9%27%3e%3c/polyline%3e%3c/svg%3e")',
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 8px center',
+  backgroundSize: '16px',
+  paddingRight: '32px',
+  '&:hover': {
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: '#2A2A2A'
+  },
+  '&:focus': {
+    borderColor: '#FF643D',
+    backgroundColor: '#2A2A2A'
+  },
+  '&:disabled': {
+    opacity: 0.6,
+    cursor: 'not-allowed'
+  },
+  '& option': {
+    backgroundColor: '#252525',
+    color: '#FFFFFF',
+    padding: '8px'
+  }
 });
-
 
 const Header = ({ selectedModel, onModelChange, models = [] }) => {
-  // Theme is now handled by ThemeContext
+  const theme = useTheme();
+  
+  // Debug logging
+  console.log('Header - models:', models);
+  console.log('Header - selectedModel:', selectedModel);
+  console.log('Header - models length:', models.length);
+  
+  // Check if models have the expected structure
+  if (models.length > 0) {
+    console.log('Header - first model:', models[0]);
+  }
   
   return (
     <HeaderContainer>
-      <Logo>
-        <LogoImage src="/images/brain-computer.svg" alt="Sephia Logo" />
-        <LogoText>Sephia</LogoText>
-      </Logo>
-      <Box sx={{ minWidth: 200, ml: 'auto', mr: 2 }}>
-        <FormControl fullWidth size="small">
-          <InputLabel id="model-select-label">Model</InputLabel>
-          <Select
-            labelId="model-select-label"
-            value={selectedModel}
-            label="Model"
-            onChange={onModelChange}
-            sx={{
-              '& .MuiSelect-select': {
-                py: 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                backgroundColor: '#1E1E1E',
-                color: '#FFFFFF',
-              },
-              '& .MuiOutlinedInput-notchedOutline': {
-                borderColor: '#333333',
-              },
-              '&:hover .MuiOutlinedInput-notchedOutline': {
-                borderColor: '#FF643D',
-              },
-              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                borderColor: '#FF643D',
-              },
-              '& .MuiSvgIcon-root': {
-                color: '#FFFFFF',
-              },
-            }}
-          >
-            {models.map((model) => (
-              <MenuItem key={model.name} value={model.name} disabled={model.disabled}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                  <span>{model.name}</span>
-                  <span style={{ opacity: 0.7, fontSize: '0.8em' }}>{model.size}</span>
-                </Box>
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
+      <HeaderTitle>Sephia</HeaderTitle>
+      
+      <ModelSelector>
+        <span>Model</span>
+        <ModelDropdown
+          value={selectedModel || ''}
+          onChange={(e) => {
+            console.log('Header - Model selected:', e.target.value);
+            onModelChange(e);
+          }}
+        >
+          {/* Add a default option if no model is selected */}
+          {!selectedModel && <option value="">Select a model</option>}
+          {models.map((model) => (
+            <option key={model.id || model.name} value={model.id || model.name} disabled={model.disabled}>
+              {model.name} {model.size ? ` (${model.size})` : ''}
+            </option>
+          ))}
+        </ModelDropdown>
+      </ModelSelector>
     </HeaderContainer>
   );
 };

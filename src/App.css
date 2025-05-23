@@ -28,3 +28,13 @@ html, body {
 .pulse-dot {
   animation: pulse 1.5s infinite ease-in-out;
 }
+
+/* Animation for message streaming indicator */
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}

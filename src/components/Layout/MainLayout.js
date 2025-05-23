@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styled from '@emotion/styled';
-// Theme is now handled by ThemeContext
+import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import Sidebar from './Sidebar';
 import Header from './Header';
@@ -34,6 +34,7 @@ const ContentArea = styled.div`
 `;
 
 const MainLayout = () => {
+  const theme = useTheme();
   const appContext = useApp();
   
   // Provide default values if appContext is not available
@@ -70,6 +71,7 @@ const MainLayout = () => {
       
       if (ollamaModels && ollamaModels.length > 0) {
         const formattedModels = ollamaModels.map(model => ({
+          id: model.id || model.name,
           name: model.name || model.id,
           size: model.size ? formatFileSize(model.size) : '',
           disabled: false
@@ -84,8 +86,8 @@ const MainLayout = () => {
       } else {
         // Fallback to mock data if no models found
         setModels([
-          { name: 'llama2', size: '7B', disabled: false },
-          { name: 'mistral', size: '4.1B', disabled: false }
+          { id: 'llama2', name: 'llama2', size: '7B', disabled: false },
+          { id: 'mistral', name: 'mistral', size: '4.1B', disabled: false }
         ]);
         setSelectedModel('llama2');
       }
@@ -95,8 +97,8 @@ const MainLayout = () => {
       
       // Fallback to mock data on error
       setModels([
-        { name: 'llama2', size: '7B', disabled: true },
-        { name: 'mistral', size: '4.1B', disabled: true }
+        { id: 'llama2', name: 'llama2', size: '7B', disabled: true },
+        { id: 'mistral', name: 'mistral', size: '4.1B', disabled: true }
       ]);
       setSelectedModel('llama2');
     } finally {

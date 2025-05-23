@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import styled from '@emotion/styled';
-// Theme is now handled by ThemeContext
+import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
@@ -13,9 +13,8 @@ const ChatContainer = styled('div')({
   display: 'flex',
   flexDirection: 'column',
   height: '100%',
-  maxWidth: '1200px',
   width: '100%',
-  margin: '0 auto'
+  backgroundColor: '#1E1E1E'
 });
 
 const EmptyState = styled('div')({
@@ -23,32 +22,35 @@ const EmptyState = styled('div')({
   flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  height: '100%',
+  flex: 1,
+  padding: '32px',
   color: '#AAAAAA',
-  textAlign: 'center'
+  textAlign: 'center',
+  gap: '24px'
 });
 
 const StatusBar = styled('div')({
+  background: 'linear-gradient(90deg, #7c3aed 0%, #a855f7 100%)',
+  padding: '8px 24px',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  padding: '8px 16px',
-  borderTop: '1px solid #333333',
-  fontSize: '13px',
-  color: '#AAAAAA'
+  fontSize: '12px',
+  color: 'rgba(255, 255, 255, 0.9)'
 });
 
 // Removed ChatActions and ActionButton as they'll be moved to the sidebar
 
 const TokenCounter = styled('div')({
   display: 'flex',
-  gap: '8px'
+  alignItems: 'center',
+  gap: '16px'
 });
 
 const ModelInfo = styled('div')({
   display: 'flex',
   alignItems: 'center',
-  gap: '8px',
+  gap: '12px',
   fontWeight: 500
 });
 
@@ -62,8 +64,8 @@ const DurationIndicator = styled('div')({
 });
 
 const EmptyStateTitle = styled('h2')({
-  fontSize: '24px',
-  fontWeight: '500',
+  fontSize: '28px',
+  fontWeight: '300',
   marginBottom: '8px',
   color: '#F0F0F0',
   textAlign: 'center'
@@ -77,23 +79,23 @@ const EmptyStateText = styled('p')({
 });
 
 const EmptyStateDescription = styled('p')({
-  fontSize: '14px',
-  color: '#CCCCCC',
-  marginBottom: '24px',
+  fontSize: '16px',
+  color: '#888888',
   maxWidth: '500px',
-  lineHeight: 1.6,
+  lineHeight: 1.5,
   textAlign: 'center'
 });
 
-const ModelImageContainer = styled('div')({
-  width: '120px',
-  height: '120px',
-  borderRadius: '50%',
+const IconWrapper = styled('div')({
+  width: '80px',
+  height: '80px',
   backgroundColor: '#252525',
+  borderRadius: '50%',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  marginBottom: '24px',
+  border: '3px solid #FF643D',
+  marginBottom: '16px',
   overflow: 'hidden',
   '& svg': {
     width: '60px',
@@ -102,20 +104,35 @@ const ModelImageContainer = styled('div')({
   }
 });
 
-const ChatView = () => {
+const ChatView = ({ projectId }) => {
+  const theme = useTheme();
   const { 
     currentChat, 
     chats = [], 
     updateChat, 
     setCurrentChatId,
     appState,
-    setAppState
+    setAppState,
+    currentModel,
+    models = [],
+    createNewChat: createNewChatFromContext,
+    setCurrentChat,
+    tokenCount = { input: 0, output: 0, total: 0 },
+    setTokenCount: updateTokenCount,
+    messageDuration = 0,
+    setMessageTime,
+    projects = [],
+    updateProject,
+    resetTokenCount
   } = useApp();
   
+  // Force component refresh with version stamp
+  const componentVersion = 'v2.0';
+  
   // Wrapper around createNewChat to include the current theme
-  const createNewChat = useCallback((title = 'New Chat') => {
-    const themeName = theme?.themeName || 'dark'; // Default to 'dark' if theme is not available
-    return createNewChatFromContext(title, themeName);
+  const createNewChat = useCallback((title = 'New Chat', themeName = null, firstMessage = '') => {
+    const finalTheme = themeName || theme?.name || 'dark'; // Use provided theme or current theme or default to 'dark'
+    return createNewChatFromContext(title, finalTheme, firstMessage);
   }, [createNewChatFromContext, theme]);
   
   // Debug logs (commented out for production)
@@ -140,15 +157,51 @@ const ChatView = () => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamStart, setStreamStart] = useState(null);
   const [tokenRate, setTokenRate] = useState(0);
+  const abortControllerRef = React.useRef(null);
+  
+  // Get project-specific messages if projectId is provided
+  const project = projectId ? projects.find(p => p.id === projectId) : null;
+  const projectMessages = project?.messages || [];
+  
+  // Use project messages if in project context, otherwise use currentChat messages
+  const messages = projectId ? projectMessages : (currentChat?.messages || []);
+  
+  // Debug log messages
+  console.log('ChatView - messages:', messages);
+  console.log('ChatView - messages count:', messages.length);
+  
+  // Debug: Log current state
+  if (projectId) {
+    console.log(`[ChatView ${componentVersion}] Project context:`, {
+      projectId,
+      project,
+      messageCount: messages.length
+    });
+  }
   
   const handleStopGeneration = useCallback(() => {
-    // Implement stopping functionality
     console.log('Stopping generation...');
-    // Note: This would ideally connect to the actual LLM service to stop generation
-    // For now, we'll just update the state to reflect that streaming is done
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
     setIsStreaming(false);
     setStreamStart(null);
   }, []);
+
+  // Add keyboard listener for ESC key
+  React.useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape' && isStreaming) {
+        handleStopGeneration();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isStreaming, handleStopGeneration]);
   
   const estimateTokens = (text) => {
     // Very rough estimate: ~4 chars per token for English text
@@ -176,6 +229,8 @@ const ChatView = () => {
     setIsStreaming(true);
     setStreamStart(startTime);
     setTokenRate(0);
+    setMessageTime(0); // Reset duration
+    resetTokenCount(); // Reset token count
     
     // Create user message object
     const userMessage = {
@@ -207,28 +262,42 @@ const ChatView = () => {
     });
     
     try {
-      // Create a new chat if one doesn't exist
-      if (!currentChat) {
-        console.log('handleSendMessage: No current chat, creating new one');
-        const newChat = createNewChat('New Chat');
-        console.log('handleSendMessage: New chat created with ID:', newChat.id);
-        setCurrentChat({
-          ...newChat,
-          messages: [userMessage, assistantMessage],
-          updatedAt: new Date().toISOString()
+      // Handle project context
+      if (projectId && updateProject) {
+        console.log('handleSendMessage: In project context, updating project messages');
+        // Update project with new messages
+        const updatedMessages = [...messages, userMessage, assistantMessage];
+        updateProject(projectId, { 
+          messages: updatedMessages,
+          lastUpdated: new Date().toISOString()
         });
+        
+        // Start streaming the response
+        await streamAssistantResponse(assistantMessageId, messageText, startTime);
       } else {
-        // Add both messages to existing chat
-        console.log('handleSendMessage: Adding messages to existing chat');
-        setCurrentChat(prev => ({
-          ...prev,
-          messages: [...prev.messages, userMessage, assistantMessage],
-          updatedAt: new Date().toISOString()
-        }));
+        // Handle regular chat context
+        if (!currentChat) {
+          console.log('handleSendMessage: No current chat, creating new one');
+          const newChat = createNewChat('New Chat', theme?.name || 'dark', messageText.trim());
+          console.log('handleSendMessage: New chat created with ID:', newChat.id);
+          setCurrentChat({
+            ...newChat,
+            messages: [userMessage, assistantMessage],
+            updatedAt: new Date().toISOString()
+          });
+        } else {
+          // Add both messages to existing chat
+          console.log('handleSendMessage: Adding messages to existing chat');
+          setCurrentChat(prev => ({
+            ...prev,
+            messages: [...prev.messages, userMessage, assistantMessage],
+            updatedAt: new Date().toISOString()
+          }));
+        }
+        
+        // Start streaming the response
+        await streamAssistantResponse(assistantMessageId, messageText, startTime);
       }
-      
-      // Start streaming the response
-      await streamAssistantResponse(assistantMessageId, messageText, startTime);
       
     } catch (error) {
       console.error('Error in handleSendMessage:', error);
@@ -238,24 +307,39 @@ const ChatView = () => {
     }
   };
   const streamAssistantResponse = async (assistantMessageId, userMessage, startTime) => {
-    console.log('streamAssistantResponse: Starting to stream message to model');
+    // For project context, ensure we use the project's model or fallback to current
+    const modelToUse = projectId && project?.model ? project.model : (currentModel || 'deepseek-r1:8b-m4');
+    console.log('streamAssistantResponse: Starting to stream message');
+    console.log('streamAssistantResponse: Project context:', projectId ? { projectId, projectModel: project?.model } : 'none');
+    console.log('streamAssistantResponse: Current model from context:', currentModel);
+    console.log('streamAssistantResponse: Using model:', modelToUse);
     let fullResponse = '';
     let responseTokens = 0;
     let lastUpdateTime = startTime;
     
     try {
+      // Create abort controller for this stream
+      abortControllerRef.current = new AbortController();
+      
       await llmService.streamMessage(
         userMessage,
-        { model: currentModel },
-        (chunk) => {
+        { 
+          model: modelToUse,
+          signal: abortControllerRef.current.signal
+        },
+        (chunkString) => {
           try {
-            const now = performance.now();
-            const timeSinceLastUpdate = now - lastUpdateTime;
+            // Parse the JSON string from LLMService
+            let chunk;
+            try {
+              chunk = JSON.parse(chunkString);
+            } catch (parseError) {
+              console.error('Error parsing chunk JSON:', parseError, 'Raw chunk:', chunkString);
+              return;
+            }
             
-            // Throttle updates to prevent excessive re-renders
-            if (timeSinceLastUpdate < 100) return; // Update at most every 100ms
-            
-            lastUpdateTime = now;
+            // Remove throttling to ensure all chunks are processed
+            // This was causing missing words and content
             
             if (chunk.done) {
               console.log('streamAssistantResponse: Stream completed');
@@ -276,39 +360,113 @@ const ChatView = () => {
               });
               
               // Mark streaming as complete
-              setCurrentChat(prev => ({
-                ...prev,
-                messages: prev.messages.map(msg => 
+              if (projectId && updateProject) {
+                // Update project messages
+                const updatedMessages = messages.map(msg => 
                   msg.id === assistantMessageId 
                     ? { ...msg, isStreaming: false }
                     : msg
-                ),
-                updatedAt: new Date().toISOString()
-              }));
+                );
+                updateProject(projectId, { 
+                  messages: updatedMessages,
+                  lastUpdated: new Date().toISOString()
+                });
+              } else {
+                // Update regular chat
+                setCurrentChat(prev => ({
+                  ...prev,
+                  messages: prev.messages.map(msg => 
+                    msg.id === assistantMessageId 
+                      ? { ...msg, isStreaming: false }
+                      : msg
+                  ),
+                  updatedAt: new Date().toISOString()
+                }));
+              }
               
               return;
             }
             
-            if (chunk.response) {
-              try {
-                const parsed = JSON.parse(chunk.response);
-                if (parsed.message?.content) {
-                  fullResponse = parsed.message.content;
-                  responseTokens = parsed.eval_count || responseTokens + 1;
-                  
-                  // Update the assistant's message with the latest content
-                  setCurrentChat(prev => ({
-                    ...prev,
-                    messages: prev.messages.map(msg => 
-                      msg.id === assistantMessageId
-                        ? { ...msg, content: fullResponse }
-                        : msg
-                    ),
-                    updatedAt: new Date().toISOString()
-                  }));
-                }
-              } catch (parseError) {
-                console.error('Error parsing chunk:', parseError);
+            // Handle error responses
+            if (chunk.error) {
+              console.error('Received error chunk:', chunk);
+              const errorMessage = chunk.response || 'An error occurred while generating the response.';
+              
+              // Update message with error
+              if (projectId && updateProject) {
+                const updatedMessages = messages.map(msg => 
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: errorMessage, isError: true, isStreaming: false }
+                    : msg
+                );
+                updateProject(projectId, { 
+                  messages: updatedMessages,
+                  lastUpdated: new Date().toISOString()
+                });
+              } else {
+                setCurrentChat(prev => ({
+                  ...prev,
+                  messages: prev.messages.map(msg => 
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: errorMessage, isError: true, isStreaming: false }
+                      : msg
+                  ),
+                  updatedAt: new Date().toISOString()
+                }));
+              }
+              return;
+            }
+            
+            if (chunk.response !== undefined) {
+              // chunk.response is already a string from LLMService, not JSON
+              const newContent = chunk.response;
+              
+              // Accumulate the response
+              fullResponse += newContent;
+              responseTokens += 1; // Simple token estimation
+              
+              // Update duration and token count in real-time during streaming
+              const currentTime = performance.now();
+              const currentDuration = (currentTime - startTime) / 1000; // in seconds
+              setMessageTime(currentDuration);
+              updateTokenCount({
+                input: 0,
+                output: responseTokens
+              });
+              
+              // Debug logging
+              if (newContent) {
+                console.log('Received chunk:', { 
+                  content: newContent.substring(0, Math.min(newContent.length, 50)) + (newContent.length > 50 ? '...' : ''),
+                  totalLength: fullResponse.length,
+                  duration: currentDuration.toFixed(1),
+                  tokens: responseTokens
+                });
+              }
+              
+              // Update the assistant's message with the accumulated content
+              if (projectId && updateProject) {
+                // Update project messages
+                const updatedMessages = messages.map(msg => 
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: fullResponse }
+                    : msg
+                );
+                updateProject(projectId, { 
+                  messages: updatedMessages,
+                  lastUpdated: new Date().toISOString()
+                });
+              } else {
+                // Update regular chat
+                setCurrentChat(prev => ({
+                  ...prev,
+                  messages: prev.messages.map(msg => 
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: fullResponse }
+                      : msg
+                  ),
+                  updatedAt: new Date().toISOString()
+                }));
               }
             }
           } catch (chunkError) {
@@ -420,74 +578,81 @@ const ChatView = () => {
     return model ? model.name : currentModel;
   };
 
-  // Render empty state when no chat is selected
-  if (!currentChat) {
+  // Format token count to show k for thousands
+  const formatTokenCount = (count) => {
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toString();
+  };
+
+  // Render empty state when no chat is selected or when in project with no messages
+  if ((!currentChat && !projectId) || (projectId && messages.length === 0)) {
+    const emptyTitle = projectId ? `Welcome to ${project?.title || 'Project'}` : 'Welcome to Sephia';
+    const emptyText = projectId 
+      ? 'Start a conversation in this project. All messages will be saved within this project context.'
+      : 'Start a new conversation with your local LLM. Sephia connects to your local models running through Ollama.';
+    
     return (
-      <EmptyState theme={theme}>
-        <ModelImageContainer theme={theme}>
-          <BrainIcon size={80} color="#FF643D" />
-        </ModelImageContainer>
-        <EmptyStateTitle theme={theme}>Welcome to Sephia</EmptyStateTitle>
-        <EmptyStateText theme={theme}>
-          Start a new conversation with your local LLM. Sephia connects to your
-          local models running through Ollama.
-        </EmptyStateText>
+      <ChatContainer>
+        <EmptyState theme={theme}>
+          <IconWrapper theme={theme}>
+            <BrainIcon size={40} color="#FF643D" />
+          </IconWrapper>
+          <div>
+            <EmptyStateTitle theme={theme}>{emptyTitle}</EmptyStateTitle>
+            <EmptyStateDescription theme={theme}>{emptyText}</EmptyStateDescription>
+          </div>
+        </EmptyState>
         
-        <TokenDisplay 
-          isStreaming={isStreaming}
-          tokenCount={tokenCount}
-          streamDuration={messageDuration}
-          onStop={handleStopGeneration}
-        />
-        <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
-        
-        <StatusBar theme={theme}>
-          <ModelInfo theme={theme}>
-            <span className="model-name">{getModelName()}</span>
-            <span>{isStreaming ? 'Generating...' : 'Ready'}</span>
-          </ModelInfo>
-          
-          <TokenCounter theme={theme}>
-            <span>0 tokens</span>
-          </TokenCounter>
-        </StatusBar>
-      </EmptyState>
+        <div style={{ marginTop: 'auto' }}>
+          <StatusBar theme={theme}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>0s · 0 tokens</span>
+            </div>
+            <ModelInfo theme={theme}>
+              <span>{getModelName()}</span>
+              <span>Ready</span>
+            </ModelInfo>
+          </StatusBar>
+          <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
+        </div>
+      </ChatContainer>
     );
   }
 
-  // Render chat interface when a chat is selected
+  // Render chat interface when a chat is selected or in project context
   return (
     <ChatContainer>
-      <MessageList 
-        messages={currentChat.messages}
-        onDeleteMessage={handleDeleteMessage}
-      />
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <MessageList 
+          messages={messages}
+          onDeleteMessage={handleDeleteMessage}
+        />
+      </div>
       
-      <TokenDisplay 
-        isStreaming={isStreaming}
-        tokenCount={tokenCount}
-        streamDuration={messageDuration}
-        onStop={handleStopGeneration}
-      />
-      <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
-      
-      <StatusBar theme={theme}>
-        <ModelInfo theme={theme}>
-          <span className="model-name">{getModelName()}</span>
-          <span>{isStreaming ? 'Generating...' : 'Ready'}</span>
-          {isStreaming && messageDuration > 0 && (
-            <DurationIndicator theme={theme}>
-              {messageDuration.toFixed(1)}s
-            </DurationIndicator>
-          )}
-        </ModelInfo>
-        
-        <TokenCounter theme={theme}>
-          <span>Input: {tokenCount.input || 0}</span>
-          <span>Output: {tokenCount.output || 0}</span>
-          <span>Total: {(tokenCount.input || 0) + (tokenCount.output || 0)}</span>
-        </TokenCounter>
-      </StatusBar>
+      <div style={{ marginTop: 'auto' }}>
+        <StatusBar theme={theme}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            {isStreaming ? (
+              <span>
+                ({Math.round(messageDuration)}s · {formatTokenCount(tokenCount.output || 0)} tokens · esc to interrupt)
+              </span>
+            ) : (
+              <>
+                <span>{Math.round(messageDuration)}s</span>
+                <span style={{ opacity: 0.7 }}>•</span>
+                <span>{formatTokenCount(tokenCount.output || 0)} tokens</span>
+              </>
+            )}
+          </div>
+          <ModelInfo theme={theme}>
+            <span>{getModelName()}</span>
+            <span>{isStreaming ? 'Generating...' : 'Ready'}</span>
+          </ModelInfo>
+        </StatusBar>
+        <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
+      </div>
     </ChatContainer>
   );
 };

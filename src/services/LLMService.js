@@ -182,7 +182,6 @@ class OllamaAdapter extends LLMAdapter {
         let lastProcessedIndex = 0;
         let chunkQueue = [];
         let isProcessingQueue = false;
-        let accumulatedResponse = ''; // Track the full response so far
         
         // Handle abort signal if provided
         if (options.signal) {
@@ -216,9 +215,9 @@ class OllamaAdapter extends LLMAdapter {
             if (onChunk) {
               onChunk(chunk);
             }
-            // Add delay between chunks for smoother streaming
-            // Adjust this value to control streaming speed (higher = slower)
-            await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay between chunks
+            // Remove delay entirely for real-time streaming
+            // The browser's event loop will handle UI updates
+            await new Promise(resolve => setTimeout(resolve, 0));
           }
           isProcessingQueue = false;
         };
@@ -258,24 +257,9 @@ class OllamaAdapter extends LLMAdapter {
                 // Always ensure it's a proper string
                 const responseText = String(data.response);
                 
-                // For Ollama streaming, each chunk might contain the full response so far
-                // We need to extract only the new content
+                // Simply use the response as-is without deduplication
+                // The deduplication was causing issues with thinking/reasoning sections
                 let newContent = responseText;
-                
-                // If this response contains what we've already sent, extract only new part
-                if (data.model && !data.done) {
-                  // This is a streaming chunk from Ollama
-                  if (responseText.startsWith(accumulatedResponse)) {
-                    // Extract only the new part
-                    newContent = responseText.substring(accumulatedResponse.length);
-                  }
-                  // Update accumulated response
-                  accumulatedResponse = responseText;
-                } else {
-                  // For non-streaming or final chunks, just append
-                  newContent = responseText;
-                  accumulatedResponse += responseText;
-                }
                 
                 // Debug logging
                 if (newContent) {

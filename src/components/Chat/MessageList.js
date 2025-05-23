@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import styled from '@emotion/styled';
-// Theme is now handled by ThemeContext
+import { useTheme } from '../../context/ThemeContext';
 import Message from './Message';
 
 const MessagesContainer = styled.div`
@@ -9,13 +9,19 @@ const MessagesContainer = styled.div`
   flex: 1;
   overflow-y: auto;
   padding: 16px 0;
+  background-color: #1E1E1E;
+  min-height: 0;
 `;
 
 const MessageGroup = styled.div`
-  margin-bottom: 24px;
+  margin-bottom: 16px;
+  &:last-child {
+    margin-bottom: 0;
+  }
 `;
 
 const MessageList = ({ messages = [], onDeleteMessage }) => {
+  const theme = useTheme();
   const messagesEndRef = useRef(null);
   const prevMessagesLength = useRef(0);
   
@@ -67,78 +73,55 @@ const MessageList = ({ messages = [], onDeleteMessage }) => {
     }
   }, [messages]);
   
-  // Group messages by sender for better visual grouping
+  // Don't group messages - display each one separately to avoid hiding content
   const groupedMessages = useMemo(() => {
-    console.log('Grouping messages');
+    console.log('Processing messages for display');
     
     if (!Array.isArray(messages) || messages.length === 0) {
-      console.log('No messages to group');
+      console.log('No messages to display');
       return [];
     }
     
-    try {
-      const result = [];
-      let currentGroup = null;
-      
-      messages.forEach((message, index) => {
-        if (!message || typeof message !== 'object') {
-          console.warn('Invalid message at index', index, ':', message);
-          return;
-        }
-        
-        const prevMessage = index > 0 ? messages[index - 1] : null;
-        const isNewGroup = !prevMessage || prevMessage.role !== message.role;
-        
-        if (isNewGroup) {
-          // Start a new group
-          currentGroup = {
-            ...message,
-            isFirstInGroup: true,
-            isLastInGroup: true,
-            key: `group-${index}-${message.id || Date.now()}`
-          };
-          result.push(currentGroup);
-        } else if (currentGroup) {
-          // Add to the current group
-          currentGroup.content = (currentGroup.content || '') + '\n' + (message.content || '');
-          currentGroup.isLastInGroup = true;
-          
-          // Update the last message's properties
-          Object.assign(currentGroup, {
-            id: message.id || currentGroup.id,
-            timestamp: message.timestamp || currentGroup.timestamp,
-            isLastInGroup: true
-          });
-        }
-      });
-      
-      console.log(`Grouped ${messages.length} messages into ${result.length} groups`);
-      return result;
-    } catch (error) {
-      console.error('Error grouping messages:', error);
-      // Fallback to showing all messages ungrouped
-      return messages.map(msg => ({
-        ...msg,
-        isFirstInGroup: true,
-        isLastInGroup: true,
-        key: msg.id || `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      }));
-    }
+    // Display each message separately without grouping
+    return messages.map((msg, index) => ({
+      ...msg,
+      isFirstInGroup: true,
+      isLastInGroup: true,
+      key: msg.id || `msg-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    }));
   }, [messages]);
+  
+  // Add debug info when no messages
+  if (messages.length === 0) {
+    console.log('MessageList: No messages to display');
+  }
   
   return (
     <MessagesContainer theme={theme}>
-      {groupedMessages.map((group) => (
-        <MessageGroup key={group.key} theme={theme}>
-          <Message
-            key={group.id}
-            message={group}
-            isFirstInGroup={group.isFirstInGroup}
-            isLastInGroup={group.isLastInGroup}
-            onDelete={onDeleteMessage}
-          />
-        </MessageGroup>
-      ))}
+      {messages.length === 0 ? (
+        <div style={{ 
+          flex: 1, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          color: '#666',
+          fontSize: '14px'
+        }}>
+          No messages yet. Start a conversation!
+        </div>
+      ) : (
+        groupedMessages.map((group) => (
+          <MessageGroup key={group.key} theme={theme}>
+            <Message
+              key={group.id}
+              message={group}
+              isFirstInGroup={group.isFirstInGroup}
+              isLastInGroup={group.isLastInGroup}
+              onDelete={onDeleteMessage}
+            />
+          </MessageGroup>
+        ))
+      )}
       <div ref={messagesEndRef} />
     </MessagesContainer>
   );

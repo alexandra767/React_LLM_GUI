@@ -83,10 +83,12 @@ export const AppProvider = ({ children }) => {
         return { ...prev, ...updated };
       });
     } else {
+      // For streaming, we want to set the output tokens directly, not add to them
       setTokenCount(prev => ({
-        input: prev.input + (newCount?.input || 0),
-        output: prev.output + (newCount?.output || 0),
-        total: prev.total + (newCount?.input || 0) + (newCount?.output || 0)
+        input: newCount?.input !== undefined ? newCount.input : prev.input,
+        output: newCount?.output !== undefined ? newCount.output : prev.output,
+        total: (newCount?.input !== undefined ? newCount.input : prev.input) + 
+               (newCount?.output !== undefined ? newCount.output : prev.output)
       }));
     }
   };
@@ -581,14 +583,25 @@ export const AppProvider = ({ children }) => {
       id: Date.now().toString(),
       title: projectData.title || 'New Project',
       description: projectData.description || '',
-      chats: [],
-      files: [],
+      messages: projectData.messages || [],
+      fileCount: projectData.fileCount || 0,
+      isPrivate: projectData.isPrivate !== undefined ? projectData.isPrivate : true,
+      lastUpdated: projectData.lastUpdated || new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      model: projectData.model || currentModel || 'deepseek-r1:8b-m4', // Store the model with the project
     };
     
     setProjects(prev => [newProject, ...prev]);
     return newProject;
+  };
+  
+  const updateProject = (projectId, updates) => {
+    setProjects(prev => prev.map(project => 
+      project.id === projectId 
+        ? { ...project, ...updates, updatedAt: new Date().toISOString() }
+        : project
+    ));
   };
   
   const deleteChat = (chatId) => {
@@ -786,6 +799,7 @@ export const AppProvider = ({ children }) => {
     setActiveSection,
     createNewChat,
     createNewProject,
+    updateProject,
     deleteChat,
     deleteProject,
     loadModel,

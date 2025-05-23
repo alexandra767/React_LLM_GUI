@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { styled } from '@mui/material/styles';
-// Theme is now handled by ThemeContext
+import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import BrainIcon from '../Chat/BrainIcon';
 import { 
@@ -117,14 +117,13 @@ const ActionButton = styled('button')(({ theme }) => {
 });
 
 const SectionTitle = styled('div')(({ theme }) => {
-  // Safely access theme properties with defaults
-  const spacing = theme?.spacing || ((value) => `${value * 8}px`);
+  // Use direct spacing values instead of function
   const textColor = theme?.palette?.text?.secondary || '#888888';
   const fontSize = '0.75rem';
   const fontWeight = 500;
   
   return {
-    padding: `${spacing(1)} ${spacing(2)}`,
+    padding: '8px 16px',
     color: textColor,
     fontSize: fontSize,
     fontWeight: fontWeight,
@@ -210,9 +209,6 @@ const ProfileName = styled('div')(({ theme }) => {
 });
 
 const ConnectionStatus = styled('div')(({ theme, status }) => {
-  // Safely get spacing function
-  const spacing = theme?.spacing || ((value) => `${value * 8}px`);
-  
   // Safely get colors with defaults
   const colors = {
     success: theme?.colors?.success || '#4caf50',
@@ -241,7 +237,7 @@ const ConnectionStatus = styled('div')(({ theme, status }) => {
       height: '8px',
       borderRadius: '50%',
       backgroundColor: statusColor,
-      marginRight: spacing(1),
+      marginRight: '8px',
     },
   };
 });
@@ -355,6 +351,7 @@ const SidebarWrapper = styled('div')({
 });
 
 const Sidebar = () => {
+  const theme = useTheme();
   const [hoveredChatId, setHoveredChatId] = useState(null);
   const [collapsed, setCollapsed] = useState(false);
   const { 

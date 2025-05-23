@@ -1,140 +1,82 @@
 import React, { useState } from 'react';
 import styled from '@emotion/styled';
-// Theme is now handled by ThemeContext
+import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
-import { Send as SendIcon } from '@mui/icons-material';
 
 const InputContainer = styled('div')({
-  padding: '16px 0',
-  borderTop: '1px solid #333333',
-  marginTop: '16px'
-});
-
-const Form = styled('form')({
-  display: 'flex',
-  gap: '16px',
-  alignItems: 'flex-end',
-  flexWrap: 'wrap'
-});
-
-const ModelSelectorContainer = styled('div')({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  marginBottom: '8px',
-  width: '100%'
-});
-
-const ModelLabel = styled('span')({
-  fontSize: '13px',
-  color: '#AAAAAA'
-});
-
-const StatusDot = styled('span')(({ status }) => ({
-  display: 'inline-block',
-  width: '8px',
-  height: '8px',
-  borderRadius: '50%',
-  marginLeft: '8px',
-  backgroundColor: 
-    status === 'connected' ? '#4CAF50' :
-    status === 'connecting' ? '#FFC107' : 
-    '#F44336'
-}));
-
-const Select = styled('select')({
-  backgroundColor: '#252525',
-  color: '#FFFFFF',
-  border: '1px solid #333333',
-  borderRadius: '4px',
-  padding: '8px 16px',
-  fontSize: '13px',
-  cursor: 'pointer',
-  '&:focus': {
-    outline: 'none',
-    borderColor: '#FF643D',
-    boxShadow: '0 0 0 2px rgba(255, 100, 61, 0.2)'
-  },
-  '&:disabled': {
-    opacity: 0.7,
-    cursor: 'not-allowed'
-  }
-});
-
-const InputRow = styled('div')({
-  display: 'flex',
-  gap: '8px',
-  width: '100%',
-  alignItems: 'center',
-  position: 'relative'
-});
-
-const TextareaWrapper = styled('div')({
-  flex: 1,
   position: 'relative',
-  width: '100%'
+  padding: '0 24px 24px',
+  backgroundColor: '#1E1E1E'
 });
 
-const Textarea = styled('textarea')(({ disabled }) => ({
-  flex: 1,
-  minHeight: '56px',
-  maxHeight: '200px',
-  padding: '16px 48px 16px 16px',
-  borderRadius: '8px',
-  border: '1px solid #333333',
-  backgroundColor: '#252525',
-  color: '#FFFFFF',
-  fontSize: '14px',
-  lineHeight: 1.5,
-  resize: 'none',
+const InputWrapper = styled('div')({
+  position: 'relative',
+  backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  borderRadius: '24px',
+  border: '1px solid rgba(255, 255, 255, 0.1)',
+  transition: 'all 0.2s ease',
+  overflow: 'hidden',
+  '&:focus-within': {
+    borderColor: 'rgba(168, 85, 247, 0.5)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)'
+  }
+});
+
+const Textarea = styled('textarea')({
+  width: '100%',
+  background: 'transparent',
+  border: 'none',
+  outline: 'none',
+  color: '#F0F0F0',
+  fontSize: '15px',
   fontFamily: 'inherit',
-  '&:focus': {
-    outline: 'none',
-    borderColor: '#FF643D',
-    boxShadow: '0 0 0 2px rgba(255, 100, 61, 0.2)'
+  padding: '14px 60px 14px 20px',
+  resize: 'none',
+  lineHeight: 1.5,
+  minHeight: '52px',
+  maxHeight: '200px',
+  '&::placeholder': {
+    color: '#888888'
   },
   '&:disabled': {
-    backgroundColor: '#333333',
-    color: '#666666',
-    cursor: 'not-allowed'
-  },
-  '&::placeholder': {
-    color: '#666666'
+    cursor: 'not-allowed',
+    opacity: 0.5
   }
-}));
+});
 
 const SendButton = styled('button')(({ disabled }) => ({
   position: 'absolute',
   right: '12px',
-  bottom: '12px',
-  width: '32px',
-  height: '32px',
-  borderRadius: '50%',
-  backgroundColor: '#FF643D',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  backgroundColor: disabled ? '#666666' : '#a855f7',
   color: '#FFFFFF',
   border: 'none',
+  borderRadius: '50%',
+  width: '36px',
+  height: '36px',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
   cursor: disabled ? 'not-allowed' : 'pointer',
-  opacity: disabled ? 0.7 : 1,
-  transition: 'opacity 0.2s',
+  transition: 'all 0.2s ease',
   '&:hover:not(:disabled)': {
-    opacity: 0.9
+    backgroundColor: '#9333ea',
+    transform: 'translateY(-50%) scale(1.05)'
+  },
+  '&:active:not(:disabled)': {
+    transform: 'translateY(-50%) scale(0.95)'
   },
   '& svg': {
-    width: '16px',
-    height: '16px'
+    width: '20px',
+    height: '20px'
   }
 }));
 
 const ChatInput = ({ onSendMessage, disabled }) => {
   const [message, setMessage] = useState('');
-  const [selectedModel, setSelectedModel] = useState('llama2');
-  const [isComposing, setIsComposing] = useState(false);
-  const { appState, setAppState } = useApp();
-  
-  const connectionStatus = appState?.connectionStatus || 'disconnected';
+  const theme = useTheme();
+  const { appState } = useApp();
   
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -160,64 +102,29 @@ const ChatInput = ({ onSendMessage, disabled }) => {
     e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   };
   
-  const handleModelChange = (e) => {
-    const modelId = e.target.value;
-    loadModel(modelId);
-  };
-  
   return (
     <InputContainer>
-      <Form onSubmit={handleSubmit}>
-        <ModelSelectorContainer>
-          <ModelLabel>
-            Model:
-            <StatusDot status={connectionStatus} title={`Status: ${connectionStatus}`} />
-          </ModelLabel>
-          <Select 
-            value={currentModel || ''}
-            onChange={handleModelChange}
-            disabled={connectionStatus === 'connecting'}
-          >
-            {/* If models array is empty, show hardcoded options */}
-            {models && models.length > 0 ? (
-              models.map(model => (
-                <option key={model.id || model.name} value={model.id || model.name}>
-                  {model.name}
-                </option>
-              ))
-            ) : (
-              // Fallback hardcoded models
-              <>
-                <option value="deepseek-r1:32b">DeepSeek R1 (32B)</option>
-                <option value="deepseek-r1:14b-m4">DeepSeek 14B-M4</option>
-                <option value="deepseek-r1:8b-m4">DeepSeek 8B-M4</option>
-                <option value="deepseek-r1:14b">DeepSeek 14B</option>
-                <option value="deepseek-r1:8b">DeepSeek 8B</option>
-              </>
-            )}
-          </Select>
-        </ModelSelectorContainer>
-        
-        <InputRow>
-          <TextareaWrapper>
-            <Textarea
-              value={message}
-              onChange={handleTextareaChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
-              disabled={disabled}
-              rows={1}
-            />
-          </TextareaWrapper>
+      <form onSubmit={handleSubmit}>
+        <InputWrapper>
+          <Textarea
+            value={message}
+            onChange={handleTextareaChange}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message..."
+            disabled={disabled}
+            rows={1}
+          />
           
           <SendButton 
             type="submit" 
             disabled={!message.trim() || disabled}
           >
-            <SendIcon />
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </SendButton>
-        </InputRow>
-      </Form>
+        </InputWrapper>
+      </form>
     </InputContainer>
   );
 };
