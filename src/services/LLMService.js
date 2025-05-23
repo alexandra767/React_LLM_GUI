@@ -53,8 +53,10 @@ class OllamaAdapter extends LLMAdapter {
   
   async sendMessage(message, options = {}) {
     try {
-      const modelName = options.model || 'deepseek-r1:8b-m4';
-      console.log(`Sending message to ${modelName}`);
+      // Clean model name - remove any extra info like "(Unknown size)"
+      const rawModel = options.model || 'deepseek-r1:8b-m4';
+      const modelName = rawModel.split(' ')[0].trim();
+      console.log(`Sending message to ${modelName} (raw: ${rawModel})`);
       
       // First check if Ollama is running before making the request
       try {
@@ -155,7 +157,10 @@ class OllamaAdapter extends LLMAdapter {
   
   async streamMessage(message, options = {}, onChunk) {
     try {
-      console.log(`Streaming message to ${options.model || 'default model'}`);
+      // Clean model name - remove any extra info
+      const rawModel = options.model || 'deepseek-r1:8b-m4';
+      const modelName = rawModel.split(' ')[0].trim();
+      console.log(`Streaming message to ${modelName} (raw: ${rawModel})`);
       
       try {
         // First check if Ollama is available via tags endpoint
@@ -261,6 +266,15 @@ class OllamaAdapter extends LLMAdapter {
                 // The deduplication was causing issues with thinking/reasoning sections
                 let newContent = responseText;
                 
+                // Log raw response for debugging
+                if (responseText && responseText.length > 0) {
+                  console.log('Raw response chunk:', {
+                    text: responseText,
+                    length: responseText.length,
+                    done: data.done
+                  });
+                }
+                
                 // Debug logging
                 if (newContent) {
                   console.log('New chunk:', { 
@@ -363,15 +377,15 @@ class OllamaAdapter extends LLMAdapter {
         
         // Send the request with optimized parameters
         xhr.send(JSON.stringify({
-          model: options.model || 'deepseek-r1:8b-m4',
+          model: modelName,
           prompt: message,
           stream: true,
           temperature: options.temperature || 0.7,
-          max_tokens: options.maxTokens || 2048,
+          max_tokens: options.maxTokens || 4096, // Increased for DeepSeek
           top_p: options.topP || 0.95,
           // Parameters for improved response quality
           num_ctx: 8192,
-          num_predict: 2048,
+          num_predict: 4096, // Increased for longer responses
           stop: [], // No specific stop sequences
           num_gpu: 1, // Use GPU for acceleration
           num_thread: 8, // Use multiple threads for processing
@@ -390,7 +404,7 @@ class OllamaAdapter extends LLMAdapter {
             const { exec } = window.require('child_process');
             
             // Add parameters to improve quality and reliability
-            const command = `ollama run ${options.model || 'deepseek-r1:8b-m4'} \
+            const command = `ollama run ${modelName} \
               --num-ctx 8192 \
               --num-gpu 1 \
               --num-thread 8 \

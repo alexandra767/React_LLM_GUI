@@ -2,6 +2,7 @@ import React, { Component } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppProvider } from './context/AppContext';
 import MainLayout from './components/Layout/MainLayout';
+import DiagnosticOverlay from './components/DiagnosticOverlay';
 import './App.css';
 
 // Error boundary component
@@ -64,6 +65,7 @@ function App() {
         <AppProvider>
           <ErrorBoundary>
             <MainLayout />
+            <DiagnosticOverlay />
           </ErrorBoundary>
         </AppProvider>
       </ThemeProvider>

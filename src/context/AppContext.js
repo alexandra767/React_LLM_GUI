@@ -604,12 +604,32 @@ export const AppProvider = ({ children }) => {
     return newProject;
   };
   
+  // Debounce timer for project updates
+  const projectUpdateTimerRef = useRef(null);
+  
   const updateProject = (projectId, updates) => {
     if (!projectId || !updates) {
       console.error('updateProject: Invalid projectId or updates', { projectId, updates });
       return;
     }
     
+    // Check if streaming is active - if so, defer the update
+    if (window.__isStreaming) {
+      console.log('updateProject: Streaming is active, deferring update');
+      // Store the update for later
+      if (!window.__pendingProjectUpdates) {
+        window.__pendingProjectUpdates = [];
+      }
+      window.__pendingProjectUpdates.push({ projectId, updates, timestamp: Date.now() });
+      return;
+    }
+    
+    // Clear any pending update
+    if (projectUpdateTimerRef.current) {
+      clearTimeout(projectUpdateTimerRef.current);
+    }
+    
+    // Immediate update for state
     setProjects(prev => {
       if (!Array.isArray(prev)) {
         console.error('updateProject: projects is not an array', prev);
@@ -636,15 +656,31 @@ export const AppProvider = ({ children }) => {
         return project;
       });
       
-      // Save to localStorage after update
-      try {
-        localStorage.setItem('sephia_projects', JSON.stringify(updatedProjects));
-      } catch (e) {
-        console.error('Failed to save projects to localStorage:', e);
-      }
+      // Debounce localStorage save to prevent too many writes
+      projectUpdateTimerRef.current = setTimeout(() => {
+        try {
+          localStorage.setItem('sephia_projects', JSON.stringify(updatedProjects));
+        } catch (e) {
+          console.error('Failed to save projects to localStorage:', e);
+        }
+      }, 500);
       
       return updatedProjects;
     });
+  };
+  
+  // Process any pending project updates after streaming completes
+  const processPendingProjectUpdates = () => {
+    if (window.__pendingProjectUpdates && window.__pendingProjectUpdates.length > 0) {
+      console.log('Processing pending project updates:', window.__pendingProjectUpdates.length);
+      const updates = [...window.__pendingProjectUpdates];
+      window.__pendingProjectUpdates = [];
+      
+      // Apply all pending updates
+      updates.forEach(({ projectId, updates }) => {
+        updateProject(projectId, updates);
+      });
+    }
   };
   
   const deleteChat = (chatId) => {
@@ -847,7 +883,8 @@ export const AppProvider = ({ children }) => {
     deleteProject,
     loadModel,
     unloadModel,
-    toggleStarChat
+    toggleStarChat,
+    processPendingProjectUpdates
   };
   
   // Save chats to localStorage whenever they change

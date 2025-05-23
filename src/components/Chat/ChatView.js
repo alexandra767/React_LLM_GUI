@@ -7,7 +7,18 @@ import ChatInput from './ChatInput';
 import TokenDisplay from './TokenDisplay';
 import BrainIcon from './BrainIcon';
 import llmService from '../../services/LLMService';
+import streamingManager from '../../services/StreamingManager';
+import { useStreamingProtection } from '../../hooks/useStreamingProtection';
 // DeleteIcon import removed as it's no longer needed here
+
+// Global streaming buffer to persist across re-renders
+if (!window.__streamingBuffer) {
+  window.__streamingBuffer = {
+    projectId: null,
+    messages: [],
+    isActive: false
+  };
+}
 
 const ChatContainer = styled('div')({
   display: 'flex',
@@ -104,7 +115,36 @@ const IconWrapper = styled('div')({
   }
 });
 
-const ChatView = ({ projectId }) => {
+// Custom comparison to prevent re-renders during streaming
+const arePropsEqual = (prevProps, nextProps) => {
+  // If streaming is active, prevent re-renders from parent changes
+  if (window.__isStreaming) {
+    console.log('[ChatView] Preventing re-render during streaming');
+    return true;
+  }
+  // Otherwise allow re-render only if projectId changes
+  return prevProps.projectId === nextProps.projectId;
+};
+
+const ChatView = React.memo(({ projectId }) => {
+  console.log('[ChatView] Component render triggered', { projectId, timestamp: Date.now() });
+  
+  // Use streaming protection hook
+  const { renderCount } = useStreamingProtection('ChatView');
+  
+  // Log mount/unmount lifecycle
+  React.useEffect(() => {
+    console.log('[ChatView] MOUNTED', { projectId, timestamp: Date.now() });
+    return () => {
+      console.log('[ChatView] UNMOUNTING', { 
+        projectId, 
+        timestamp: Date.now(), 
+        isStreaming: window.__isStreaming,
+        streamingContent: window.__streamingContent?.length || 0
+      });
+    };
+  }, []);
+  
   const theme = useTheme();
   const { 
     currentChat, 
@@ -123,11 +163,24 @@ const ChatView = ({ projectId }) => {
     setMessageTime,
     projects = [],
     updateProject,
-    resetTokenCount
+    resetTokenCount,
+    processPendingProjectUpdates
   } = useApp();
   
   // Force component refresh with version stamp
   const componentVersion = 'v2.0';
+  
+  // Debug: Log when context values change
+  React.useEffect(() => {
+    console.log('[ChatView] Context changed:', {
+      projectsLength: projects.length,
+      currentModel,
+      tokenCount,
+      messageDuration
+    });
+  }, [projects.length, currentModel, tokenCount, messageDuration]);
+  
+  // Remove Ollama test to prevent re-renders
   
   // Wrapper around createNewChat to include the current theme
   const createNewChat = useCallback((title = 'New Chat', themeName = null, firstMessage = '') => {
@@ -154,32 +207,122 @@ const ChatView = ({ projectId }) => {
   //     });
   //   }
   // }
-  const [isStreaming, setIsStreaming] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(() => {
+    // Check if streaming is active from window state
+    return window.__isStreaming || false;
+  });
   const [streamStart, setStreamStart] = useState(null);
   const [tokenRate, setTokenRate] = useState(0);
+  const [streamingMessageId, setStreamingMessageId] = useState(() => {
+    // Restore streaming message ID if active
+    return window.__streamingMessageId || null;
+  });
+  const [streamingContent, setStreamingContent] = useState(() => {
+    // Restore streaming content if active
+    return window.__streamingContent || '';
+  });
   const abortControllerRef = React.useRef(null);
+  
+  // State for project messages to ensure UI updates
+  const [localProjectMessages, setLocalProjectMessages] = useState(() => {
+    // Check if there's an active streaming buffer for this project
+    if (window.__streamingBuffer.isActive && window.__streamingBuffer.projectId === projectId) {
+      console.log('Restoring messages from streaming buffer');
+      return window.__streamingBuffer.messages;
+    }
+    
+    // Initialize with project messages if available
+    if (projectId) {
+      const proj = projects.find(p => p.id === projectId);
+      return proj?.messages || [];
+    }
+    return [];
+  });
+  
+  // Track if we're currently streaming to prevent re-initialization
+  const isStreamingRef = React.useRef(false);
+  React.useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
+  
+  // Ref to store streaming content to prevent loss during re-renders
+  // Initialize from window state if available
+  const streamingContentRef = React.useRef(window.__streamingContent || '');
+  
+  // Ref to track pending project save after streaming
+  const pendingProjectSaveRef = React.useRef(null);
+  
+  // Save messages on unmount if streaming was interrupted
+  React.useEffect(() => {
+    return () => {
+      // Cleanup: save any pending messages if component unmounts
+      if (pendingProjectSaveRef.current && projectId) {
+        const { projectId: pendingProjectId, messages } = pendingProjectSaveRef.current;
+        console.error('[ChatView] CRITICAL: Component unmounting with pending messages during streaming!', {
+          isStreaming: window.__isStreaming,
+          streamingMessageId: window.__streamingMessageId,
+          streamingContentLength: window.__streamingContent?.length || 0,
+          bufferActive: window.__streamingBuffer?.isActive
+        });
+        // Don't update project if streaming is active - it will cause cascading unmounts
+        if (!window.__isStreaming) {
+          updateProject(pendingProjectId, { 
+            messages,
+            lastUpdated: new Date().toISOString()
+          });
+        }
+      }
+    };
+  }, [projectId, updateProject]);
   
   // Get project-specific messages if projectId is provided
   const project = projectId ? projects.find(p => p.id === projectId) : null;
   const projectMessages = project?.messages || [];
   
-  // Use project messages if in project context, otherwise use currentChat messages
-  const messages = projectId ? projectMessages : (currentChat?.messages || []);
+  // Remove sync effect entirely - we initialize state properly above
   
-  // Debug log messages
-  console.log('ChatView - messages:', messages);
-  console.log('ChatView - messages count:', messages.length);
+  // Use local project messages if in project context, otherwise use currentChat messages
+  const baseMessages = projectId ? localProjectMessages : (currentChat?.messages || []);
   
-  // Debug: Log current state
+  // Remove debug effect to prevent re-renders
+  
+  // Apply streaming content to messages
+  const messages = React.useMemo(() => {
+    const msgs = [...baseMessages];
+    
+    // Use ONLY window variables to avoid React state updates
+    const currentStreamingId = window.__streamingMessageId;
+    const currentStreamingContent = window.__streamingContent;
+    
+    // Find and update the streaming message if it exists
+    if (currentStreamingId && currentStreamingContent) {
+      const messageIndex = msgs.findIndex(msg => msg.id === currentStreamingId);
+      if (messageIndex !== -1) {
+        msgs[messageIndex] = {
+          ...msgs[messageIndex],
+          content: currentStreamingContent,
+          isStreaming: isStreaming
+        };
+      }
+    }
+    
+    return msgs;
+  }, [baseMessages]); // Only depend on baseMessages to avoid re-renders
+  
+  // Force re-render when messages change
+  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
+  
+  // Minimal debug logging
   if (projectId) {
-    console.log(`[ChatView ${componentVersion}] Project context:`, {
-      projectId,
-      project,
-      projectModel: project?.model,
-      currentModel,
-      messageCount: messages.length
-    });
+    console.log('ChatView - project mode, message count:', messages.length);
   }
+  
+  // Remove monitoring effect to prevent re-renders
+  
+  // No need for this effect - the messages array already handles streaming content
+  
+  // Remove diagnostic effect to prevent re-renders
+  
   
   const handleStopGeneration = useCallback(() => {
     console.log('Stopping generation...');
@@ -226,13 +369,19 @@ const ChatView = ({ projectId }) => {
     
     console.log('handleSendMessage: Starting message processing');
     
+    // Create message IDs first
+    const assistantMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+    
     // Reset streaming state
     const startTime = performance.now();
     setIsStreaming(true);
+    window.__isStreaming = true; // Set global flag immediately
+    streamingManager.startStreaming(assistantMessageId, projectId);
     setStreamStart(startTime);
     setTokenRate(0);
     setMessageTime(0); // Reset duration
     resetTokenCount(); // Reset token count
+    // Don't reset streaming content here - let it persist until streaming starts
     
     // Create user message object
     const userMessage = {
@@ -249,7 +398,6 @@ const ChatView = ({ projectId }) => {
     });
     
     // Create assistant message placeholder
-    const assistantMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
     const assistantMessage = {
       id: assistantMessageId,
       role: 'assistant',
@@ -263,22 +411,61 @@ const ChatView = ({ projectId }) => {
       timestamp: assistantMessage.timestamp
     });
     
+    // Set streaming message ID and reset content
+    setStreamingMessageId(assistantMessageId);
+    // Don't update React state - just reset refs and window vars
+    streamingContentRef.current = '';
+    window.__streamingMessageId = assistantMessageId;
+    window.__streamingContent = '';
+    console.log('SET STREAMING MESSAGE ID:', assistantMessageId);
+    
     try {
       // Handle project context
       if (projectId && updateProject) {
         console.log('handleSendMessage: In project context, updating project messages');
+        console.log('handleSendMessage: projectId:', projectId);
+        console.log('handleSendMessage: current messages:', messages);
+        console.log('handleSendMessage: updateProject function exists:', typeof updateProject);
         try {
           // Ensure messages is an array before spreading
           const currentMessages = Array.isArray(messages) ? messages : [];
           // Update project with new messages
           const updatedMessages = [...currentMessages, userMessage, assistantMessage];
-          updateProject(projectId, { 
-            messages: updatedMessages,
-            lastUpdated: new Date().toISOString()
+          console.log('handleSendMessage: Calling updateProject with messages:', updatedMessages);
+          
+          // Update local state immediately with both messages
+          setLocalProjectMessages(updatedMessages);
+          console.log('Set local project messages with assistant placeholder:', {
+            totalMessages: updatedMessages.length,
+            assistantMsg: updatedMessages.find(m => m.id === assistantMessageId),
+            allMessageIds: updatedMessages.map(m => m.id)
           });
+          
+          // Store in global buffer to survive re-renders
+          window.__streamingBuffer = {
+            projectId,
+            messages: updatedMessages,
+            isActive: true
+          };
+          
+          // IMPORTANT: Don't update project context until streaming is complete
+          // This prevents re-renders that interrupt streaming
+          console.log('Deferring project update until streaming completes');
+          
+          // Store the messages for saving after streaming
+          pendingProjectSaveRef.current = {
+            projectId,
+            messages: updatedMessages
+          };
+          
+          // DO NOT update project during streaming - this causes re-renders
+          // All updates will be handled after streaming completes
           
           // Start streaming the response
           await streamAssistantResponse(assistantMessageId, messageText, startTime);
+          
+          // After streaming is complete, save to project
+          // This is handled in the streamAssistantResponse completion
         } catch (projectError) {
           console.error('Error updating project:', projectError);
           // Don't let project update errors crash the whole flow
@@ -314,8 +501,72 @@ const ChatView = ({ projectId }) => {
       handleStreamError(error, startTime);
     } finally {
       setIsStreaming(false);
+      window.__isStreaming = false; // Always clear the global flag
+      streamingManager.stopStreaming();
       setStreamStart(null);
       setTokenRate(0);
+      
+      // Save pending project updates if any
+      if (pendingProjectSaveRef.current && projectId) {
+        const { projectId: pendingProjectId } = pendingProjectSaveRef.current;
+        console.log('Saving pending project update after streaming complete');
+        
+        // Get the final content from the streaming buffer or window
+        const finalStreamedContent = window.__streamingContent || streamingContentRef.current;
+        
+        // Update local messages with the final streamed content
+        setLocalProjectMessages(currentMessages => {
+          // Update the assistant message with the final content
+          const updatedMessages = currentMessages.map(msg => 
+            msg.id === window.__streamingMessageId
+              ? { ...msg, content: finalStreamedContent, isStreaming: false }
+              : msg
+          );
+          
+          console.log('Final messages to save:', {
+            count: updatedMessages.length,
+            lastMessage: updatedMessages[updatedMessages.length - 1]
+          });
+          
+          // Save to project after a longer delay to avoid any re-render issues
+          setTimeout(() => {
+            // Double-check that streaming is really done
+            if (!window.__isStreaming) {
+              console.log('Confirmed streaming is complete, saving to project');
+              updateProject(pendingProjectId, { 
+                messages: updatedMessages,
+                lastUpdated: new Date().toISOString()
+              });
+              pendingProjectSaveRef.current = null;
+              
+              // Clear the streaming buffer
+              window.__streamingBuffer = {
+                projectId: null,
+                messages: [],
+                isActive: false
+              };
+            } else {
+              console.warn('Streaming flag still active, deferring save');
+            }
+          }, 2000); // Increased delay to 2 seconds
+          
+          return updatedMessages; // Return updated messages with final content
+        });
+      }
+      
+      // Don't clear streaming content/ID until after the final save is complete
+      setTimeout(() => {
+        setStreamingMessageId(null);
+        // Don't update React state - just clear window variables
+        window.__streamingContent = '';
+        window.__isStreaming = false;
+        window.__streamingMessageId = '';
+        
+        // Process any pending project updates now that streaming is complete
+        if (processPendingProjectUpdates) {
+          processPendingProjectUpdates();
+        }
+      }, 1000); // Give time for final save
       // Clear abort controller
       if (abortControllerRef.current) {
         abortControllerRef.current = null;
@@ -323,14 +574,37 @@ const ChatView = ({ projectId }) => {
     }
   };
   const streamAssistantResponse = async (assistantMessageId, userMessage, startTime) => {
+    console.log('streamAssistantResponse called with assistantMessageId:', assistantMessageId);
+    
+    // Ensure the streaming message ID is set
+    window.__streamingMessageId = assistantMessageId;
+    
+    // Set up a heartbeat to detect if streaming stops unexpectedly
+    let lastChunkTime = Date.now();
+    const heartbeatInterval = setInterval(() => {
+      const timeSinceLastChunk = Date.now() - lastChunkTime;
+      if (timeSinceLastChunk > 5000 && window.__isStreaming) {
+        console.error('[ChatView] Streaming appears to have stopped unexpectedly!', {
+          timeSinceLastChunk,
+          streamingContent: window.__streamingContent?.length || 0
+        });
+      }
+    }, 1000);
+    
     // Get the current project if in project context
     const currentProject = projectId ? projects.find(p => p.id === projectId) : null;
     // For project context, ensure we use the project's model or fallback to current
     const modelToUse = currentProject?.model || currentModel || 'deepseek-r1:8b-m4';
+    
+    // Ensure we have a valid model from the available models
+    const availableModel = models?.find(m => m.id === modelToUse || m.name === modelToUse);
+    const finalModel = availableModel?.id || modelToUse;
     console.log('streamAssistantResponse: Starting to stream message');
     console.log('streamAssistantResponse: Project context:', projectId ? { projectId, projectModel: currentProject?.model } : 'none');
     console.log('streamAssistantResponse: Current model from context:', currentModel);
     console.log('streamAssistantResponse: Using model:', modelToUse);
+    console.log('streamAssistantResponse: Available models:', models);
+    console.log('streamAssistantResponse: Projects array:', projects);
     
     // Validate that we have a valid model
     if (!modelToUse) {
@@ -349,7 +623,7 @@ const ChatView = ({ projectId }) => {
       await llmService.streamMessage(
         userMessage,
         { 
-          model: modelToUse,
+          model: finalModel,
           signal: abortControllerRef.current.signal
         },
         (chunkString) => {
@@ -368,11 +642,25 @@ const ChatView = ({ projectId }) => {
             
             if (chunk.done) {
               console.log('streamAssistantResponse: Stream completed');
+              
+              // Mark streaming as complete to remove blinking cursor
+              streamingManager.completeStreaming();
+              
               const endTime = performance.now();
               const duration = (endTime - startTime) / 1000; // in seconds
               const tokensPerSecond = responseTokens / duration;
               
               console.log(`streamAssistantResponse: Stream stats - duration: ${duration.toFixed(2)}s, tokens: ${responseTokens}, tps: ${tokensPerSecond.toFixed(2)}`);
+              console.log('Final response:', fullResponse);
+              
+              // Check if response only contains thinking tags
+              const hasThinking = fullResponse.includes('<think>') && fullResponse.includes('</think>');
+              const withoutThinking = fullResponse.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+              
+              if (hasThinking && withoutThinking === '') {
+                console.warn('Response only contains thinking content, no answer provided');
+                fullResponse += '\n\nI need to provide a response after thinking. Let me try again.';
+              }
               
               setTokenRate(tokensPerSecond);
               setMessageTime(duration);
@@ -386,17 +674,31 @@ const ChatView = ({ projectId }) => {
               
               // Mark streaming as complete
               if (projectId && updateProject) {
-                // Update project messages
-                const currentMessages = Array.isArray(messages) ? messages : [];
-                const updatedMessages = currentMessages.map(msg => 
-                  msg.id === assistantMessageId 
-                    ? { ...msg, isStreaming: false }
-                    : msg
-                );
-                updateProject(projectId, { 
-                  messages: updatedMessages,
-                  lastUpdated: new Date().toISOString()
+                console.log('Stream complete - updating project with final content:', {
+                  assistantMessageId,
+                  contentLength: fullResponse.length
                 });
+                
+                // Save the final response content
+                const finalContent = fullResponse;
+                console.log('Saving final content to project:', {
+                  assistantMessageId,
+                  finalContentLength: finalContent.length,
+                  preview: finalContent.substring(0, 100)
+                });
+                
+                // DO NOT update React state here - it causes re-renders during streaming
+                // The content is already displayed via DOM manipulation
+                // We'll update the state after streaming is fully complete in the finally block
+                
+                // Just update the global buffer with final content
+                if (window.__streamingBuffer.isActive && window.__streamingBuffer.projectId === projectId) {
+                  window.__streamingBuffer.messages = window.__streamingBuffer.messages.map(msg =>
+                    msg.id === assistantMessageId 
+                      ? { ...msg, content: finalContent, isStreaming: false }
+                      : msg
+                  );
+                }
               } else {
                 // Update regular chat
                 setCurrentChat(prev => ({
@@ -452,14 +754,53 @@ const ChatView = ({ projectId }) => {
               fullResponse += newContent;
               responseTokens += 1; // Simple token estimation
               
+              // Update heartbeat
+              lastChunkTime = Date.now();
+              
+              // Update local streaming content
+              streamingContentRef.current = fullResponse;
+              
+              // Update via streaming manager for direct DOM updates
+              streamingManager.updateContent(fullResponse);
+              
+              // DO NOT update React state during streaming - this causes re-renders!
+              // Just update window variables for diagnostic overlay
+              window.__streamingContent = fullResponse;
+              window.__isStreaming = true;
+              // Make sure window variables are set with current message ID
+              window.__streamingMessageId = assistantMessageId;
+              
+              // Update the streaming buffer with current content
+              if (window.__streamingBuffer.isActive && window.__streamingBuffer.projectId === projectId) {
+                // Update the assistant message in the buffer
+                window.__streamingBuffer.messages = window.__streamingBuffer.messages.map(msg =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: fullResponse }
+                    : msg
+                );
+              }
+              
+              console.log('Set streaming content:', {
+                length: fullResponse.length,
+                preview: fullResponse.substring(0, 100),
+                assistantMessageId,
+                windowStreamingMessageId: window.__streamingMessageId
+              });
+              
               // Update duration and token count in real-time during streaming
+              // IMPORTANT: Only update these values periodically to prevent excessive re-renders
               const currentTime = performance.now();
               const currentDuration = (currentTime - startTime) / 1000; // in seconds
-              setMessageTime(currentDuration);
-              updateTokenCount({
-                input: 0,
-                output: responseTokens
-              });
+              
+              // Throttle updates to once per second
+              if (currentTime - lastUpdateTime > 1000) {
+                lastUpdateTime = currentTime;
+                setMessageTime(currentDuration);
+                updateTokenCount({
+                  input: 0,
+                  output: responseTokens
+                });
+              }
               
               // Debug logging
               if (newContent) {
@@ -473,16 +814,12 @@ const ChatView = ({ projectId }) => {
               
               // Update the assistant's message with the accumulated content
               if (projectId && updateProject) {
-                // Update project messages
-                const currentMessages = Array.isArray(messages) ? messages : [];
-                const updatedMessages = currentMessages.map(msg => 
-                  msg.id === assistantMessageId
-                    ? { ...msg, content: fullResponse }
-                    : msg
-                );
-                updateProject(projectId, { 
-                  messages: updatedMessages,
-                  lastUpdated: new Date().toISOString()
+                // For projects, we rely on the streaming content state
+                // The actual message content is displayed via the messages useMemo above
+                console.log('Streaming content update:', {
+                  assistantMessageId,
+                  contentLength: fullResponse.length,
+                  firstChars: fullResponse.substring(0, 50)
                 });
               } else {
                 // Update regular chat
@@ -502,8 +839,16 @@ const ChatView = ({ projectId }) => {
           }
         }
       );
+      
+      // Clear heartbeat interval
+      clearInterval(heartbeatInterval);
+      
     } catch (error) {
       console.error('Error in streamAssistantResponse:', error);
+      
+      // Clear heartbeat interval
+      clearInterval(heartbeatInterval);
+      
       // Make sure to clean up streaming state
       setIsStreaming(false);
       setStreamStart(null);
@@ -530,7 +875,14 @@ const ChatView = ({ projectId }) => {
       ? 'No model is currently selected. Please select a model from the sidebar.'
       : error.name === 'AbortError' 
       ? 'Response generation was interrupted.'
-      : 'Sorry, there was an error generating a response. Please check that Ollama is running and try again.';
+      : `Sorry, there was an error generating a response: ${error.message}. Please check that Ollama is running and try again.`;
+    
+    console.error('[ChatView] Stream error details:', {
+      error: error.message,
+      stack: error.stack,
+      isStreaming: window.__isStreaming,
+      projectId
+    });
     
     // Handle project context errors
     if (projectId && updateProject) {
@@ -735,6 +1087,6 @@ const ChatView = ({ projectId }) => {
       </div>
     </ChatContainer>
   );
-};
+}, arePropsEqual);
 
 export default ChatView;

@@ -4,6 +4,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import ChatView from '../Chat/ChatView';
 import { Add as AddIcon, Folder as FolderIcon, Lock as LockIcon } from '@mui/icons-material';
+import { useStreamingProtection } from '../../hooks/useStreamingProtection';
 
 const ProjectsContainer = styled.div`
   display: flex;
@@ -288,17 +289,91 @@ const Button = styled.button`
   }
 `;
 
-const ProjectsView = () => {
+// Custom comparison function to prevent re-renders during streaming
+const areEqual = (prevProps, nextProps) => {
+  // If streaming is active, prevent any re-renders
+  if (window.__isStreaming) {
+    console.log('[ProjectsView] Preventing re-render during streaming');
+    return true; // Prevent re-render
+  }
+  // Otherwise, use default comparison
+  return false; // Allow re-render
+};
+
+const ProjectsView = React.memo(() => {
+  console.log('[ProjectsView] Component render triggered', { 
+    timestamp: Date.now(),
+    isStreaming: window.__isStreaming
+  });
+  
+  // Use streaming protection hook
+  const { renderCount } = useStreamingProtection('ProjectsView');
+  
   const theme = useTheme();
-  const { projects = [], createNewProject, appState, setAppState, currentModel } = useApp();
+  const appContext = useApp();
+  const { projects = [], createNewProject, appState, setAppState, currentModel } = appContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(null);
+  // Initialize selectedProject from sessionStorage if available
+  const [selectedProject, setSelectedProject] = useState(() => {
+    const savedProjectId = sessionStorage.getItem('sephia_selected_project');
+    if (savedProjectId && projects.length > 0) {
+      const project = projects.find(p => p.id === savedProjectId);
+      if (project) {
+        console.log('ProjectsView - Initializing with saved project:', project);
+        return project;
+      }
+    }
+    return null;
+  });
   const [projectType, setProjectType] = useState('all');
   const [newProject, setNewProject] = useState({ 
     title: '', 
     description: '',
     isPrivate: true 
   });
+  
+  // Debug logging
+  console.log('ProjectsView render - projects:', projects);
+  console.log('ProjectsView render - appContext:', appContext);
+  console.log('ProjectsView render - selectedProject:', selectedProject);
+  
+  // Debug: Log when projects change
+  React.useEffect(() => {
+    console.log('[ProjectsView] Projects array changed:', {
+      projectsLength: projects.length,
+      projectIds: projects.map(p => p.id),
+      selectedProjectId: selectedProject?.id,
+      isStreaming: window.__isStreaming
+    });
+    
+    // If streaming is active, log a warning
+    if (window.__isStreaming) {
+      console.warn('[ProjectsView] Projects updated while streaming is active! This may cause re-renders.');
+    }
+  }, [projects]);
+  
+  // Add mount/unmount logging
+  React.useEffect(() => {
+    console.log('[ProjectsView] MOUNTED');
+    return () => {
+      console.log('[ProjectsView] UNMOUNTING', {
+        isStreaming: window.__isStreaming,
+        selectedProjectId: selectedProject?.id
+      });
+    };
+  }, []);
+  
+  // Add a loading state to prevent premature resets
+  const [isInitialized, setIsInitialized] = useState(false);
+  
+  React.useEffect(() => {
+    // Mark as initialized after a short delay to ensure projects are loaded
+    const timer = setTimeout(() => {
+      setIsInitialized(true);
+      console.log('ProjectsView initialized');
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
   
   // Persist selected project ID in session storage to survive component re-renders
   React.useEffect(() => {
@@ -312,23 +387,32 @@ const ProjectsView = () => {
   // Restore selected project on mount
   React.useEffect(() => {
     const savedProjectId = sessionStorage.getItem('sephia_selected_project');
+    console.log('ProjectsView useEffect - savedProjectId:', savedProjectId);
+    console.log('ProjectsView useEffect - projects.length:', projects.length);
+    
     if (savedProjectId && projects.length > 0) {
       const project = projects.find(p => p.id === savedProjectId);
+      console.log('ProjectsView useEffect - found project:', project);
       if (project) {
         setSelectedProject(project);
+      } else {
+        console.warn('ProjectsView useEffect - project not found in projects array');
+        sessionStorage.removeItem('sephia_selected_project');
       }
     }
   }, [projects]);
 
   const handleCreateProject = () => {
     if (newProject.title.trim()) {
+      console.log('handleCreateProject: Creating new project with currentModel:', currentModel);
       const project = createNewProject({
         ...newProject,
         messages: [],
         fileCount: 0,
         lastUpdated: new Date().toISOString(),
-        model: currentModel // Ensure the project uses the current model
+        model: currentModel || 'deepseek-r1:8b-m4' // Ensure the project uses the current model or default
       });
+      console.log('handleCreateProject: Created project:', project);
       setNewProject({ title: '', description: '', isPrivate: true });
       setShowCreateModal(false);
       // Open the new project
@@ -347,13 +431,35 @@ const ProjectsView = () => {
 
   // If a project is selected, show the chat view for that project
   if (selectedProject) {
-    // Verify the project still exists in the projects list
-    const currentProject = projects.find(p => p.id === selectedProject.id);
-    if (!currentProject) {
-      console.warn('Selected project no longer exists, returning to projects list');
-      setSelectedProject(null);
-      return null; // This will cause a re-render and show the projects list
+    console.log('ProjectsView: selectedProject:', selectedProject);
+    console.log('ProjectsView: projects array:', projects);
+    console.log('ProjectsView: projects.length:', projects.length);
+    console.log('ProjectsView: looking for project with id:', selectedProject.id);
+    
+    // Only verify if we have projects loaded and component is initialized
+    if (isInitialized && projects.length > 0) {
+      // Verify the project still exists in the projects list
+      const currentProject = projects.find(p => p.id === selectedProject.id);
+      console.log('ProjectsView: currentProject found:', currentProject);
+      
+      if (!currentProject) {
+        console.warn('Selected project no longer exists, returning to projects list');
+        console.warn('Selected project was:', selectedProject);
+        console.warn('Available projects:', projects);
+        setSelectedProject(null);
+        sessionStorage.removeItem('sephia_selected_project');
+        return null; // This will cause a re-render and show the projects list
+      }
+    } else {
+      // Projects haven't loaded yet or component not initialized, keep the selected project
+      console.log('ProjectsView: Not yet initialized or projects not loaded, keeping selectedProject');
+      console.log('isInitialized:', isInitialized, 'projects.length:', projects.length);
     }
+    
+    // Use currentProject if found, otherwise use selectedProject
+    const projectToDisplay = projects.length > 0 ? 
+      projects.find(p => p.id === selectedProject.id) || selectedProject : 
+      selectedProject;
     
     return (
       <ProjectsContainer>
@@ -363,13 +469,13 @@ const ProjectsView = () => {
           </BackButton>
           <HeaderTop>
             <div>
-              <Title>{currentProject.title}</Title>
-              <Description>{currentProject.description}</Description>
+              <Title>{projectToDisplay.title}</Title>
+              <Description>{projectToDisplay.description}</Description>
             </div>
           </HeaderTop>
         </ProjectsHeader>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ChatView projectId={currentProject.id} />
+          <ChatView projectId={projectToDisplay.id} />
         </div>
       </ProjectsContainer>
     );
@@ -477,6 +583,6 @@ const ProjectsView = () => {
       )}
     </ProjectsContainer>
   );
-};
+}, areEqual);
 
 export default ProjectsView;

@@ -497,6 +497,7 @@ const Message = ({ message, onDelete }) => {
     console.log('Message.renderContent - role:', safeMessage.role);
     try {
       const { hasThinking, thinking, answer } = parseThinkingContent(safeMessage.content);
+      console.log('Message.renderContent - parsed:', { hasThinking, thinkingLength: thinking?.length, answerLength: answer?.length });
       
       // Render thinking section if present
       const renderThinkingSection = () => {
@@ -599,10 +600,15 @@ const Message = ({ message, onDelete }) => {
       )}
       
       <div style={styles.messageWrapper}>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative' }} data-message-id={safeMessage.id}>
           <div style={getStyle(styles.messageBubble, safeMessage.role)}>
-            <div style={styles.messageContent}>
+            <div style={styles.messageContent} className="message-content">
               {renderContent()}
+              {(!safeMessage.content || safeMessage.content.trim() === '') && safeMessage.role === 'assistant' && (
+                <span style={{ color: '#888', fontStyle: 'italic' }}>
+                  [Empty message - streaming: {safeMessage.isStreaming ? 'yes' : 'no'}]
+                </span>
+              )}
               {safeMessage.isStreaming && (
                 <span style={{ 
                   display: 'inline-block',
