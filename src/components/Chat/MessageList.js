@@ -28,6 +28,7 @@ const MessageList = ({ messages = [], onDeleteMessage }) => {
   // Debug logs
   React.useEffect(() => {
     console.log('MessageList render - message count:', messages.length);
+    console.log('MessageList render - messages:', messages);
     
     if (messages.length > 0) {
       console.log('First message:', {

@@ -299,6 +299,26 @@ const ProjectsView = () => {
     description: '',
     isPrivate: true 
   });
+  
+  // Persist selected project ID in session storage to survive component re-renders
+  React.useEffect(() => {
+    if (selectedProject) {
+      sessionStorage.setItem('sephia_selected_project', selectedProject.id);
+    } else {
+      sessionStorage.removeItem('sephia_selected_project');
+    }
+  }, [selectedProject]);
+  
+  // Restore selected project on mount
+  React.useEffect(() => {
+    const savedProjectId = sessionStorage.getItem('sephia_selected_project');
+    if (savedProjectId && projects.length > 0) {
+      const project = projects.find(p => p.id === savedProjectId);
+      if (project) {
+        setSelectedProject(project);
+      }
+    }
+  }, [projects]);
 
   const handleCreateProject = () => {
     if (newProject.title.trim()) {
@@ -327,6 +347,14 @@ const ProjectsView = () => {
 
   // If a project is selected, show the chat view for that project
   if (selectedProject) {
+    // Verify the project still exists in the projects list
+    const currentProject = projects.find(p => p.id === selectedProject.id);
+    if (!currentProject) {
+      console.warn('Selected project no longer exists, returning to projects list');
+      setSelectedProject(null);
+      return null; // This will cause a re-render and show the projects list
+    }
+    
     return (
       <ProjectsContainer>
         <ProjectsHeader>
@@ -335,13 +363,13 @@ const ProjectsView = () => {
           </BackButton>
           <HeaderTop>
             <div>
-              <Title>{selectedProject.title}</Title>
-              <Description>{selectedProject.description}</Description>
+              <Title>{currentProject.title}</Title>
+              <Description>{currentProject.description}</Description>
             </div>
           </HeaderTop>
         </ProjectsHeader>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ChatView projectId={selectedProject.id} />
+          <ChatView projectId={currentProject.id} />
         </div>
       </ProjectsContainer>
     );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
@@ -9,7 +9,6 @@ import ProjectsView from '../Projects/ProjectsView';
 import SettingsView from '../Settings/SettingsView';
 import OllamaChatView from '../../views/OllamaChatView';
 import TerminalView from '../../views/TerminalView';
-import ollamaService from '../../services/OllamaService';
 
 const LayoutContainer = styled.div`
   display: flex;
@@ -40,7 +39,13 @@ const MainLayout = () => {
   // Provide default values if appContext is not available
   const { 
     appState = { activeSection: 'ollama' }, 
-    setAppState = () => {} 
+    setAppState = () => {},
+    currentModel,
+    setCurrentModel,
+    models: contextModels,
+    setModels: setContextModels,
+    loading: contextLoading,
+    loadModel
   } = appContext || {};
   
   // Set default section if none is selected
@@ -54,78 +59,27 @@ const MainLayout = () => {
     }
   }, [appContext, appState?.activeSection, setAppState]);
   
-  // State for model selection
-  const [models, setModels] = useState([]);
-  const [selectedModel, setSelectedModel] = useState('');
-  const [isLoadingModels, setIsLoadingModels] = useState(true);
+  // Use context models and loading state
+  const models = contextModels || [];
+  const selectedModel = currentModel || '';
+  const isLoadingModels = contextLoading || false;
   const [error, setError] = useState(null);
-
-  // Fetch available models from Ollama
-  const fetchModels = useCallback(async () => {
-    try {
-      setIsLoadingModels(true);
-      setError(null);
-      
-      // Get models from Ollama service
-      const ollamaModels = await ollamaService.listModels();
-      
-      if (ollamaModels && ollamaModels.length > 0) {
-        const formattedModels = ollamaModels.map(model => ({
-          id: model.id || model.name,
-          name: model.name || model.id,
-          size: model.size ? formatFileSize(model.size) : '',
-          disabled: false
-        }));
-        
-        setModels(formattedModels);
-        
-        // Set the first model as selected if none is selected
-        if (!selectedModel && formattedModels.length > 0) {
-          setSelectedModel(formattedModels[0].name);
-        }
-      } else {
-        // Fallback to mock data if no models found
-        setModels([
-          { id: 'llama2', name: 'llama2', size: '7B', disabled: false },
-          { id: 'mistral', name: 'mistral', size: '4.1B', disabled: false }
-        ]);
-        setSelectedModel('llama2');
-      }
-    } catch (err) {
-      console.error('Error fetching models:', err);
-      setError('Failed to load models. Please ensure Ollama is running.');
-      
-      // Fallback to mock data on error
-      setModels([
-        { id: 'llama2', name: 'llama2', size: '7B', disabled: true },
-        { id: 'mistral', name: 'mistral', size: '4.1B', disabled: true }
-      ]);
-      setSelectedModel('llama2');
-    } finally {
-      setIsLoadingModels(false);
-    }
-  }, [selectedModel]);
-
-  // Format file size to human readable format
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  // Load models on mount
-  useEffect(() => {
-    fetchModels();
-  }, [fetchModels]);
+  
+  // Debug logging
+  console.log('MainLayout - currentModel from context:', currentModel);
+  console.log('MainLayout - models from context:', models);
 
   // Handle model change
-  const handleModelChange = (event) => {
+  const handleModelChange = async (event) => {
     const newModel = event.target.value;
-    setSelectedModel(newModel);
-    // Here you can add logic to update the current model in your app state
-    // For example: updateAppState({ currentModel: newModel });
+    console.log('MainLayout - Model changed to:', newModel);
+    if (loadModel) {
+      // Use loadModel which sets the current model and warms it up
+      await loadModel(newModel);
+    } else if (setCurrentModel) {
+      // Fallback to just setting the model
+      setCurrentModel(newModel);
+    }
   };
 
   // Render loading state

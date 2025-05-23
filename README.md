@@ -1,155 +1,253 @@
-# Sephia - Modern LLM Interface
+# Sephia - Local LLM Chat Interface
 
-Sephia is a high-performance desktop interface for interacting with LLMs through Ollama, featuring real-time streaming responses, live metrics, and a beautiful Material Design interface. Built with React, Material-UI, and Electron for a seamless desktop experience.
+A modern, elegant chat interface for interacting with local Large Language Models (LLMs) through Ollama. Built with React and Electron, Sephia provides a beautiful UI for conversations with AI models running on your machine.
 
-## ✨ Latest Updates (v1.2.0)
+![Sephia Interface](public/images/brain-computer.svg)
 
-### New Features & Fixes
+## ✨ Latest Updates (v2.0)
 
-- **🚀 Real-time Streaming** - Fixed streaming responses with proper deduplication to prevent repetition during model reasoning
-- **📊 Live Metrics Display** - Added real-time streaming statistics showing duration, token count, and interrupt capability
-- **⚡ ESC Key Interrupt** - Implemented proper abort signal handling to cancel long-running responses instantly
-- **🎯 Smooth Animation** - Added configurable streaming speed with natural typing animation (50ms delay between chunks)
-- **🎨 Enhanced UI** - Beautiful purple-themed interface with Material Design components
-- **💾 Persistent History** - Chat history saved to local storage with automatic theme persistence
-- **🔧 M4 Mac Optimized** - Specially tuned for Apple Silicon performance
+### Major Features Implemented
+- **🎯 Auto-generating chat titles** - Automatically creates meaningful titles from first message
+- **📊 Enhanced live metrics** - Real-time display: "(29s · 8.5k tokens · esc to interrupt)"
+- **📁 Project management system** - Organize chats into projects with isolated contexts
+- **🎨 Modern UI redesign** - Discord-inspired interface with purple accents
+- **💬 Advanced markdown support** - Full GitHub Flavored Markdown with syntax highlighting
+- **📋 Always-visible copy buttons** - Easy copying of AI responses
+- **🔄 Improved streaming** - Fixed chunk handling for complete responses
+- **💾 Enhanced persistence** - Session storage for UI state, localStorage for data
 
-### Theme System Features
+## Features
 
-- **Dark/Light Mode**: Built-in support for multiple color schemes
-- **Purple Accent Theme**: Modern, eye-friendly purple color scheme
-- **Responsive Design**: Adapts to different screen sizes and preferences
-- **Consistent Styling**: Unified design language across all components
+### 🎨 Modern UI Design
+- **Clean, Discord-inspired interface** with dark theme
+- **Responsive design** that works on desktop and mobile
+- **Beautiful message bubbles** with proper alignment and styling
+- **Syntax highlighting** for code blocks with line numbers
+- **Markdown support** with GitHub Flavored Markdown (tables, strikethrough, etc.)
+- **Purple gradient status bar** with live metrics
+- **Hover effects** and smooth transitions
 
-## 🚀 Quick Start
+### 💬 Chat Features
+- **Real-time streaming** responses with live token counting
+- **Auto-generating chat titles** from first message content
+- **Message history** with starred and recent chats
+- **Copy functionality** for messages and code blocks
+- **Delete messages** with confirmation
+- **Interrupt streaming** with ESC key
+- **DeepSeek R1 thinking support** - Displays reasoning process
 
-### Prerequisites
+### 📁 Project Management
+- **Create projects** to organize related conversations
+- **Project isolation** - each project maintains its own chat history
+- **Project cards** with metadata (file count, message count, last updated)
+- **Private/Public projects** with visual indicators
+- **Quick project switching** from the sidebar
+- **Per-project model settings** - projects remember their model
 
-- Node.js 16 or higher
-- npm or yarn
-- [Ollama](https://ollama.ai/) installed and running
-- At least one Ollama model installed (e.g., `ollama pull deepseek-r1:8b`)
+### 🤖 Model Support
+- **Multiple model support** through Ollama integration
+- **Model selection** dropdown in header
+- **Automatic model detection** from Ollama
+- **Fallback models** when Ollama is unavailable
+- **Model warmup** on selection
+- **Terminal fallback** for Electron environment
 
-### Installation
+### 📊 Live Statistics
+- **Real-time token counting** during streaming
+- **Response time tracking** in seconds
+- **Tokens per second** calculation
+- **Formatted display**: "(29s · 8.5k tokens · esc to interrupt)"
+- **Number formatting** with k suffix for thousands
 
+### 🛠️ Technical Features
+- **Electron app** for desktop deployment
+- **React 18** with modern hooks and context
+- **Emotion styled components** for styling
+- **Material-UI components** for consistent design
+- **Local storage persistence** for chats and projects
+- **Session storage** for maintaining UI state
+- **Error boundaries** and comprehensive error handling
+- **Abort signal support** for canceling requests
+
+## Prerequisites
+
+- Node.js 18+ and npm/yarn
+- [Ollama](https://ollama.ai/) installed and running locally
+- At least one model installed in Ollama (e.g., `ollama pull deepseek-r1:8b-m4`)
+
+## Installation
+
+1. Clone the repository:
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/React_LLM_GUI.git
+git clone https://github.com/alexandra767/React_LLM_GUI.git
 cd React_LLM_GUI
+```
 
-# Install dependencies
+2. Install dependencies:
+```bash
 npm install
+```
 
-# Start Ollama service (in separate terminal)
-ollama serve
-
-# Start the development server
+3. Start the development server:
+```bash
 npm start
 ```
 
-## 🎯 Key Features
+4. Or run as an Electron app:
+```bash
+npm run electron-dev
+```
 
-- **Real-time Streaming**: Watch AI responses appear with smooth, natural typing animation
-- **Live Metrics**: Monitor response generation with real-time duration and token count
-- **Interrupt Support**: Press ESC to instantly cancel long-running responses
-- **Code Highlighting**: Automatic syntax highlighting for code blocks
-- **Message Management**: Copy messages, view timestamps, track conversation history
-- **Model Switching**: Easily switch between different Ollama models
-- **Persistent Storage**: Chat history saved locally between sessions
+## Usage
 
-## 🖥️ Running the App with Electron
+### Starting a Chat
+1. Click "New Chat" in the sidebar or press the + button
+2. Type your message in the rounded input field
+3. Press Enter or click the purple send button
+4. Watch as the AI responds with live streaming
+5. The chat title updates automatically based on your first message
 
-There are multiple ways to run the Sephia app:
+### Creating a Project
+1. Click "Projects" in the sidebar
+2. Click the "New Project" card with dashed border
+3. Enter a project name and description
+4. Click "Create Project"
+5. Start chatting within your project context
 
-### 1. Production Mode
+### Managing Chats
+- **Star important chats** by clicking the star icon (always visible on hover)
+- **Delete chats** with the trash icon
+- **Copy AI responses** with the copy button (always visible on assistant messages)
+- **View chat history** in the sidebar under "Recent Chats" and "Starred"
 
-This loads the built React app in Electron:
+### Keyboard Shortcuts
+- `Enter` - Send message
+- `Shift + Enter` - New line in message
+- `ESC` - Interrupt streaming response
+- `Cmd/Ctrl + C` - Copy selected text
+
+## Configuration
+
+### Ollama Connection
+By default, Sephia connects to Ollama at `http://localhost:11434`. The service includes:
+- Automatic retry with exponential backoff
+- Terminal fallback for Electron environment
+- Mock responses when Ollama is unavailable
+
+### Available Models
+The app automatically detects models installed in Ollama. To add more models:
 
 ```bash
-./run-sephia-electron.sh
+ollama pull model-name
 ```
 
-### 2. Development Mode
+Popular models:
+- `deepseek-r1:8b-m4` - Fast reasoning model with thinking process
+- `deepseek-r1:32b` - Larger, more capable version
+- `llama2` - General purpose
+- `mistral` - Efficient and capable
+- `codellama` - Optimized for coding
 
-This starts the React development server and opens it in Electron:
+## Development
 
+### Project Structure
+```
+React_LLM_GUI/
+├── src/
+│   ├── components/      # React components
+│   │   ├── Chat/       # Chat-related components
+│   │   │   ├── ChatInput.js      # Message input with send button
+│   │   │   ├── ChatView.js       # Main chat container
+│   │   │   ├── Message.js        # Individual message display
+│   │   │   ├── MessageList.js    # Message container with scrolling
+│   │   │   ├── TokenDisplay.js   # Live metrics display
+│   │   │   └── BrainIcon.js      # Custom brain icon component
+│   │   ├── Layout/     # Layout components
+│   │   │   ├── Header.js         # Top bar with model selector
+│   │   │   ├── MainLayout.js     # Main app layout
+│   │   │   └── Sidebar.js        # Left sidebar navigation
+│   │   └── Projects/   # Project management
+│   │       └── ProjectsView.js   # Project cards and management
+│   ├── context/        # React context providers
+│   │   ├── AppContext.js         # Global app state
+│   │   └── ThemeContext.js       # Theme management
+│   ├── services/       # API services
+│   │   ├── LLMService.js         # Ollama integration
+│   │   └── OllamaService.js      # Direct Ollama API
+│   └── utils/          # Utility functions
+│       └── clipboard.js          # Clipboard operations
+├── electron/           # Electron main process
+│   ├── main.js                   # Main electron file
+│   └── preload.js               # Preload script
+└── public/            # Static assets
+    └── images/                   # Icons and images
+```
+
+### Key Technologies
+- **React 18** - UI framework with hooks
+- **Electron 36** - Desktop app framework
+- **Emotion** - CSS-in-JS styling
+- **Material-UI v5** - Component library
+- **Axios** - HTTP client with interceptors
+- **React Markdown** - Markdown rendering
+- **remark-gfm** - GitHub Flavored Markdown
+- **Prism** - Syntax highlighting
+- **DOMPurify** - HTML sanitization
+
+### State Management
+The app uses React Context for state management:
+- **AppContext** - Manages chats, projects, models, and UI state
+- **ThemeContext** - Handles theme switching and persistence
+
+## Building for Production
+
+### Web Build
 ```bash
-./run-sephia-dev.sh
+npm run build
 ```
 
-### 3. Simple Mode
-
-This uses a simplified Electron configuration that loads directly from the file system:
-
+### Electron Build
 ```bash
-./run-sephia-simple.sh
+# For macOS
+npm run electron-pack-mac
+
+# For Windows
+npm run electron-pack-win
+
+# For Linux
+npm run electron-pack-linux
 ```
 
-## 🛠️ Configuration
-
-### Adjusting Streaming Speed
-
-To customize the text streaming speed, modify the delay in `src/services/LLMService.js` line 198:
-
-```javascript
-await new Promise(resolve => setTimeout(resolve, 50)); // Adjust this value
-```
-
-- **Faster**: Use 20-30ms for quicker streaming
-- **Slower**: Use 100-150ms for more natural typing effect
-
-### Supported Models
-
-The app works with any Ollama model. Popular choices:
-- `deepseek-r1:8b` - Fast, efficient reasoning model
-- `deepseek-r1:32b` - Larger, more capable model
-- `deepseek-r1:14b` - Balanced performance
-- `llama3` - Meta's latest open model
-- `mistral` - Fast and efficient
-
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Ollama Connection Issues
 ```bash
 # Check if Ollama is running
 curl http://localhost:11434/api/tags
 
+# Start Ollama service
+ollama serve
+
 # Verify models are installed
 ollama list
 
 # Pull a model if needed
-ollama pull deepseek-r1:8b
+ollama pull deepseek-r1:8b-m4
 ```
 
-### Performance Tips for M4 Macs
+### Common Issues
+1. **"setImmediate is not defined"** - Fixed in latest version
+2. **"Cannot read properties of undefined (reading 'inTable')"** - Update remark-gfm to v3.0.1
+3. **Messages not showing** - Check browser console for errors
+4. **Project crashes on message send** - Fixed with enhanced error handling
+
+### Performance Tips
 - Use quantized models (8b versions) for faster responses
 - Close other resource-intensive applications
 - Ensure at least 8GB RAM is available
+- For M4 Macs: Models are optimized for Apple Silicon
 
-## 📁 Project Structure
-
-```
-src/
-├── components/
-│   ├── Chat/           # Chat UI components
-│   │   ├── ChatInput.js
-│   │   ├── ChatView.js
-│   │   ├── Message.js
-│   │   └── MessageList.js
-│   ├── Layout/         # App layout components
-│   │   ├── Header.js
-│   │   ├── MainLayout.js
-│   │   └── Sidebar.js
-│   └── SimpleChat.js   # Main chat component
-├── context/
-│   ├── AppContext.js   # Global app state management
-│   └── ThemeContext.js # Theme management
-├── services/
-│   └── LLMService.js   # Ollama API integration
-└── views/              # Main view components
-```
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -157,71 +255,39 @@ src/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+### Development Guidelines
+- Follow existing code style
+- Add comments for complex logic
+- Update README for new features
+- Test on multiple platforms
+- Ensure Ollama compatibility
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Ollama](https://ollama.ai/) for providing local LLM capabilities
+- [Anthropic](https://anthropic.com/) for Claude AI assistance in development
+- [DeepSeek](https://deepseek.ai/) for the R1 reasoning models
+- React and Electron communities for excellent documentation
+- All contributors and testers
+
+## Roadmap
+
+### Coming Soon
+- 🔜 Search functionality across all chats
+- 🔜 Export conversations (PDF, Markdown, JSON)
+- 🔜 Custom theme editor
+- 🔜 Multi-language support
+- 🔜 Plugin system for extensions
+- 🔜 Voice input/output
+- 🔜 Image support for multimodal models
+- 🔜 Collaborative projects
+
 ---
 
-## Available Scripts
+Built with ❤️ by Alexandra
 
-In the project directory, you can run:
-
-### `npm start`
-
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
-
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+For support, please open an issue on [GitHub](https://github.com/alexandra767/React_LLM_GUI/issues)

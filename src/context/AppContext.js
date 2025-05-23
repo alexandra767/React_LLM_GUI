@@ -28,7 +28,15 @@ const loadChats = () => {
 const loadProjects = () => {
   try {
     const savedProjects = localStorage.getItem('sephia_projects');
-    return savedProjects ? JSON.parse(savedProjects) : [];
+    if (savedProjects) {
+      const projects = JSON.parse(savedProjects);
+      // Ensure all projects have a model property
+      return projects.map(project => ({
+        ...project,
+        model: project.model || 'deepseek-r1:8b-m4'
+      }));
+    }
+    return [];
   } catch (error) {
     console.error('Failed to load projects from localStorage:', error);
     return [];
@@ -597,11 +605,46 @@ export const AppProvider = ({ children }) => {
   };
   
   const updateProject = (projectId, updates) => {
-    setProjects(prev => prev.map(project => 
-      project.id === projectId 
-        ? { ...project, ...updates, updatedAt: new Date().toISOString() }
-        : project
-    ));
+    if (!projectId || !updates) {
+      console.error('updateProject: Invalid projectId or updates', { projectId, updates });
+      return;
+    }
+    
+    setProjects(prev => {
+      if (!Array.isArray(prev)) {
+        console.error('updateProject: projects is not an array', prev);
+        return [];
+      }
+      
+      const updatedProjects = prev.map(project => {
+        if (project.id === projectId) {
+          // Ensure messages array is valid
+          const updatedProject = { 
+            ...project, 
+            ...updates, 
+            updatedAt: new Date().toISOString() 
+          };
+          
+          // Validate messages array
+          if (updates.messages !== undefined && !Array.isArray(updates.messages)) {
+            console.error('updateProject: messages must be an array', updates.messages);
+            updatedProject.messages = [];
+          }
+          
+          return updatedProject;
+        }
+        return project;
+      });
+      
+      // Save to localStorage after update
+      try {
+        localStorage.setItem('sephia_projects', JSON.stringify(updatedProjects));
+      } catch (e) {
+        console.error('Failed to save projects to localStorage:', e);
+      }
+      
+      return updatedProjects;
+    });
   };
   
   const deleteChat = (chatId) => {

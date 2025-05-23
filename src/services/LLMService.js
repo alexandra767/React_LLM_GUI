@@ -215,9 +215,9 @@ class OllamaAdapter extends LLMAdapter {
             if (onChunk) {
               onChunk(chunk);
             }
-            // Remove delay entirely for real-time streaming
-            // The browser's event loop will handle UI updates
-            await new Promise(resolve => setTimeout(resolve, 0));
+            // Reduce delay to ensure faster chunk processing
+            // Only add minimal delay to prevent UI freezing
+            await new Promise(resolve => setTimeout(resolve, 10)); // 10ms delay between chunks
           }
           isProcessingQueue = false;
         };

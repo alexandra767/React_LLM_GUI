@@ -175,6 +175,8 @@ const ChatView = ({ projectId }) => {
     console.log(`[ChatView ${componentVersion}] Project context:`, {
       projectId,
       project,
+      projectModel: project?.model,
+      currentModel,
       messageCount: messages.length
     });
   }
@@ -265,15 +267,23 @@ const ChatView = ({ projectId }) => {
       // Handle project context
       if (projectId && updateProject) {
         console.log('handleSendMessage: In project context, updating project messages');
-        // Update project with new messages
-        const updatedMessages = [...messages, userMessage, assistantMessage];
-        updateProject(projectId, { 
-          messages: updatedMessages,
-          lastUpdated: new Date().toISOString()
-        });
-        
-        // Start streaming the response
-        await streamAssistantResponse(assistantMessageId, messageText, startTime);
+        try {
+          // Ensure messages is an array before spreading
+          const currentMessages = Array.isArray(messages) ? messages : [];
+          // Update project with new messages
+          const updatedMessages = [...currentMessages, userMessage, assistantMessage];
+          updateProject(projectId, { 
+            messages: updatedMessages,
+            lastUpdated: new Date().toISOString()
+          });
+          
+          // Start streaming the response
+          await streamAssistantResponse(assistantMessageId, messageText, startTime);
+        } catch (projectError) {
+          console.error('Error updating project:', projectError);
+          // Don't let project update errors crash the whole flow
+          throw projectError;
+        }
       } else {
         // Handle regular chat context
         if (!currentChat) {
@@ -304,15 +314,30 @@ const ChatView = ({ projectId }) => {
       handleStreamError(error, startTime);
     } finally {
       setIsStreaming(false);
+      setStreamStart(null);
+      setTokenRate(0);
+      // Clear abort controller
+      if (abortControllerRef.current) {
+        abortControllerRef.current = null;
+      }
     }
   };
   const streamAssistantResponse = async (assistantMessageId, userMessage, startTime) => {
+    // Get the current project if in project context
+    const currentProject = projectId ? projects.find(p => p.id === projectId) : null;
     // For project context, ensure we use the project's model or fallback to current
-    const modelToUse = projectId && project?.model ? project.model : (currentModel || 'deepseek-r1:8b-m4');
+    const modelToUse = currentProject?.model || currentModel || 'deepseek-r1:8b-m4';
     console.log('streamAssistantResponse: Starting to stream message');
-    console.log('streamAssistantResponse: Project context:', projectId ? { projectId, projectModel: project?.model } : 'none');
+    console.log('streamAssistantResponse: Project context:', projectId ? { projectId, projectModel: currentProject?.model } : 'none');
     console.log('streamAssistantResponse: Current model from context:', currentModel);
     console.log('streamAssistantResponse: Using model:', modelToUse);
+    
+    // Validate that we have a valid model
+    if (!modelToUse) {
+      console.error('No model available for streaming');
+      throw new Error('No model selected');
+    }
+    
     let fullResponse = '';
     let responseTokens = 0;
     let lastUpdateTime = startTime;
@@ -362,7 +387,8 @@ const ChatView = ({ projectId }) => {
               // Mark streaming as complete
               if (projectId && updateProject) {
                 // Update project messages
-                const updatedMessages = messages.map(msg => 
+                const currentMessages = Array.isArray(messages) ? messages : [];
+                const updatedMessages = currentMessages.map(msg => 
                   msg.id === assistantMessageId 
                     ? { ...msg, isStreaming: false }
                     : msg
@@ -394,7 +420,8 @@ const ChatView = ({ projectId }) => {
               
               // Update message with error
               if (projectId && updateProject) {
-                const updatedMessages = messages.map(msg => 
+                const currentMessages = Array.isArray(messages) ? messages : [];
+                const updatedMessages = currentMessages.map(msg => 
                   msg.id === assistantMessageId
                     ? { ...msg, content: errorMessage, isError: true, isStreaming: false }
                     : msg
@@ -447,7 +474,8 @@ const ChatView = ({ projectId }) => {
               // Update the assistant's message with the accumulated content
               if (projectId && updateProject) {
                 // Update project messages
-                const updatedMessages = messages.map(msg => 
+                const currentMessages = Array.isArray(messages) ? messages : [];
+                const updatedMessages = currentMessages.map(msg => 
                   msg.id === assistantMessageId
                     ? { ...msg, content: fullResponse }
                     : msg
@@ -476,6 +504,16 @@ const ChatView = ({ projectId }) => {
       );
     } catch (error) {
       console.error('Error in streamAssistantResponse:', error);
+      // Make sure to clean up streaming state
+      setIsStreaming(false);
+      setStreamStart(null);
+      setTokenRate(0);
+      
+      // Clear the abort controller
+      if (abortControllerRef.current) {
+        abortControllerRef.current = null;
+      }
+      
       throw error;
     }
   };
@@ -488,35 +526,77 @@ const ChatView = ({ projectId }) => {
     const duration = (endTime - startTime) / 1000; // in seconds
     setMessageTime(duration);
     
-    // Update the assistant's message with error state
-    setCurrentChat(prev => {
-      if (!prev) return null;
-      
+    const errorContent = error.message === 'No model selected' 
+      ? 'No model is currently selected. Please select a model from the sidebar.'
+      : error.name === 'AbortError' 
+      ? 'Response generation was interrupted.'
+      : 'Sorry, there was an error generating a response. Please check that Ollama is running and try again.';
+    
+    // Handle project context errors
+    if (projectId && updateProject) {
       const errorMessage = {
         id: `err-${Date.now()}`,
         role: 'assistant',
-        content: 'Sorry, there was an error generating a response. Please try again.',
+        content: errorContent,
         timestamp: new Date().toISOString(),
         isError: true,
         isStreaming: false
       };
       
-      // Replace the last message (which was the streaming one) with the error
-      const messages = [...prev.messages];
-      const lastMessageIndex = messages.length - 1;
+      // Update project messages - replace streaming message with error
+      const currentMessages = Array.isArray(messages) ? messages : [];
+      const updatedMessages = currentMessages.map(msg => {
+        if (msg.isStreaming || (msg.role === 'assistant' && !msg.content)) {
+          return errorMessage;
+        }
+        return msg;
+      });
       
-      if (lastMessageIndex >= 0 && messages[lastMessageIndex].isStreaming) {
-        messages[lastMessageIndex] = errorMessage;
-      } else {
-        messages.push(errorMessage);
+      // If no assistant message found to replace, add the error
+      const hasAssistantMessage = currentMessages.some(msg => msg.role === 'assistant');
+      if (!hasAssistantMessage) {
+        updatedMessages.push(errorMessage);
       }
       
-      return {
-        ...prev,
-        messages,
-        updatedAt: new Date().toISOString()
-      };
-    });
+      try {
+        updateProject(projectId, { 
+          messages: updatedMessages,
+          lastUpdated: new Date().toISOString()
+        });
+      } catch (updateError) {
+        console.error('Failed to update project with error message:', updateError);
+      }
+    } else {
+      // Update regular chat
+      setCurrentChat(prev => {
+        if (!prev) return null;
+        
+        const errorMessage = {
+          id: `err-${Date.now()}`,
+          role: 'assistant',
+          content: errorContent,
+          timestamp: new Date().toISOString(),
+          isError: true,
+          isStreaming: false
+        };
+        
+        // Replace the last message (which was the streaming one) with the error
+        const messages = [...prev.messages];
+        const lastMessageIndex = messages.length - 1;
+        
+        if (lastMessageIndex >= 0 && messages[lastMessageIndex].isStreaming) {
+          messages[lastMessageIndex] = errorMessage;
+        } else {
+          messages.push(errorMessage);
+        }
+        
+        return {
+          ...prev,
+          messages,
+          updatedAt: new Date().toISOString()
+        };
+      });
+    }
   };
   
   // Handle message deletion
