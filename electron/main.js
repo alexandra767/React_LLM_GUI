@@ -192,6 +192,36 @@ function createWindow() {
   });
 }
 
+// Speech Recognition IPC Handlers
+function setupSpeechHandlers() {
+  let speechProcess = null;
+  
+  ipcMain.on('speech:start', (event) => {
+    console.log('[Main] Starting speech recognition');
+    
+    // Use say command to simulate dictation input
+    // This is a workaround since we can't directly access macOS dictation API
+    // The user will need to manually trigger dictation with Fn+Fn
+    if (mainWindow) {
+      // Send a message to show instructions
+      mainWindow.webContents.send('speech:result', {
+        transcript: '',
+        isFinal: false,
+        isInstruction: true,
+        message: 'Press Fn+Fn to start dictating'
+      });
+    }
+  });
+  
+  ipcMain.on('speech:stop', (event) => {
+    console.log('[Main] Stopping speech recognition');
+    if (speechProcess) {
+      speechProcess.kill();
+      speechProcess = null;
+    }
+  });
+}
+
 // Terminal IPC Handlers
 function setupTerminalHandlers() {
   // Start a new terminal session
@@ -300,6 +330,7 @@ app.on('web-contents-created', (event, contents) => {
 app.whenReady().then(() => {
   console.log('App is ready, creating window...');
   setupTerminalHandlers();
+  setupSpeechHandlers();
   createWindow();
 }).catch(err => {
   console.error('Failed to start app:', err);

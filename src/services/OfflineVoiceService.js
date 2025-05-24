@@ -1,125 +1,11 @@
-// Offline voice service that uses native macOS speech recognition
+// Offline voice service that monitors textarea changes for dictation
 class OfflineVoiceService {
   constructor() {
     this.isListening = false;
     this.synthesis = window.speechSynthesis;
-    this.recognition = null;
-    this.initializeOfflineRecognition();
-  }
-
-  initializeOfflineRecognition() {
-    // Check if we're in Electron
-    if (window.electron) {
-      console.log('[OfflineVoice] Running in Electron, setting up offline recognition');
-      this.setupElectronRecognition();
-    } else {
-      console.log('[OfflineVoice] Not in Electron, falling back to web speech API');
-      this.setupWebRecognition();
-    }
-  }
-
-  setupElectronRecognition() {
-    // We'll use Electron IPC to communicate with native speech recognition
-    this.recognition = {
-      start: () => {
-        console.log('[OfflineVoice] Starting offline recognition via Electron');
-        if (window.electron && window.electron.startSpeechRecognition) {
-          window.electron.startSpeechRecognition();
-        } else {
-          // Fallback to using native macOS dictation command
-          this.useMacOSDictation();
-        }
-      },
-      stop: () => {
-        console.log('[OfflineVoice] Stopping offline recognition');
-        if (window.electron && window.electron.stopSpeechRecognition) {
-          window.electron.stopSpeechRecognition();
-        }
-      }
-    };
-  }
-
-  setupWebRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      this.recognition = new SpeechRecognition();
-      this.recognition.continuous = false;
-      this.recognition.interimResults = true;
-      this.recognition.lang = 'en-US';
-    }
-  }
-
-  // Alternative: Use macOS dictation via keyboard shortcut
-  useMacOSDictation() {
-    console.log('[OfflineVoice] Using macOS dictation');
-    // This will trigger the native macOS dictation
-    // User needs to have dictation enabled in System Preferences
-    
-    // Create a temporary input field to receive dictation
-    const tempInput = document.createElement('textarea');
-    tempInput.style.position = 'fixed';
-    tempInput.style.left = '50%';
-    tempInput.style.top = '50%';
-    tempInput.style.transform = 'translate(-50%, -50%)';
-    tempInput.style.width = '300px';
-    tempInput.style.height = '100px';
-    tempInput.style.padding = '10px';
-    tempInput.style.border = '2px solid #a855f7';
-    tempInput.style.borderRadius = '8px';
-    tempInput.style.backgroundColor = '#2A2A2A';
-    tempInput.style.color = '#FFFFFF';
-    tempInput.style.fontSize = '16px';
-    tempInput.style.zIndex = '10000';
-    tempInput.placeholder = 'Press Fn+Fn or your dictation key to start speaking...';
-    
-    document.body.appendChild(tempInput);
-    tempInput.focus();
-    
-    // Listen for input changes
-    tempInput.addEventListener('input', (e) => {
-      if (this.callbacks && this.callbacks.onResult) {
-        this.callbacks.onResult({
-          transcript: e.target.value,
-          isFinal: true
-        });
-      }
-    });
-    
-    // Add done button
-    const doneButton = document.createElement('button');
-    doneButton.textContent = 'Done';
-    doneButton.style.position = 'fixed';
-    doneButton.style.left = '50%';
-    doneButton.style.top = 'calc(50% + 70px)';
-    doneButton.style.transform = 'translateX(-50%)';
-    doneButton.style.padding = '8px 20px';
-    doneButton.style.backgroundColor = '#a855f7';
-    doneButton.style.color = '#FFFFFF';
-    doneButton.style.border = 'none';
-    doneButton.style.borderRadius = '6px';
-    doneButton.style.cursor = 'pointer';
-    doneButton.style.zIndex = '10001';
-    
-    doneButton.onclick = () => {
-      const text = tempInput.value;
-      document.body.removeChild(tempInput);
-      document.body.removeChild(doneButton);
-      
-      if (text && this.callbacks && this.callbacks.onResult) {
-        this.callbacks.onResult({
-          transcript: text,
-          isFinal: true
-        });
-      }
-      
-      if (this.callbacks && this.callbacks.onEnd) {
-        this.callbacks.onEnd();
-      }
-      
-      this.isListening = false;
-    };
-    
-    document.body.appendChild(doneButton);
+    this.callbacks = null;
+    this.monitorInterval = null;
+    this.lastValue = '';
   }
 
   async startListening(callbacks = {}) {
@@ -130,34 +16,98 @@ class OfflineVoiceService {
     this.isListening = true;
     this.callbacks = callbacks;
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       try {
+        // Find the chat input textarea
+        const chatInput = document.querySelector('textarea[placeholder*="Type a message"]');
+        if (!chatInput) {
+          console.error('[OfflineVoice] Could not find chat input');
+          callbacks.onError?.('Could not find chat input field');
+          this.isListening = false;
+          return resolve();
+        }
+        
+        // Store current value
+        this.lastValue = chatInput.value;
+        
+        // Focus the input to prepare for dictation
+        chatInput.focus();
+        
+        // Show user instructions
+        const originalPlaceholder = chatInput.placeholder;
+        chatInput.placeholder = 'Press Fn+Fn to start dictating...';
+        
+        // Add visual indicator
+        chatInput.style.borderColor = '#ef4444';
+        chatInput.style.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.2)';
+        
         callbacks.onStart?.();
         
-        if (this.recognition && this.recognition.start) {
-          this.recognition.start();
-        } else {
-          // Use macOS dictation as fallback
-          this.useMacOSDictation();
-        }
+        // Monitor the textarea for changes
+        this.monitorInterval = setInterval(() => {
+          const currentValue = chatInput.value;
+          
+          if (currentValue !== this.lastValue) {
+            console.log('[OfflineVoice] Detected change:', currentValue);
+            this.lastValue = currentValue;
+            
+            // Send the update
+            callbacks.onResult?.({
+              transcript: currentValue,
+              isFinal: false
+            });
+            
+            // Reset visual indicators when text appears
+            if (currentValue.length > 0) {
+              chatInput.placeholder = originalPlaceholder;
+              chatInput.style.borderColor = '';
+              chatInput.style.boxShadow = '';
+            }
+          }
+        }, 100);
+        
+        // Store cleanup function
+        this.cleanup = () => {
+          if (this.monitorInterval) {
+            clearInterval(this.monitorInterval);
+            this.monitorInterval = null;
+          }
+          chatInput.placeholder = originalPlaceholder;
+          chatInput.style.borderColor = '';
+          chatInput.style.boxShadow = '';
+        };
         
         resolve();
       } catch (error) {
         this.isListening = false;
-        callbacks.onError?.('Failed to start speech recognition: ' + error.message);
-        reject(error);
+        callbacks.onError?.('Failed to start monitoring: ' + error.message);
+        resolve();
       }
     });
   }
 
   stopListening() {
-    if (this.recognition && this.recognition.stop) {
-      this.recognition.stop();
+    console.log('[OfflineVoice] Stopping listening');
+    
+    if (this.cleanup) {
+      this.cleanup();
+      this.cleanup = null;
     }
+    
+    // Send final value if any
+    if (this.lastValue && this.callbacks?.onResult) {
+      this.callbacks.onResult({
+        transcript: this.lastValue,
+        isFinal: true
+      });
+    }
+    
+    this.callbacks?.onEnd?.();
     this.isListening = false;
+    this.callbacks = null;
   }
 
-  // Text-to-speech methods (same as original)
+  // Text-to-speech methods
   speak(text, options = {}) {
     if (!text || this.isSpeaking) {
       return Promise.resolve();
@@ -199,7 +149,7 @@ class OfflineVoiceService {
 
   isSupported() {
     return {
-      speechRecognition: true, // We provide offline alternatives
+      speechRecognition: true,
       speechSynthesis: 'speechSynthesis' in window
     };
   }

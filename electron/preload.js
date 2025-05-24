@@ -10,12 +10,17 @@ const validSendChannels = [
   'terminal:write',
   'terminal:resize',
   'terminal:start',
-  'terminal:stop'
+  'terminal:stop',
+  'speech:start',
+  'speech:stop'
 ];
 
 const validReceiveChannels = [
   'terminal:data',
-  'terminal:exit'
+  'terminal:exit',
+  'speech:result',
+  'speech:error',
+  'speech:end'
 ];
 
 // Create the exposed API
@@ -132,6 +137,29 @@ const electronAPI = {
       if (onError) onError(error.message);
       return null;
     }
+  },
+  
+  // Speech recognition methods
+  startSpeechRecognition: () => {
+    console.log('[Preload] Starting speech recognition');
+    ipcRenderer.send('speech:start');
+  },
+  
+  stopSpeechRecognition: () => {
+    console.log('[Preload] Stopping speech recognition');
+    ipcRenderer.send('speech:stop');
+  },
+  
+  onSpeechResult: (callback) => {
+    ipcRenderer.on('speech:result', (event, data) => callback(data));
+  },
+  
+  onSpeechError: (callback) => {
+    ipcRenderer.on('speech:error', (event, error) => callback(error));
+  },
+  
+  onSpeechEnd: (callback) => {
+    ipcRenderer.on('speech:end', () => callback());
   }
 };
 

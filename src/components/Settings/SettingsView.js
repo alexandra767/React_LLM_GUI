@@ -1047,9 +1047,9 @@ const SettingsView = () => {
               <>
                 <SettingItem>
                   <SettingLabel>
-                    <Label>Use Offline Speech Recognition</Label>
+                    <Label>Use Offline Voice Input</Label>
                     <Description2>
-                      Use macOS dictation instead of Google's online service
+                      Use a typing interface instead of Google's online speech service
                     </Description2>
                   </SettingLabel>
                   <ToggleSwitch checked={voiceSettings.useOfflineRecognition}>
@@ -1104,10 +1104,12 @@ const SettingsView = () => {
                 {voiceSettings.useOfflineRecognition && (
                   <SettingItem>
                     <SettingLabel>
-                      <Label>ℹ️ Offline Speech Recognition</Label>
+                      <Label>ℹ️ Offline Voice Input</Label>
                       <Description2 style={{ color: '#4CAF50' }}>
-                        Using macOS dictation. Press Fn+Fn (or your dictation key) when the input appears. 
-                        Make sure dictation is enabled in System Settings → Keyboard → Dictation.
+                        Click the microphone to open a typing interface. You can:
+                        • Type your message directly
+                        • Use macOS dictation (Fn+Fn) if you have it enabled
+                        • Paste text from another app
                       </Description2>
                     </SettingLabel>
                   </SettingItem>
