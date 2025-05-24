@@ -961,6 +961,39 @@ const SettingsView = () => {
                     Test Voice
                   </Button>
                 </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Refresh Voices</Label>
+                    <Description2>
+                      Reload available system voices. Current count: {availableVoices.length}
+                    </Description2>
+                  </SettingLabel>
+                  <Button 
+                    onClick={() => {
+                      console.log('[Settings] Manually refreshing voices...');
+                      const voices = window.speechSynthesis.getVoices();
+                      console.log('[Settings] Found voices:', voices.length);
+                      voices.forEach(v => console.log(`  - ${v.name} (${v.lang})`));
+                      setAvailableVoices(voices);
+                      
+                      // Force speechSynthesis to reload
+                      window.speechSynthesis.cancel();
+                      window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+                      
+                      setTimeout(() => {
+                        const newVoices = window.speechSynthesis.getVoices();
+                        console.log('[Settings] Reloaded voices:', newVoices.length);
+                        setAvailableVoices(newVoices);
+                      }, 500);
+                    }} 
+                    disabled={!voiceSettings.voiceEnabled}
+                    style={{ marginRight: '8px' }}
+                  >
+                    <RefreshIcon style={{ marginRight: '8px' }} />
+                    Refresh Voice List
+                  </Button>
+                </SettingItem>
               </>
             )}
             
@@ -989,6 +1022,16 @@ const SettingsView = () => {
                     <option value="ja-JP">Japanese</option>
                     <option value="ko-KR">Korean</option>
                   </Select>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>⚠️ Speech Recognition Notice</Label>
+                    <Description2 style={{ color: '#FFA500' }}>
+                      Voice input requires an active internet connection as audio is processed by Google's servers. 
+                      Make sure you're connected to the internet when using the microphone feature.
+                    </Description2>
+                  </SettingLabel>
                 </SettingItem>
                 
                 <SettingItem>
