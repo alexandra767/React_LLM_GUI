@@ -795,20 +795,82 @@ const SettingsView = () => {
                   <SettingLabel>
                     <Label>Voice Selection</Label>
                     <Description2>
-                      Choose the voice for text-to-speech
+                      Choose the voice for text-to-speech ({availableVoices.length} voices available)
                     </Description2>
                   </SettingLabel>
                   <Select 
                     value={voiceSettings.selectedVoice || ''} 
                     onChange={(e) => updateVoiceSetting('selectedVoice', e.target.value)}
                     disabled={!voiceSettings.voiceEnabled}
+                    style={{ maxWidth: '400px' }}
                   >
                     <option value="">Default Voice</option>
-                    {availableVoices.map(voice => (
-                      <option key={voice.name} value={voice.name}>
-                        {voice.name} ({voice.lang})
-                      </option>
-                    ))}
+                    
+                    {/* Group voices by quality/type */}
+                    {availableVoices.filter(v => 
+                      v.name.toLowerCase().includes('samantha') || 
+                      v.name.toLowerCase().includes('siri')
+                    ).length > 0 && (
+                      <optgroup label="Premium Voices (Siri-like)">
+                        {availableVoices
+                          .filter(v => 
+                            v.name.toLowerCase().includes('samantha') || 
+                            v.name.toLowerCase().includes('siri')
+                          )
+                          .map(voice => (
+                            <option key={voice.name} value={voice.name}>
+                              {voice.name} {voice.localService ? '⭐' : ''}
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+                    
+                    {availableVoices.filter(v => 
+                      v.name.includes('Premium') || 
+                      v.name.includes('Enhanced') ||
+                      v.name.toLowerCase().includes('alex') ||
+                      v.name.toLowerCase().includes('ava')
+                    ).length > 0 && (
+                      <optgroup label="Enhanced Voices">
+                        {availableVoices
+                          .filter(v => 
+                            (v.name.includes('Premium') || 
+                             v.name.includes('Enhanced') ||
+                             v.name.toLowerCase().includes('alex') ||
+                             v.name.toLowerCase().includes('ava')) &&
+                            !v.name.toLowerCase().includes('samantha') &&
+                            !v.name.toLowerCase().includes('siri')
+                          )
+                          .map(voice => (
+                            <option key={voice.name} value={voice.name}>
+                              {voice.name} ({voice.lang}) {voice.localService ? '⭐' : ''}
+                            </option>
+                          ))}
+                      </optgroup>
+                    )}
+                    
+                    <optgroup label="All Voices">
+                      {availableVoices
+                        .filter(v => 
+                          !v.name.toLowerCase().includes('samantha') &&
+                          !v.name.toLowerCase().includes('siri') &&
+                          !v.name.includes('Premium') &&
+                          !v.name.includes('Enhanced') &&
+                          !v.name.toLowerCase().includes('alex') &&
+                          !v.name.toLowerCase().includes('ava')
+                        )
+                        .sort((a, b) => {
+                          // Sort by language then name
+                          if (a.lang.startsWith('en') && !b.lang.startsWith('en')) return -1;
+                          if (!a.lang.startsWith('en') && b.lang.startsWith('en')) return 1;
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map(voice => (
+                          <option key={voice.name} value={voice.name}>
+                            {voice.name} ({voice.lang}) {voice.localService ? '📍' : '☁️'}
+                          </option>
+                        ))}
+                    </optgroup>
                   </Select>
                 </SettingItem>
                 

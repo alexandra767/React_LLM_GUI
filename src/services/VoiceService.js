@@ -57,12 +57,30 @@ class VoiceService {
         this.voices = this.synthesis.getVoices();
         console.log('[VoiceService] Loaded voices:', this.voices.length);
         
-        // Try to select a natural-sounding English voice by default
-        this.selectedVoice = this.voices.find(voice => 
-          voice.lang.startsWith('en') && voice.name.includes('Natural')
-        ) || this.voices.find(voice => 
-          voice.lang.startsWith('en')
-        ) || this.voices[0];
+        // Log all available voices for debugging
+        console.log('[VoiceService] Available voices:');
+        this.voices.forEach(voice => {
+          console.log(`  - ${voice.name} (${voice.lang}) ${voice.localService ? '[Local]' : '[Remote]'}`);
+        });
+        
+        // Try to select a premium/natural voice by default
+        // Priority: Samantha (Siri-like) > Premium > Enhanced > Natural > Any English
+        this.selectedVoice = 
+          this.voices.find(voice => voice.name.toLowerCase().includes('samantha')) ||
+          this.voices.find(voice => voice.name.toLowerCase().includes('siri')) ||
+          this.voices.find(voice => voice.name.toLowerCase().includes('alex')) ||
+          this.voices.find(voice => voice.name.toLowerCase().includes('ava')) ||
+          this.voices.find(voice => 
+            voice.lang.startsWith('en') && 
+            (voice.name.includes('Premium') || voice.name.includes('Enhanced'))
+          ) ||
+          this.voices.find(voice => 
+            voice.lang.startsWith('en') && voice.name.includes('Natural')
+          ) || 
+          this.voices.find(voice => 
+            voice.lang.startsWith('en')
+          ) || 
+          this.voices[0];
         
         if (this.selectedVoice) {
           console.log('[VoiceService] Selected default voice:', this.selectedVoice.name);
@@ -82,6 +100,8 @@ class VoiceService {
     
     // Fallback: Try loading voices after a delay
     setTimeout(loadVoicesList, 100);
+    setTimeout(loadVoicesList, 500);
+    setTimeout(loadVoicesList, 1000);
   }
 
   // Speech-to-Text Methods
