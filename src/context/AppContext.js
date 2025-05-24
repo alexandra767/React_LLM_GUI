@@ -980,6 +980,14 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem('sephia_profile', JSON.stringify(profile));
   }, [profile]);
   
+  // Save current model to localStorage whenever it changes
+  useEffect(() => {
+    if (currentModel) {
+      console.log('[AppContext] Saving current model:', currentModel);
+      localStorage.setItem('sephia_current_model', currentModel);
+    }
+  }, [currentModel]);
+  
   // Fetch available models
   useEffect(() => {
     const fetchModels = async () => {

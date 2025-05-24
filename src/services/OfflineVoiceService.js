@@ -19,7 +19,12 @@ class OfflineVoiceService {
     return new Promise((resolve) => {
       try {
         // Find the chat input textarea
-        const chatInput = document.querySelector('textarea[placeholder*="Type a message"]');
+        const chatInput = document.querySelector('textarea[placeholder*="Type a message"]') || 
+                         document.querySelector('textarea[placeholder*="Listening"]');
+        console.log('[OfflineVoice] Looking for textarea...');
+        console.log('[OfflineVoice] Found textarea:', chatInput);
+        console.log('[OfflineVoice] All textareas:', document.querySelectorAll('textarea'));
+        
         if (!chatInput) {
           console.error('[OfflineVoice] Could not find chat input');
           callbacks.onError?.('Could not find chat input field');
@@ -35,7 +40,7 @@ class OfflineVoiceService {
         
         // Show user instructions
         const originalPlaceholder = chatInput.placeholder;
-        chatInput.placeholder = 'Press Fn+Fn to start dictating...';
+        chatInput.placeholder = 'Press Fn key twice to start macOS dictation...';
         
         // Add visual indicator
         chatInput.style.borderColor = '#ef4444';

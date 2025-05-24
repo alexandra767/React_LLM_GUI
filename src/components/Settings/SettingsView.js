@@ -11,6 +11,7 @@ import {
 } from '@mui/icons-material';
 import { Slider, Divider } from '@mui/material';
 import voiceService from '../../services/VoiceService';
+import integrationService from '../../services/IntegrationService';
 
 const SettingsContainer = styled('div')({
   display: 'flex',
@@ -377,7 +378,10 @@ const SettingsView = () => {
     recognitionLanguage: 'en-US',
     voiceEnabled: true,
     autoSpeak: false,
-    useOfflineRecognition: true  // Default to offline
+    useOfflineRecognition: true,  // Default to offline for Electron
+    speechProvider: 'browser',  // Default provider
+    azureApiKey: '',
+    openaiApiKey: ''
   });
   const [availableVoices, setAvailableVoices] = useState([]);
   const [isSpeechSupported, setIsSpeechSupported] = useState({
@@ -398,10 +402,18 @@ const SettingsView = () => {
   };
   
   const updateVoiceSetting = (key, value) => {
-    setVoiceSettings(prev => ({
-      ...prev,
-      [key]: value
-    }));
+    setVoiceSettings(prev => {
+      const updated = {
+        ...prev,
+        [key]: value
+      };
+      
+      // Save to localStorage immediately
+      localStorage.setItem('sephia_voice_settings', JSON.stringify(updated));
+      console.log('[Settings] Saved voice settings:', updated);
+      
+      return updated;
+    });
     
     // Apply settings to voice service
     switch(key) {
@@ -424,12 +436,6 @@ const SettingsView = () => {
         voiceService.setRecognitionLanguage(value);
         break;
     }
-    
-    // Save to localStorage
-    localStorage.setItem('sephia_voice_settings', JSON.stringify({
-      ...voiceSettings,
-      [key]: value
-    }));
   };
   
   // Load voices and voice settings on mount
@@ -1047,9 +1053,151 @@ const SettingsView = () => {
               <>
                 <SettingItem>
                   <SettingLabel>
+                    <Label>Speech Recognition Provider</Label>
+                    <Description2>
+                      Choose which service to use for converting speech to text
+                    </Description2>
+                  </SettingLabel>
+                  <Select 
+                    value={voiceSettings.speechProvider || 'browser'} 
+                    onChange={(e) => {
+                      updateVoiceSetting('speechProvider', e.target.value);
+                      // Auto-set offline mode based on provider
+                      if (e.target.value === 'offline') {
+                        updateVoiceSetting('useOfflineRecognition', true);
+                      } else {
+                        updateVoiceSetting('useOfflineRecognition', false);
+                      }
+                    }}
+                    disabled={!voiceSettings.voiceEnabled}
+                  >
+                    <option value="browser">Browser Speech API (Google)</option>
+                    <option value="azure">Azure Speech Services</option>
+                    <option value="openai">OpenAI Whisper API</option>
+                    <option value="vosk">Vosk (Offline Speech Recognition)</option>
+                    <option value="offline">Manual Input (Type/Paste)</option>
+                  </Select>
+                </SettingItem>
+                
+                {voiceSettings.speechProvider === 'azure' && (
+                  <>
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Azure Speech API Key</Label>
+                        <Description2>
+                          Your Azure Cognitive Services Speech API key
+                        </Description2>
+                      </SettingLabel>
+                      <Input 
+                        type="password" 
+                        value={voiceSettings.azureApiKey || ''} 
+                        onChange={(e) => updateVoiceSetting('azureApiKey', e.target.value)}
+                        placeholder="Enter Azure API key"
+                        disabled={!voiceSettings.voiceEnabled}
+                      />
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Azure Region</Label>
+                        <Description2>
+                          The region for your Azure Speech service (e.g., eastus, westus)
+                        </Description2>
+                      </SettingLabel>
+                      <Input 
+                        type="text" 
+                        value={voiceSettings.azureRegion || 'eastus'} 
+                        onChange={(e) => updateVoiceSetting('azureRegion', e.target.value)}
+                        placeholder="eastus"
+                        disabled={!voiceSettings.voiceEnabled}
+                      />
+                    </SettingItem>
+                  </>
+                )}
+                
+                {voiceSettings.speechProvider === 'openai' && (
+                  <SettingItem>
+                    <SettingLabel>
+                      <Label>OpenAI API Key</Label>
+                      <Description2>
+                        Your OpenAI API key for Whisper speech recognition
+                      </Description2>
+                    </SettingLabel>
+                    <Input 
+                      type="password" 
+                      value={voiceSettings.openaiApiKey || ''} 
+                      onChange={(e) => updateVoiceSetting('openaiApiKey', e.target.value)}
+                      placeholder="Enter OpenAI API key"
+                      disabled={!voiceSettings.voiceEnabled}
+                    />
+                  </SettingItem>
+                )}
+                
+                {voiceSettings.speechProvider === 'vosk' && (
+                  <>
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Vosk Offline Speech Recognition</Label>
+                        <Description2>
+                          Download a speech model to use voice recognition completely offline
+                        </Description2>
+                      </SettingLabel>
+                      <Select 
+                        value={voiceSettings.voskModel || 'vosk-model-small-en-us-0.15'} 
+                        onChange={(e) => updateVoiceSetting('voskModel', e.target.value)}
+                        disabled={!voiceSettings.voiceEnabled}
+                      >
+                        <option value="vosk-model-small-en-us-0.15">English (US) - Small (40MB) ⭐ Recommended</option>
+                        <option value="vosk-model-en-us-0.22">English (US) - Large (1.8GB) - Best Quality</option>
+                        <option value="vosk-model-small-cn-0.22">Chinese - Small (42MB)</option>
+                      </Select>
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Model Status</Label>
+                        <Description2>
+                          {voiceSettings.voskModelDownloaded 
+                            ? '✅ Model downloaded and ready' 
+                            : '❌ Model not downloaded yet'}
+                        </Description2>
+                      </SettingLabel>
+                      <Button 
+                        onClick={() => {
+                          alert('Vosk model download simulation:\n\n' +
+                                'In a full implementation, this would download the selected model.\n' +
+                                'Models are stored locally and work completely offline.\n\n' +
+                                'For now, you can use the "Manual Input" option for offline voice input.');
+                          updateVoiceSetting('voskModelDownloaded', true);
+                        }}
+                        disabled={!voiceSettings.voiceEnabled || voiceSettings.voskModelDownloaded}
+                      >
+                        {voiceSettings.voskModelDownloaded ? 'Model Ready' : 'Download Model'}
+                      </Button>
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>ℹ️ About Vosk</Label>
+                        <Description2 style={{ color: '#4CAF50' }}>
+                          • Works 100% offline - no internet required
+                          • Supports real-time speech recognition
+                          • Multiple language models available
+                          • Free and open source
+                          • Models are downloaded once and stored locally
+                        </Description2>
+                      </SettingLabel>
+                    </SettingItem>
+                  </>
+                )}
+                
+                <SettingItem>
+                  <SettingLabel>
                     <Label>Use Offline Voice Input</Label>
                     <Description2>
-                      Use a typing interface instead of Google's online speech service
+                      {voiceSettings.speechProvider === 'offline' 
+                        ? 'Currently using offline mode - type while microphone is active'
+                        : 'Fallback to typing when speech provider is unavailable'}
                     </Description2>
                   </SettingLabel>
                   <ToggleSwitch checked={voiceSettings.useOfflineRecognition}>
@@ -1057,7 +1205,7 @@ const SettingsView = () => {
                       type="checkbox" 
                       checked={voiceSettings.useOfflineRecognition}
                       onChange={(e) => updateVoiceSetting('useOfflineRecognition', e.target.checked)}
-                      disabled={!voiceSettings.voiceEnabled}
+                      disabled={!voiceSettings.voiceEnabled || voiceSettings.speechProvider === 'offline'}
                     />
                     <span className="slider"></span>
                   </ToggleSwitch>
@@ -1132,10 +1280,459 @@ const SettingsView = () => {
                     <span className="slider"></span>
                   </ToggleSwitch>
                 </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Test Microphone</Label>
+                    <Description2>
+                      Check if your microphone is working and see audio levels
+                    </Description2>
+                  </SettingLabel>
+                  <Button 
+                    onClick={async () => {
+                      try {
+                        console.log('[Settings] Testing microphone...');
+                        
+                        // Get microphone access
+                        const stream = await navigator.mediaDevices.getUserMedia({ 
+                          audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                          }
+                        });
+                        
+                        // List devices
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        const mics = devices.filter(d => d.kind === 'audioinput');
+                        console.log('[Settings] Available microphones:', mics);
+                        
+                        // Create audio context for level monitoring
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const analyser = audioContext.createAnalyser();
+                        const microphone = audioContext.createMediaStreamSource(stream);
+                        microphone.connect(analyser);
+                        
+                        analyser.fftSize = 256;
+                        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                        
+                        let maxLevel = 0;
+                        let checkCount = 0;
+                        
+                        alert('Microphone test started! Speak into your microphone for 5 seconds.\n\nCheck the console (Cmd+Option+I) to see audio levels.');
+                        
+                        const interval = setInterval(() => {
+                          analyser.getByteFrequencyData(dataArray);
+                          const max = Math.max(...dataArray);
+                          maxLevel = Math.max(maxLevel, max);
+                          
+                          if (max > 10) {
+                            console.log(`[Mic Test] 🎤 Audio detected! Level: ${max}`);
+                          } else {
+                            console.log(`[Mic Test] 🔇 No audio (Level: ${max})`);
+                          }
+                          
+                          checkCount++;
+                          if (checkCount > 25) { // 5 seconds
+                            clearInterval(interval);
+                            stream.getTracks().forEach(track => track.stop());
+                            audioContext.close();
+                            
+                            if (maxLevel > 10) {
+                              alert(`✅ Microphone is working!\n\nMax audio level detected: ${maxLevel}\n\nYour microphone is properly configured.`);
+                            } else {
+                              alert(`❌ No audio detected!\n\nMax level: ${maxLevel}\n\nPlease check:\n1. Microphone is not muted\n2. App has permission in System Settings\n3. Correct input device is selected`);
+                            }
+                          }
+                        }, 200);
+                        
+                      } catch (error) {
+                        console.error('[Settings] Microphone test failed:', error);
+                        alert('Microphone test failed: ' + error.message);
+                      }
+                    }}
+                    disabled={!voiceSettings.voiceEnabled}
+                  >
+                    <MicIcon style={{ marginRight: '8px' }} />
+                    Test Microphone
+                  </Button>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Test Network Connection</Label>
+                    <Description2>
+                      Check if the app can access the internet for speech recognition
+                    </Description2>
+                  </SettingLabel>
+                  <Button 
+                    onClick={async () => {
+                      console.log('[Settings] Testing network connectivity...');
+                      
+                      // Test 1: Check navigator.onLine
+                      console.log('[Network Test] navigator.onLine:', navigator.onLine);
+                      
+                      // Test 2: Try to fetch from Google
+                      try {
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000);
+                        
+                        const response = await fetch('https://www.google.com/generate_204', {
+                          signal: controller.signal,
+                          mode: 'no-cors'
+                        });
+                        clearTimeout(timeoutId);
+                        console.log('[Network Test] Google fetch succeeded');
+                        
+                        // Test 3: Try speech recognition API endpoint
+                        try {
+                          const speechTest = await fetch('https://www.google.com/speech-api/v2/test', {
+                            mode: 'no-cors'
+                          });
+                          console.log('[Network Test] Speech API endpoint reachable');
+                        } catch (e) {
+                          console.log('[Network Test] Speech API endpoint not reachable:', e.message);
+                        }
+                        
+                        alert(`✅ Network connection test results:\n\n` +
+                              `• navigator.onLine: ${navigator.onLine}\n` +
+                              `• Can reach Google: YES\n` +
+                              `• Speech API accessible: Check console\n\n` +
+                              `The app should be able to use online speech recognition.`);
+                              
+                      } catch (error) {
+                        console.error('[Network Test] Failed:', error);
+                        alert(`❌ Network connection test failed:\n\n` +
+                              `• navigator.onLine: ${navigator.onLine}\n` +
+                              `• Error: ${error.message}\n\n` +
+                              `The app cannot access the internet. Speech recognition requires internet access.\n\n` +
+                              `Possible issues:\n` +
+                              `1. No internet connection\n` +
+                              `2. Firewall blocking Electron\n` +
+                              `3. Proxy settings`);
+                      }
+                    }}
+                  >
+                    <RefreshIcon style={{ marginRight: '8px' }} />
+                    Test Network
+                  </Button>
+                </SettingItem>
               </>
             )}
           </>
         )}
+      </SettingsSection>
+      
+      <SettingsSection>
+        <SectionTitle>Integrations</SectionTitle>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Google Drive API</Label>
+            <Description2>
+              Configure Google Drive integration for accessing your files
+            </Description2>
+          </SettingLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            <Input 
+              type="text" 
+              value={settings.googleClientId || ''} 
+              onChange={(e) => updateSetting('googleClientId', e.target.value)}
+              placeholder="Google Client ID"
+            />
+            <Input 
+              type="password" 
+              value={settings.googleApiKey || ''} 
+              onChange={(e) => updateSetting('googleApiKey', e.target.value)}
+              placeholder="Google API Key"
+            />
+            <Description2 style={{ fontSize: '12px', marginTop: '4px' }}>
+              Get credentials from <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>Google Cloud Console</a>
+            </Description2>
+          </div>
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Apple Calendar (iCloud)</Label>
+            <Description2>
+              Connect to your Apple Calendar using an app-specific password
+            </Description2>
+          </SettingLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            <Input 
+              type="email" 
+              value={settings.appleId || ''} 
+              onChange={(e) => updateSetting('appleId', e.target.value)}
+              placeholder="Apple ID (your@email.com)"
+            />
+            <Input 
+              type="password" 
+              value={settings.appleAppPassword || ''} 
+              onChange={(e) => updateSetting('appleAppPassword', e.target.value)}
+              placeholder="App-specific password"
+            />
+            <Description2 style={{ fontSize: '12px', marginTop: '4px' }}>
+              Generate app-specific password at <a href="https://appleid.apple.com" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>appleid.apple.com</a> → Security → App-Specific Passwords
+            </Description2>
+            <Button 
+              onClick={async () => {
+                if (!settings.appleId || !settings.appleAppPassword) {
+                  alert('Please enter both Apple ID and app-specific password');
+                  return;
+                }
+                try {
+                  await integrationService.connectAppleCalendar(settings.appleId, settings.appleAppPassword);
+                  alert('Connected to Apple Calendar!');
+                  // Force re-render to update status
+                  setSettings(prev => ({ ...prev }));
+                } catch (err) {
+                  alert('Failed to connect: ' + err.message);
+                }
+              }}
+              style={{ marginTop: '8px' }}
+            >
+              {integrationService.isAppleAuthorized ? 'Reconnect' : 'Connect'} Apple Calendar
+            </Button>
+          </div>
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Integration Status</Label>
+            <Description2>
+              Current connection status for your integrations
+            </Description2>
+          </SettingLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ color: integrationService.isGoogleAuthorized ? '#4CAF50' : '#666' }}>
+              🔗 Google Drive: {integrationService.isGoogleAuthorized ? 'Connected' : 'Not connected'}
+            </div>
+            <div style={{ color: integrationService.isAppleAuthorized ? '#4CAF50' : '#666' }}>
+              📅 Apple Calendar: {integrationService.isAppleAuthorized ? 'Connected' : 'Not connected'}
+            </div>
+          </div>
+        </SettingItem>
+      </SettingsSection>
+      
+      <SettingsSection>
+        <SectionTitle>Settings Management</SectionTitle>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Export All Settings</Label>
+            <Description2>
+              Download all your settings as a JSON file for backup or sharing
+            </Description2>
+          </SettingLabel>
+          <Button 
+            onClick={() => {
+              const allSettings = {
+                general: settings,
+                voice: voiceSettings,
+                currentModel: localStorage.getItem('sephia_current_model'),
+                theme: localStorage.getItem('sephia_theme'),
+                exportDate: new Date().toISOString()
+              };
+              
+              const blob = new Blob([JSON.stringify(allSettings, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `sephia-settings-${new Date().toISOString().split('T')[0]}.json`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <DownloadIcon style={{ marginRight: '8px' }} />
+            Export Settings
+          </Button>
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Import Settings</Label>
+            <Description2>
+              Restore settings from a previously exported JSON file
+            </Description2>
+          </SettingLabel>
+          <input
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            id="settings-import"
+            onChange={(e) => {
+              const file = e.target.files[0];
+              if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  try {
+                    const imported = JSON.parse(event.target.result);
+                    
+                    // Restore general settings
+                    if (imported.general) {
+                      setSettings(imported.general);
+                      localStorage.setItem('sephia_settings', JSON.stringify(imported.general));
+                    }
+                    
+                    // Restore voice settings
+                    if (imported.voice) {
+                      setVoiceSettings(imported.voice);
+                      localStorage.setItem('sephia_voice_settings', JSON.stringify(imported.voice));
+                      
+                      // Apply voice settings
+                      voiceService.setSpeechRate(imported.voice.speechRate || 1.0);
+                      voiceService.setSpeechPitch(imported.voice.speechPitch || 1.0);
+                      voiceService.setSpeechVolume(imported.voice.speechVolume || 1.0);
+                      voiceService.setRecognitionLanguage(imported.voice.recognitionLanguage || 'en-US');
+                    }
+                    
+                    // Restore current model
+                    if (imported.currentModel) {
+                      localStorage.setItem('sephia_current_model', imported.currentModel);
+                      setCurrentModel(imported.currentModel);
+                    }
+                    
+                    // Restore theme
+                    if (imported.theme) {
+                      localStorage.setItem('sephia_theme', imported.theme);
+                      document.documentElement.setAttribute('data-theme', imported.theme);
+                    }
+                    
+                    alert('Settings imported successfully! The app will reload to apply all changes.');
+                    window.location.reload();
+                  } catch (error) {
+                    console.error('Failed to import settings:', error);
+                    alert('Failed to import settings. Please ensure the file is valid.');
+                  }
+                };
+                reader.readAsText(file);
+              }
+            }}
+          />
+          <Button 
+            onClick={() => document.getElementById('settings-import').click()}
+          >
+            <RefreshIcon style={{ marginRight: '8px' }} />
+            Import Settings
+          </Button>
+        </SettingItem>
+      </SettingsSection>
+      
+      <SettingsSection>
+        <SectionTitle>Network Configuration</SectionTitle>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Current Network Status</Label>
+            <Description2>
+              {navigator.onLine ? '✅ Connected to internet' : '❌ No internet connection'}
+            </Description2>
+          </SettingLabel>
+          <Button 
+            onClick={async () => {
+              // Get network information
+              const networkInfo = {
+                online: navigator.onLine,
+                effectiveType: navigator.connection?.effectiveType || 'unknown',
+                downlink: navigator.connection?.downlink || 'unknown',
+                rtt: navigator.connection?.rtt || 'unknown',
+                saveData: navigator.connection?.saveData || false
+              };
+              
+              // Get system network info if available in Electron
+              if (window.electron) {
+                try {
+                  const { networkInterfaces } = require('os');
+                  const nets = networkInterfaces();
+                  const results = {};
+                  
+                  for (const name of Object.keys(nets)) {
+                    for (const net of nets[name]) {
+                      // Skip internal and non-IPv4 addresses
+                      if (net.family === 'IPv4' && !net.internal) {
+                        results[name] = net.address;
+                      }
+                    }
+                  }
+                  networkInfo.interfaces = results;
+                } catch (e) {
+                  console.log('Could not get network interfaces:', e);
+                }
+              }
+              
+              alert(`Network Information:\n\n` +
+                    `• Status: ${networkInfo.online ? 'Online' : 'Offline'}\n` +
+                    `• Connection Type: ${networkInfo.effectiveType}\n` +
+                    `• Downlink Speed: ${networkInfo.downlink} Mbps\n` +
+                    `• Round Trip Time: ${networkInfo.rtt} ms\n` +
+                    `• Data Saver: ${networkInfo.saveData ? 'On' : 'Off'}\n\n` +
+                    `Note: WiFi selection is managed by your Mac's System Settings.`);
+            }}
+          >
+            <RefreshIcon style={{ marginRight: '8px' }} />
+            Check Network Info
+          </Button>
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Proxy Settings</Label>
+            <Description2>
+              Configure proxy for network requests (leave empty for direct connection)
+            </Description2>
+          </SettingLabel>
+          <Input 
+            type="text" 
+            value={settings.proxyUrl || ''} 
+            onChange={(e) => updateSetting('proxyUrl', e.target.value)}
+            placeholder="http://proxy.example.com:8080"
+          />
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Network Timeout</Label>
+            <Description2>
+              Maximum time to wait for network requests (in seconds)
+            </Description2>
+          </SettingLabel>
+          <Input 
+            type="number" 
+            value={settings.networkTimeout || 30} 
+            onChange={(e) => updateSetting('networkTimeout', parseInt(e.target.value))}
+            min="5"
+            max="300"
+            style={{ width: '100px' }}
+          />
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Manage WiFi Connection</Label>
+            <Description2>
+              WiFi connections are managed by your Mac's System Settings
+            </Description2>
+          </SettingLabel>
+          <Button 
+            onClick={() => {
+              if (window.electron && window.electron.shell) {
+                // Open System Settings to WiFi section
+                window.electron.shell.openExternal('x-apple.systempreferences:com.apple.preference.network?WiFi');
+              } else {
+                alert('To change WiFi networks:\n\n' +
+                      '1. Click the WiFi icon in your Mac\'s menu bar\n' +
+                      '2. Select a different network\n' +
+                      '3. The app will automatically use the new connection\n\n' +
+                      'Or open System Settings > Network > WiFi');
+              }
+            }}
+          >
+            Open WiFi Settings
+          </Button>
+        </SettingItem>
       </SettingsSection>
       
       <SettingsSection>

@@ -37,7 +37,7 @@ class VoiceService {
       // Use the already defined SpeechRecognition which includes the webkit prefix
       if (SpeechRecognition) {
         this.recognition = new SpeechRecognition();
-        this.recognition.continuous = false;
+        this.recognition.continuous = true; // Better for Electron
         this.recognition.interimResults = true;
         this.recognition.lang = 'en-US';
         this.recognition.maxAlternatives = 1;
@@ -46,8 +46,7 @@ class VoiceService {
         if ('webkitSpeechRecognition' in window) {
           try {
             // Some browsers support offline mode
-            this.recognition.continuous = false;
-            this.recognition.interimResults = true;
+            console.log('[VoiceService] WebKit Speech Recognition available');
           } catch (e) {
             console.log('[VoiceService] Could not set offline mode:', e);
           }
@@ -116,7 +115,7 @@ class VoiceService {
   }
 
   // Speech-to-Text Methods
-  startListening(callbacks = {}) {
+  async startListening(callbacks = {}) {
     if (!this.recognition) {
       callbacks.onError?.('Speech recognition not supported');
       return Promise.reject('Speech recognition not supported');
@@ -124,6 +123,31 @@ class VoiceService {
 
     if (this.isListening) {
       return Promise.resolve();
+    }
+
+    // First ensure we have microphone permission and the correct device
+    try {
+      console.log('[VoiceService] Checking microphone access...');
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices.filter(device => device.kind === 'audioinput');
+      console.log('[VoiceService] Found audio inputs:', audioInputs.map(d => ({
+        label: d.label,
+        deviceId: d.deviceId,
+        groupId: d.groupId
+      })));
+      
+      // Find built-in microphone (usually contains "Built-in" or "Internal" in the label)
+      const builtInMic = audioInputs.find(device => 
+        device.label.toLowerCase().includes('built-in') || 
+        device.label.toLowerCase().includes('internal') ||
+        device.label.toLowerCase().includes('macbook')
+      ) || audioInputs[0];
+      
+      if (builtInMic) {
+        console.log('[VoiceService] Using microphone:', builtInMic.label);
+      }
+    } catch (error) {
+      console.error('[VoiceService] Error checking microphones:', error);
     }
 
     return new Promise((resolve, reject) => {
@@ -136,6 +160,7 @@ class VoiceService {
       };
 
       this.recognition.onresult = (event) => {
+        console.log('[VoiceService] Got result event:', event);
         const last = event.results.length - 1;
         const transcript = event.results[last][0].transcript;
         const isFinal = event.results[last].isFinal;
@@ -147,6 +172,23 @@ class VoiceService {
           isFinal,
           confidence: event.results[last][0].confidence
         });
+      };
+      
+      // Add more event handlers for debugging
+      this.recognition.onsoundstart = () => {
+        console.log('[VoiceService] Sound detected');
+      };
+      
+      this.recognition.onsoundend = () => {
+        console.log('[VoiceService] Sound ended');
+      };
+      
+      this.recognition.onspeechstart = () => {
+        console.log('[VoiceService] Speech detected');
+      };
+      
+      this.recognition.onspeechend = () => {
+        console.log('[VoiceService] Speech ended');
       };
 
       this.recognition.onerror = (event) => {
@@ -184,7 +226,11 @@ class VoiceService {
 
   stopListening() {
     if (this.recognition && this.isListening) {
-      this.recognition.stop();
+      try {
+        this.recognition.stop();
+      } catch (e) {
+        console.log('[VoiceService] Error stopping recognition:', e);
+      }
       this.isListening = false;
     }
   }
