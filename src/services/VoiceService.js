@@ -325,14 +325,30 @@ class VoiceService {
       'no-speech': 'No speech was detected. Please try again.',
       'audio-capture': 'No microphone was found. Please check your microphone.',
       'not-allowed': 'Microphone permission was denied. Please allow microphone access.',
-      'network': 'Network error occurred. Please check your connection.',
+      'network': 'Network error: Speech recognition requires internet access. The app may be blocked from accessing Google\'s speech servers. Please check your firewall/network settings.',
       'aborted': 'Speech recognition was aborted.',
       'language-not-supported': 'Language not supported.',
-      'service-not-allowed': 'Speech recognition service not allowed.',
+      'service-not-allowed': 'Speech recognition service not allowed. The app may need network permissions.',
       'bad-grammar': 'Speech grammar error.'
     };
 
     return errorMessages[error] || `Speech recognition error: ${error}`;
+  }
+  
+  // Test network connectivity
+  async testNetworkAccess() {
+    try {
+      console.log('[VoiceService] Testing network access...');
+      const response = await fetch('https://www.google.com/speech-api/v2/test', {
+        method: 'HEAD',
+        mode: 'no-cors'
+      });
+      console.log('[VoiceService] Network test completed');
+      return true;
+    } catch (error) {
+      console.error('[VoiceService] Network test failed:', error);
+      return false;
+    }
   }
 }
 

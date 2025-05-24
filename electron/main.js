@@ -100,7 +100,9 @@ function createWindow() {
         webSecurity: true,
         allowRunningInsecureContent: false,
         // Enable features needed for voice
-        experimentalFeatures: true
+        experimentalFeatures: true,
+        // Allow network access for speech recognition
+        webviewTag: true
       },
       title: 'Sephia',
       icon: path.join(__dirname, '../public/favicon.ico')
@@ -117,6 +119,21 @@ function createWindow() {
     app.quit();
     return;
   }
+
+  // Set Content Security Policy to allow speech recognition
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss: http: https:; " +
+          "connect-src 'self' ws: wss: http: https: *.google.com *.googleapis.com speech.googleapis.com; " +
+          "media-src 'self' blob: data: https:; " +
+          "img-src 'self' data: blob: https:;"
+        ]
+      }
+    });
+  });
 
   // Load the index.html file
   console.log('Loading application...');
@@ -270,6 +287,12 @@ app.on('web-contents-created', (event, contents) => {
     } else {
       callback(true); // Allow other permissions as well
     }
+  });
+  
+  // Allow network access for speech recognition
+  contents.session.setPermissionCheckHandler((webContents, permission) => {
+    console.log('[Electron] Permission check:', permission);
+    return true;
   });
 });
 
