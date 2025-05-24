@@ -41,6 +41,17 @@ class VoiceService {
         this.recognition.interimResults = true;
         this.recognition.lang = 'en-US';
         this.recognition.maxAlternatives = 1;
+        
+        // Try to use offline recognition if available
+        if ('webkitSpeechRecognition' in window) {
+          try {
+            // Some browsers support offline mode
+            this.recognition.continuous = false;
+            this.recognition.interimResults = true;
+          } catch (e) {
+            console.log('[VoiceService] Could not set offline mode:', e);
+          }
+        }
       } else {
         console.warn('No SpeechRecognition API available');
         this.recognition = null;
@@ -119,6 +130,7 @@ class VoiceService {
       this.isListening = true;
 
       this.recognition.onstart = () => {
+        console.log('[VoiceService] Speech recognition started');
         callbacks.onStart?.();
         resolve();
       };
@@ -128,6 +140,8 @@ class VoiceService {
         const transcript = event.results[last][0].transcript;
         const isFinal = event.results[last].isFinal;
 
+        console.log('[VoiceService] Speech result:', { transcript, isFinal });
+
         callbacks.onResult?.({
           transcript,
           isFinal,
@@ -136,6 +150,7 @@ class VoiceService {
       };
 
       this.recognition.onerror = (event) => {
+        console.error('[VoiceService] Speech recognition error:', event.error, event);
         this.isListening = false;
         const errorMessage = this.getErrorMessage(event.error);
         callbacks.onError?.(errorMessage);
@@ -143,11 +158,27 @@ class VoiceService {
       };
 
       this.recognition.onend = () => {
+        console.log('[VoiceService] Speech recognition ended');
         this.isListening = false;
         callbacks.onEnd?.();
       };
 
-      this.recognition.start();
+      this.recognition.onaudiostart = () => {
+        console.log('[VoiceService] Audio capture started');
+      };
+
+      this.recognition.onnomatch = () => {
+        console.log('[VoiceService] No speech match');
+      };
+
+      try {
+        this.recognition.start();
+      } catch (error) {
+        console.error('[VoiceService] Failed to start recognition:', error);
+        this.isListening = false;
+        callbacks.onError?.('Failed to start speech recognition: ' + error.message);
+        reject(error);
+      }
     });
   }
 

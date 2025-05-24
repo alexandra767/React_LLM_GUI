@@ -207,14 +207,28 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
     } else {
       // Start listening
       try {
+        // First check if we have microphone permission
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          try {
+            console.log('[ChatInput] Requesting microphone permission...');
+            await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log('[ChatInput] Microphone permission granted');
+          } catch (permError) {
+            console.error('[ChatInput] Microphone permission denied:', permError);
+            alert('Microphone access is required for voice input. Please grant permission and try again.');
+            return;
+          }
+        }
+        
         setIsListening(true);
         setTranscript('');
         
         await voiceService.startListening({
           onStart: () => {
-            console.log('Voice recognition started');
+            console.log('[ChatInput] Voice recognition started');
           },
           onResult: (result) => {
+            console.log('[ChatInput] Voice result:', result);
             if (result.isFinal) {
               setTranscript(result.transcript);
               setMessage(result.transcript);
@@ -224,16 +238,26 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
             }
           },
           onError: (error) => {
-            console.error('Voice recognition error:', error);
-            alert(error);
+            console.error('[ChatInput] Voice recognition error:', error);
             setIsListening(false);
+            
+            // Provide more helpful error messages
+            if (error.includes('network')) {
+              alert('Network error: Speech recognition requires an internet connection for processing. Please check your connection and try again.');
+            } else if (error.includes('not-allowed')) {
+              alert('Microphone permission denied. Please allow microphone access in your system settings.');
+            } else {
+              alert(error);
+            }
           },
           onEnd: () => {
+            console.log('[ChatInput] Voice recognition ended');
             setIsListening(false);
           }
         });
       } catch (error) {
-        console.error('Failed to start voice recognition:', error);
+        console.error('[ChatInput] Failed to start voice recognition:', error);
+        alert('Failed to start voice recognition: ' + error.message);
         setIsListening(false);
       }
     }
