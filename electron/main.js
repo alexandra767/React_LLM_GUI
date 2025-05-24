@@ -91,7 +91,11 @@ function createWindow() {
         contextIsolation: true, // Enable context isolation for security
         enableRemoteModule: false, // Disable remote module for security
         preload: path.join(__dirname, 'preload.js'),
-        sandbox: false // Disable sandbox to allow child_process
+        sandbox: false, // Disable sandbox to allow child_process
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        // Enable features needed for voice
+        experimentalFeatures: true
       },
       title: 'Sephia',
       icon: path.join(__dirname, '../public/favicon.ico')
@@ -249,6 +253,20 @@ function setupTerminalHandlers() {
     return false;
   });
 }
+
+// Handle permission requests for microphone
+app.on('web-contents-created', (event, contents) => {
+  contents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+    console.log('[Electron] Permission requested:', permission);
+    // Allow microphone permissions for voice features
+    if (permission === 'media' || permission === 'microphone' || permission === 'audioCapture') {
+      console.log('[Electron] Granting microphone permission');
+      callback(true);
+    } else {
+      callback(true); // Allow other permissions as well
+    }
+  });
+});
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {

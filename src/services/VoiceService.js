@@ -1,5 +1,13 @@
 class VoiceService {
   constructor() {
+    console.log('[VoiceService] Initializing...');
+    console.log('[VoiceService] Environment:', {
+      isElectron: !!(window.electron || (window.process && window.process.type)),
+      hasSpeechSynthesis: 'speechSynthesis' in window,
+      hasSpeechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+      userAgent: navigator.userAgent
+    });
+    
     this.recognition = null;
     this.synthesis = window.speechSynthesis;
     this.isListening = false;
@@ -15,37 +23,59 @@ class VoiceService {
   }
 
   initializeSpeechRecognition() {
+    // Check if we're in Electron
+    const isElectron = window.electron || (window.process && window.process.type);
+    
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
-    if (!SpeechRecognition) {
+    if (!SpeechRecognition && !isElectron) {
       console.warn('Speech recognition not supported in this browser');
       return;
     }
 
-    this.recognition = new SpeechRecognition();
-    this.recognition.continuous = false;
-    this.recognition.interimResults = true;
-    this.recognition.lang = 'en-US';
-    this.recognition.maxAlternatives = 1;
+    try {
+      this.recognition = new (SpeechRecognition || webkitSpeechRecognition)();
+      this.recognition.continuous = false;
+      this.recognition.interimResults = true;
+      this.recognition.lang = 'en-US';
+      this.recognition.maxAlternatives = 1;
+    } catch (error) {
+      console.error('Failed to initialize speech recognition:', error);
+      this.recognition = null;
+    }
   }
 
   loadVoices() {
     const loadVoicesList = () => {
-      this.voices = this.synthesis.getVoices();
-      // Try to select a natural-sounding English voice by default
-      this.selectedVoice = this.voices.find(voice => 
-        voice.lang.startsWith('en') && voice.name.includes('Natural')
-      ) || this.voices.find(voice => 
-        voice.lang.startsWith('en')
-      ) || this.voices[0];
+      try {
+        this.voices = this.synthesis.getVoices();
+        console.log('[VoiceService] Loaded voices:', this.voices.length);
+        
+        // Try to select a natural-sounding English voice by default
+        this.selectedVoice = this.voices.find(voice => 
+          voice.lang.startsWith('en') && voice.name.includes('Natural')
+        ) || this.voices.find(voice => 
+          voice.lang.startsWith('en')
+        ) || this.voices[0];
+        
+        if (this.selectedVoice) {
+          console.log('[VoiceService] Selected default voice:', this.selectedVoice.name);
+        }
+      } catch (error) {
+        console.error('[VoiceService] Error loading voices:', error);
+      }
     };
 
+    // Initial load
     loadVoicesList();
     
-    // Chrome loads voices asynchronously
+    // Chrome/Electron loads voices asynchronously
     if (this.synthesis.onvoiceschanged !== undefined) {
       this.synthesis.onvoiceschanged = loadVoicesList;
     }
+    
+    // Fallback: Try loading voices after a delay
+    setTimeout(loadVoicesList, 100);
   }
 
   // Speech-to-Text Methods
@@ -197,6 +227,18 @@ class VoiceService {
   }
 
   isSupported() {
+    // Check if we're in Electron
+    const isElectron = !!(window.electron || (window.process && window.process.type) || navigator.userAgent.includes('Electron'));
+    
+    // In Electron, we should have access to Web Speech API through Chromium
+    if (isElectron) {
+      return {
+        speechRecognition: true, // Chromium in Electron supports this
+        speechSynthesis: true    // Chromium in Electron supports this
+      };
+    }
+    
+    // For regular browsers
     return {
       speechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
       speechSynthesis: 'speechSynthesis' in window
