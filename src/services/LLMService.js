@@ -56,29 +56,96 @@ class OllamaAdapter extends LLMAdapter {
       // Clean model name - remove any extra info like "(Unknown size)"
       const rawModel = options.model || 'deepseek-r1:8b-m4';
       const modelName = rawModel.split(' ')[0].trim();
-      console.log(`Sending message to ${modelName} (raw: ${rawModel})`);
+      const isM4Model = modelName.includes('-m4');
+      const isCoderModel = modelName.includes('coder');
+      console.log(`Sending message to ${modelName} (raw: ${rawModel}, isM4: ${isM4Model}, isCoder: ${isCoderModel})`);
       
-      // First check if Ollama is running before making the request
+      // Force terminal connection if in Electron environment
+      if (window.electron && window.electron.exec) {
+        console.log('Using terminal connection as requested');
+        try {
+          const exec = window.electron.exec;
+          
+          return new Promise((resolve) => {
+            console.log(`Running terminal command: ollama run ${modelName}`);
+            
+            // Add parameters to improve quality and reliability
+            const m4Params = isM4Model ? 
+              '--num-ctx 32768 --num-gpu 999 --num-thread 12' :
+              '--num-ctx 16384 --num-gpu 999 --num-thread 10';
+            
+            const command = `ollama run ${modelName} \
+              ${m4Params} \
+              "${message.replace(/"/g, '\\"')}"`;
+            
+            // Execute without timeout
+            exec(command, 
+              { maxBuffer: 50 * 1024 * 1024 }, // No timeout, 50MB buffer
+              (error, stdout, stderr) => {
+                if (error) {
+                  console.error('Terminal command error:', error);
+                  // Log stderr for debugging
+                  if (stderr) {
+                    console.error('Terminal stderr:', stderr);
+                  }
+                  resolve(this.getErrorResponse(message));
+                  return;
+                }
+                
+                if (stdout) {
+                  console.log('Terminal command output received, length:', stdout.length);
+                  // Process stdout to remove any potential terminal control sequences
+                  const cleanedOutput = stdout.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+                  
+                  resolve({
+                    model: modelName,
+                    response: cleanedOutput,
+                    done: true
+                  });
+                } else {
+                  console.warn('Terminal command returned empty output');
+                  resolve(this.getErrorResponse(message));
+                }
+            });
+          });
+        } catch (terminalError) {
+          console.error('Terminal setup failed:', terminalError);
+          // Fall back to HTTP API if terminal fails
+        }
+      }
+      
+      // HTTP API fallback (or primary if not in Electron)
       try {
         // Send a tags check to verify Ollama API is responsive (more reliable than health endpoint)
         await axios.get(`${this.baseUrl}/api/tags`, { timeout: 3000 });
         
-        console.log("Ollama API is available, proceeding with request");
+        console.log("Using HTTP API (not in Electron or terminal failed)");
         
         // Set optimized parameters for M4 Macs
+        const is32BQwen = modelName.includes('32b-qwen-distill-q4_K_M');
         const response = await this.axios.post('/api/generate', {
           model: modelName,
           prompt: message,
           stream: false,
-          temperature: options.temperature || 0.7,
-          max_tokens: options.maxTokens || 2048,
-          top_p: options.topP || 0.95,
-          // Parameters optimized for faster response on M4 Macs
-          num_gpu: 1,
-          num_thread: 8,
-          tfs_z: 1.0,
+          options: {
+            temperature: options.temperature || 0.7,
+            num_predict: options.maxTokens || 2048,
+            top_p: options.topP || 0.95,
+            // Parameters optimized for M4 models
+            num_gpu: 999,
+            num_thread: isM4Model ? 12 : 10,
+            num_ctx: is32BQwen ? 8192 : (isM4Model ? 32768 : 16384),
+            batch_size: is32BQwen ? 256 : (isM4Model ? 2048 : 1024),
+            use_mmap: true,
+            use_mlock: false,
+            f16_kv: isM4Model ? true : false,
+            gpu_layers: 999,
+            n_gpu_layers: 999,
+            threads_batch: isM4Model ? 12 : 10,
+            n_parallel: is32BQwen ? 2 : (isM4Model ? 8 : 4)
+          }
         }, {
-          timeout: 120000 // Longer timeout for model loading on M4
+          timeout: is32BQwen ? 300000 : 120000 // 5 min timeout for 32B model
         });
         
         console.log("Received successful response from Ollama API");
@@ -87,24 +154,26 @@ class OllamaAdapter extends LLMAdapter {
         console.error('Ollama API Error:', apiError.message);
         
         // Try using terminal fallback if in Electron environment
-        if (window.require && window.require('electron')) {
+        if (window.electron && window.electron.exec) {
           console.log('Attempting terminal fallback...');
           try {
-            const { exec } = window.require('child_process');
+            const exec = window.electron.exec;
             
             return new Promise((resolve) => {
               console.log(`Running terminal command: ollama run ${modelName}`);
               
               // Add parameters to improve quality and reliability
+              const m4Params = isM4Model ? 
+                '--num-ctx 32768 --num-gpu 999 --num-thread 12' :
+                '--num-ctx 16384 --num-gpu 999 --num-thread 10';
+              
               const command = `ollama run ${modelName} \
-                --num-ctx 8192 \
-                --num-gpu 1 \
-                --num-thread 8 \
+                ${m4Params} \
                 "${message.replace(/"/g, '\\"')}"`;
               
-              // Execute with longer timeout
+              // Execute without timeout
               exec(command, 
-                { timeout: 180000, maxBuffer: 10 * 1024 * 1024 }, // 3 min timeout, 10MB buffer
+                { maxBuffer: 50 * 1024 * 1024 }, // No timeout, 50MB buffer
                 (error, stdout, stderr) => {
                   if (error) {
                     console.error('Terminal command error:', error);
@@ -160,13 +229,39 @@ class OllamaAdapter extends LLMAdapter {
       // Clean model name - remove any extra info
       const rawModel = options.model || 'deepseek-r1:8b-m4';
       const modelName = rawModel.split(' ')[0].trim();
-      console.log(`Streaming message to ${modelName} (raw: ${rawModel})`);
+      console.log(`Terminal message to ${modelName} (raw: ${rawModel})`);
       
+      // Force terminal connection - no streaming support
+      if (window.electron && window.electron.exec) {
+        console.log('Using terminal connection for all messages (no streaming)');
+        
+        const response = await this.sendMessage(message, options);
+        
+        // Simulate streaming by sending the whole response at once
+        if (onChunk) {
+          onChunk(JSON.stringify({
+            response: response.response,
+            done: false
+          }));
+          
+          // Send done signal
+          setTimeout(() => {
+            onChunk(JSON.stringify({
+              response: '',
+              done: true
+            }));
+          }, 100);
+        }
+        
+        return;
+      }
+      
+      // If not in Electron, fall back to HTTP streaming
       try {
         // First check if Ollama is available via tags endpoint
         try {
           const checkResponse = await axios.get(`${this.baseUrl}/api/tags`, { timeout: 3000 });
-          console.log('Ollama API is available, proceeding with streaming');
+          console.log('Not in Electron, using HTTP API streaming');
         } catch (checkError) {
           console.error('Ollama API unavailable for streaming:', checkError);
           throw new Error('Ollama API unavailable');
@@ -174,6 +269,15 @@ class OllamaAdapter extends LLMAdapter {
         
         // Use Fetch API for better streaming support
         console.log('Using Fetch API for streaming from:', `${this.baseUrl}/api/generate`);
+        console.log('Streaming model:', modelName);
+        console.log('Model flags - isM4:', isM4Model, 'isCoder:', isCoderModel);
+        
+        // M4-optimized settings based on model size and M4 variant
+        const isM4Model = modelName.includes('-m4');
+        const is32BQwen = modelName.includes('32b-qwen-distill-q4_K_M');
+        const isCoderModel = modelName.includes('coder');
+        const isLargeModel = modelName.includes('14b') || modelName.includes('32b') || modelName.includes('70b');
+        const isMediumModel = modelName.includes('7b') || modelName.includes('8b') || isCoderModel;
         
         const requestBody = {
           model: modelName,
@@ -182,7 +286,25 @@ class OllamaAdapter extends LLMAdapter {
           options: {
             temperature: options.temperature || 0.7,
             num_predict: options.max_tokens || 4096,
-            num_ctx: 8192
+            // 24GB unified memory optimizations - special settings for 32B Qwen
+            num_ctx: is32BQwen ? 8192 : (isM4Model ? 32768 : (isLargeModel ? 16384 : (isMediumModel ? 24576 : 32768))),
+            num_gpu: 999, // Use all GPU layers (M4 Pro 16 GPU cores)
+            num_thread: is32BQwen ? 14 : (isM4Model ? 12 : 10), // More threads for 32B Qwen
+            batch_size: is32BQwen ? 256 : (isM4Model ? 2048 : (isLargeModel ? 512 : 1024)), // Smaller batches for 32B
+            use_mmap: true,
+            use_mlock: false,
+            f16_kv: isM4Model ? true : (isLargeModel ? true : false), // Always f16 for M4
+            main_gpu: 0,
+            low_vram: false,
+            num_batch: is32BQwen ? 256 : (isM4Model ? 2048 : 1024),
+            // M4 Pro specific - optimized for 32B Qwen
+            gpu_layers: 999,
+            n_gpu_layers: 999,
+            threads_batch: is32BQwen ? 14 : (isM4Model ? 12 : 10),
+            n_parallel: is32BQwen ? 2 : (isM4Model ? 8 : 4), // Less parallel for 32B
+            // Additional M4 optimizations
+            rope_frequency_scale: 1.0,
+            rope_scaling: "linear"
           }
         };
         
@@ -202,6 +324,8 @@ class OllamaAdapter extends LLMAdapter {
 
         console.log('[Fetch] Response status:', response.status);
         console.log('[Fetch] Response headers:', response.headers);
+        console.log('[Fetch] Model being used:', modelName);
+        console.log('[Fetch] Full request body:', JSON.stringify(requestBody, null, 2));
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -423,82 +547,75 @@ class OllamaAdapter extends LLMAdapter {
   
   async getAvailableModels() {
     try {
-      console.log('Fetching available models from Ollama');
+      console.log('Fetching available models');
       
-      try {
-        // Increase timeout for M4 Macs which may need more time to respond
-        const response = await axios.get(`${this.baseUrl}/api/tags`, { 
-          timeout: 10000  // 10 second timeout 
-        });
-        
-        console.log('API response received, processing models...');
-        
-        if (response.data && response.data.models) {
-          // Map the models to a consistent format for the UI
-          const mappedModels = response.data.models.map(model => ({
-            id: model.name,
-            name: model.name,
-            details: model.details || {}
-          }));
-          
-          console.log(`Found ${mappedModels.length} models`);
-          return mappedModels;
-        } else {
-          throw new Error('Invalid API response format');
-        }
-      } catch (apiError) {
-        console.error('Failed to fetch models from API:', apiError);
-        console.log('Falling back to direct terminal command');
-        
+      // Try terminal first if in Electron
+      if (window.electron && window.electron.exec) {
+        console.log('Using terminal to get models');
         try {
-          // Try shell exec as fallback if electron allows it
-          if (window.require && window.require('electron')) {
-            const { exec } = window.require('child_process');
-            
-            return new Promise((resolve) => {
-              exec('ollama list -v', (error, stdout, stderr) => {
-                if (error) {
-                  console.error('Terminal command error:', error);
-                  // Fall back to hardcoded models
-                  resolve(this.getFallbackModels());
-                  return;
-                }
+          const exec = window.electron.exec;
+          
+          return new Promise((resolve) => {
+            exec('ollama list', (error, stdout, stderr) => {
+              if (error) {
+                console.error('Terminal command error:', error);
+                // Fall back to hardcoded models
+                resolve(this.getFallbackModels());
+                return;
+              }
+              
+              if (stdout) {
+                // Parse the output of ollama list to extract models
+                const lines = stdout.split('\n').filter(line => line.trim().length > 0);
+                // Skip the header line
+                const modelLines = lines.slice(1);
                 
-                if (stdout) {
-                  // Parse the output of ollama list to extract models
-                  const lines = stdout.split('\n').filter(line => line.trim().length > 0);
-                  // Skip the header line
-                  const modelLines = lines.slice(1);
-                  
-                  const parsedModels = modelLines.map(line => {
-                    const parts = line.split(/\s+/);
-                    if (parts.length >= 2) {
-                      return {
-                        id: parts[0].trim(),
-                        name: parts[0].trim()
-                      };
-                    }
-                    return null;
-                  }).filter(model => model !== null);
-                  
-                  if (parsedModels.length > 0) {
-                    console.log(`Found ${parsedModels.length} models from terminal`);
-                    resolve(parsedModels);
-                  } else {
-                    resolve(this.getFallbackModels());
+                const parsedModels = modelLines.map(line => {
+                  const parts = line.split(/\s+/);
+                  if (parts.length >= 2) {
+                    return {
+                      id: parts[0].trim(),
+                      name: parts[0].trim(),
+                      details: {}
+                    };
                   }
+                  return null;
+                }).filter(model => model !== null);
+                
+                if (parsedModels.length > 0) {
+                  console.log(`Found ${parsedModels.length} models from terminal`);
+                  resolve(parsedModels);
                 } else {
                   resolve(this.getFallbackModels());
                 }
-              });
+              } else {
+                resolve(this.getFallbackModels());
+              }
             });
-          } else {
-            return this.getFallbackModels();
-          }
+          });
         } catch (terminalError) {
-          console.error('Terminal fallback failed:', terminalError);
+          console.error('Terminal setup failed:', terminalError);
           return this.getFallbackModels();
         }
+      }
+      
+      // If not in Electron, use HTTP API as fallback
+      console.log('Not in Electron, using HTTP API for models');
+      const response = await axios.get(`${this.baseUrl}/api/tags`, { 
+        timeout: 10000 
+      });
+      
+      if (response.data && response.data.models) {
+        const mappedModels = response.data.models.map(model => ({
+          id: model.name,
+          name: model.name,
+          details: model.details || {}
+        }));
+        
+        console.log(`Found ${mappedModels.length} models from API`);
+        return mappedModels;
+      } else {
+        throw new Error('Invalid API response format');
       }
     } catch (error) {
       console.error('Error in getModels:', error);

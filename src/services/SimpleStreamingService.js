@@ -13,33 +13,181 @@ class SimpleStreamingService {
       // Clean model name - remove any extra info like "(Unknown size)"
       const cleanModel = (model || 'deepseek-r1:8b-m4').split(' ')[0].trim();
       
-      // For now, always use HTTP API for consistency
-      // Terminal streaming seems to have buffer issues
-      console.log('[SimpleStreaming] Using HTTP API for all environments');
+      // Check if in Electron and use terminal with streaming
+      if (window.electron && window.electron.spawnStream) {
+        console.log('[SimpleStreaming] Detected Electron environment with spawnStream support');
+        console.log('[SimpleStreaming] window.electron available methods:', Object.keys(window.electron));
+        
+        try {
+          const spawnStream = window.electron.spawnStream;
+          console.log('[SimpleStreaming] Using electron.spawnStream for terminal streaming');
+          console.log('[SimpleStreaming] spawnStream function:', typeof spawnStream);
+          
+          // Start with just the model name, no optimization parameters for now
+          const args = ['run', cleanModel];
+          
+          // TODO: Add back optimization parameters after basic streaming works
+          // const isM4Model = cleanModel.includes('-m4');
+          // if (isM4Model) {
+          //   args.push('--num-ctx', '32768', '--num-gpu', '999', '--num-thread', '12');
+          // } else {
+          //   args.push('--num-ctx', '16384', '--num-gpu', '999', '--num-thread', '10');
+          // }
+          
+          console.log('[SimpleStreaming] Spawning ollama with args:', args);
+          
+          // Return a promise to prevent fall-through to HTTP
+          return new Promise((resolve, reject) => {
+            console.log('[SimpleStreaming] Creating streaming process');
+            
+            let fullContent = '';
+            let hasCompleted = false;
+            let isFirstChunk = true;
+            
+            const child = spawnStream('ollama', args, 
+              // onData callback
+              (chunk) => {
+                console.log('[SimpleStreaming] Terminal chunk received:', chunk.length, 'chars');
+                
+                // Skip model loading messages
+                if (isFirstChunk && (chunk.includes('Loading model') || chunk.includes('pulling'))) {
+                  isFirstChunk = false;
+                  console.log('[SimpleStreaming] Skipping model loading message');
+                  return;
+                }
+                isFirstChunk = false;
+                
+                // Clean ANSI escape codes
+                const cleanedChunk = chunk.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+                
+                // Add to full content
+                fullContent += cleanedChunk;
+                
+                // Stream chunk by chunk
+                if (onChunk) {
+                  console.log('[SimpleStreaming] Streaming chunk, total length now:', fullContent.length);
+                  onChunk(cleanedChunk, fullContent);
+                }
+              },
+              // onError callback
+              (error) => {
+                console.error('[SimpleStreaming] Terminal error:', error);
+                
+                if (error.includes('not found')) {
+                  if (!hasCompleted) {
+                    hasCompleted = true;
+                    const err = new Error(`Model "${cleanModel}" not found. Please run: ollama pull ${cleanModel}`);
+                    if (onError) onError(err);
+                    reject(err);
+                  }
+                }
+              },
+              // onClose callback
+              (code) => {
+                console.log('[SimpleStreaming] Terminal process closed with code:', code, 'Content length:', fullContent.length);
+                
+                if (!hasCompleted) {
+                  hasCompleted = true;
+                  if (code === 0 || fullContent.length > 0) {
+                    if (onComplete) onComplete(fullContent);
+                    resolve();
+                  } else {
+                    const error = new Error(`Process exited with code ${code}`);
+                    if (onError) onError(error);
+                    reject(error);
+                  }
+                }
+              }
+            );
+            
+            if (!child) {
+              console.error('[SimpleStreaming] Failed to create streaming process');
+              if (onError) onError(new Error('Failed to create streaming process'));
+              reject(new Error('Failed to create streaming process'));
+              return;
+            }
+            
+            console.log('[SimpleStreaming] Child process created, PID:', child.pid);
+            
+            // Write the message to stdin
+            console.log('[SimpleStreaming] Writing message to stdin:', message.substring(0, 50) + '...');
+            child.write(message + '\n');
+            child.end();
+          });
+        } catch (terminalError) {
+          console.error('[SimpleStreaming] Terminal setup error:', terminalError);
+          console.error('[SimpleStreaming] Error details:', {
+            message: terminalError.message,
+            stack: terminalError.stack,
+            name: terminalError.name
+          });
+          // Fall through to HTTP API
+        }
+      }
       
       // Otherwise use HTTP API
       console.log('[SimpleStreaming] Using HTTP API streaming');
       
-      // Add options to handle long responses better
+      // Add M4-optimized options based on model size
+      const is32BModel = cleanModel.includes('32b') || cleanModel.includes('30b');
+      const isLargeModel = cleanModel.includes('14b') || cleanModel.includes('70b');
+      const isMediumModel = cleanModel.includes('7b') || cleanModel.includes('8b');
+      
+      // M4-specific optimizations for 24GB unified memory
+      const options = {
+        temperature: 0.7,
+        num_predict: -1, // No limit on predictions
+        // Context size based on model - optimize for 32B with 24GB RAM
+        num_ctx: is32BModel ? 8192 : (isLargeModel ? 16384 : (isMediumModel ? 24576 : 32768)),
+        // GPU layers - maximize for M4 Pro with 16 GPU cores
+        num_gpu: 999, // Use all available layers on GPU (Ollama will use max available)
+        // Thread optimization for M4 Pro with 12 cores
+        num_thread: 10, // M4 Pro has 12 cores, use 10 for optimal performance
+        // Batch size optimization - smaller for 32B to save memory
+        batch_size: is32BModel ? 256 : (isLargeModel ? 512 : 1024),
+        // M4-specific Metal optimizations
+        use_mmap: true,
+        use_mlock: false,
+        // With 24GB, we can use full precision for better quality
+        f16_kv: isLargeModel ? true : false,
+        // Optimize for Apple Silicon
+        main_gpu: 0,
+        // Additional optimizations for 24GB
+        low_vram: false,
+        // Allow more parallel processing with 24GB memory and 16 GPU cores
+        num_batch: 1024,
+        // M4 Pro specific optimizations
+        gpu_layers: 999, // Alternative parameter some models use
+        num_gpu_layers: 999, // Another variant
+        n_gpu_layers: 999, // Yet another variant
+        // Thread pool for parallel processing
+        threads_batch: 10,
+        // Increase parallel sequences for better GPU utilization
+        n_parallel: 4
+      };
+      
       const requestBody = {
         model: cleanModel,
         prompt: message,
         stream: true,
-        options: {
-          num_ctx: 32768, // Increase context window
-          num_predict: -1, // No limit on predictions
-          temperature: 0.7
-        }
+        options
       };
       
+      console.log('[SimpleStreaming] M4-optimized request for', cleanModel, ':', options);
+      
       console.log('[SimpleStreaming] Request:', requestBody);
+      
+      // Create abort controller for this stream
+      const abortController = new AbortController();
+      window.__currentStreamAbortController = abortController;
       
       const response = await fetch('http://localhost:11434/api/generate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(requestBody),
+        signal: abortController.signal
       });
 
       if (!response.ok) {
@@ -186,6 +334,10 @@ class SimpleStreamingService {
                 preview: fullContent.substring(fullContent.length - 100)
               });
               if (timeoutHandle) clearTimeout(timeoutHandle);
+              // Clear abort controller on successful completion
+              if (window.__currentStreamAbortController) {
+                window.__currentStreamAbortController = null;
+              }
               // Add a small delay to ensure all content is processed
               setTimeout(() => {
                 if (onComplete) onComplete(fullContent);
@@ -232,7 +384,21 @@ class SimpleStreamingService {
         name: error.name,
         stack: error.stack
       });
-      if (onError) onError(error);
+      
+      // Clear abort controller
+      if (window.__currentStreamAbortController) {
+        window.__currentStreamAbortController = null;
+      }
+      
+      // Don't call onError if it was an abort
+      if (error.name !== 'AbortError') {
+        if (onError) onError(error);
+      }
+    } finally {
+      // Always clear abort controller
+      if (window.__currentStreamAbortController) {
+        window.__currentStreamAbortController = null;
+      }
     }
   }
   

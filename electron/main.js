@@ -91,7 +91,7 @@ function createWindow() {
         contextIsolation: true, // Enable context isolation for security
         enableRemoteModule: false, // Disable remote module for security
         preload: path.join(__dirname, 'preload.js'),
-        sandbox: true // Enable sandbox for additional security
+        sandbox: false // Disable sandbox to allow child_process
       },
       title: 'Sephia',
       icon: path.join(__dirname, '../public/favicon.ico')

@@ -980,6 +980,12 @@ export const AppProvider = ({ children }) => {
   // Fetch available models
   useEffect(() => {
     const fetchModels = async () => {
+      // Don't fetch models if we're currently streaming
+      if (appState?.streamingContent || appState?.streamingMessageId) {
+        console.log("Skipping model fetch during active streaming");
+        return;
+      }
+      
       try {
         setLoading(true);
         setAppState(prev => ({
@@ -1053,13 +1059,11 @@ export const AppProvider = ({ children }) => {
     
     fetchModels();
     
-    // Set up a refresh interval to periodically check for new models
-    const modelRefreshInterval = setInterval(() => {
-      fetchModels();
-    }, 60000); // Refresh every 60 seconds
+    // Removed model refresh interval to prevent interrupting streaming
+    // Models are fetched once on startup and that's sufficient
     
     return () => {
-      clearInterval(modelRefreshInterval);
+      // No cleanup needed
     };
   }, []);
 

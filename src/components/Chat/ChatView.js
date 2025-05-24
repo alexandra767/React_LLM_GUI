@@ -251,15 +251,15 @@ const ChatView = React.memo(({ projectId }) => {
   // Force component refresh with version stamp
   const componentVersion = 'v2.0';
   
-  // Debug: Log when context values change
-  React.useEffect(() => {
-    console.log('[ChatView] Context changed:', {
-      projectsLength: projects.length,
-      currentModel,
-      tokenCount,
-      messageDuration
-    });
-  }, [projects.length, currentModel, tokenCount, messageDuration]);
+  // Debug: Log when context values change - disabled to prevent re-renders
+  // React.useEffect(() => {
+  //   console.log('[ChatView] Context changed:', {
+  //     projectsLength: projects.length,
+  //     currentModel,
+  //     tokenCount,
+  //     messageDuration
+  //   });
+  // }, [projects.length, currentModel, tokenCount, messageDuration]);
   
   // Remove Ollama test to prevent re-renders
   
@@ -328,13 +328,13 @@ const ChatView = React.memo(({ projectId }) => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
   
-  // Update message duration while streaming
+  // Update message duration while streaming - reduced frequency to prevent re-renders
   useEffect(() => {
     if (isStreaming && streamStart) {
       const interval = setInterval(() => {
         const duration = (performance.now() - streamStart) / 1000;
         setMessageTime(duration);
-      }, 100); // Update every 100ms
+      }, 1000); // Update every 1 second instead of 100ms
       
       return () => clearInterval(interval);
     }
@@ -1463,6 +1463,94 @@ const ChatView = React.memo(({ projectId }) => {
               }}
             >
               Test Ollama Connection
+            </button>
+            
+            <button
+              onClick={() => {
+                console.log('=== TESTING TERMINAL EXECUTION ===');
+                if (window.electron && window.electron.exec) {
+                  console.log('window.electron.exec exists!');
+                  window.electron.exec('echo "Hello from terminal"', {}, (error, stdout, stderr) => {
+                    if (error) {
+                      console.error('Terminal test error:', error);
+                      alert(`Terminal error: ${error.message}`);
+                    } else {
+                      console.log('Terminal test output:', stdout);
+                      alert(`Terminal output: ${stdout}`);
+                    }
+                  });
+                } else {
+                  console.error('window.electron.exec not found!');
+                  alert('Terminal execution not available. Check preload script.');
+                }
+              }}
+              style={{
+                marginTop: '10px',
+                padding: '10px 20px',
+                backgroundColor: '#FF9800',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Test Terminal Execution
+            </button>
+            
+            <button
+              onClick={() => {
+                console.log('=== TESTING SPAWN EXECUTION ===');
+                console.log('window.electron:', window.electron);
+                console.log('Available methods:', window.electron ? Object.keys(window.electron) : 'None');
+                
+                if (window.electron && window.electron.spawnStream) {
+                  console.log('window.electron.spawnStream exists!');
+                  try {
+                    let output = '';
+                    const child = window.electron.spawnStream('echo', ['Hello from spawnStream'], 
+                      // onData
+                      (data) => {
+                        output += data;
+                        console.log('SpawnStream stdout:', data);
+                      },
+                      // onError
+                      (error) => {
+                        console.error('SpawnStream error:', error);
+                        alert(`SpawnStream error: ${error}`);
+                      },
+                      // onClose
+                      (code) => {
+                        console.log('SpawnStream process closed with code:', code);
+                        alert(`SpawnStream output: ${output}`);
+                      }
+                    );
+                    
+                    if (child) {
+                      console.log('SpawnStream child created, PID:', child.pid);
+                    } else {
+                      console.error('SpawnStream returned null');
+                    }
+                  } catch (spawnError) {
+                    console.error('Failed to spawnStream:', spawnError);
+                    alert(`Failed to spawnStream: ${spawnError.message}`);
+                  }
+                } else {
+                  console.error('window.electron.spawnStream not found!');
+                  console.log('Available electron methods:', window.electron ? Object.keys(window.electron) : 'None');
+                  alert('SpawnStream not available. Check preload script.');
+                }
+              }}
+              style={{
+                marginTop: '10px',
+                padding: '10px 20px',
+                backgroundColor: '#4CAF50',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Test Spawn Execution
             </button>
           </div>
         </EmptyState>
