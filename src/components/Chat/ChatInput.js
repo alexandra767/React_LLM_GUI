@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
+import voiceService from '../../services/VoiceService';
 
 const InputContainer = styled('div')({
   position: 'relative',
@@ -30,7 +31,7 @@ const Textarea = styled('textarea')({
   color: '#F0F0F0',
   fontSize: '15px',
   fontFamily: 'inherit',
-  padding: '14px 60px 14px 20px',
+  padding: '14px 100px 14px 20px', // Increased right padding for both buttons
   resize: 'none',
   lineHeight: 1.5,
   minHeight: '52px',
@@ -73,11 +74,84 @@ const SendButton = styled('button')(({ disabled }) => ({
   }
 }));
 
+const MicButton = styled('button')(({ isListening, disabled }) => ({
+  position: 'absolute',
+  right: '56px',
+  top: '50%',
+  transform: 'translateY(-50%)',
+  backgroundColor: isListening ? '#ef4444' : 'transparent',
+  color: isListening ? '#FFFFFF' : '#888888',
+  border: '1px solid',
+  borderColor: isListening ? '#ef4444' : '#444444',
+  borderRadius: '50%',
+  width: '36px',
+  height: '36px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  transition: 'all 0.2s ease',
+  '&:hover:not(:disabled)': {
+    backgroundColor: isListening ? '#dc2626' : 'rgba(255, 255, 255, 0.05)',
+    borderColor: isListening ? '#dc2626' : '#666666',
+    color: isListening ? '#FFFFFF' : '#AAAAAA'
+  },
+  '&:active:not(:disabled)': {
+    transform: 'translateY(-50%) scale(0.95)'
+  },
+  '& svg': {
+    width: '20px',
+    height: '20px'
+  },
+  '&:disabled': {
+    opacity: 0.5,
+    cursor: 'not-allowed'
+  }
+}));
+
+const VoiceIndicator = styled('div')(({ isListening }) => ({
+  position: 'absolute',
+  right: '56px',
+  top: '-30px',
+  backgroundColor: '#1E1E1E',
+  border: '1px solid #ef4444',
+  borderRadius: '16px',
+  padding: '4px 12px',
+  fontSize: '12px',
+  color: '#ef4444',
+  display: isListening ? 'flex' : 'none',
+  alignItems: 'center',
+  gap: '6px',
+  '&::after': {
+    content: '""',
+    position: 'absolute',
+    bottom: '-5px',
+    right: '14px',
+    width: '10px',
+    height: '10px',
+    backgroundColor: '#1E1E1E',
+    borderRight: '1px solid #ef4444',
+    borderBottom: '1px solid #ef4444',
+    transform: 'rotate(45deg)'
+  }
+}));
+
+const PulsingDot = styled('span')({
+  width: '6px',
+  height: '6px',
+  backgroundColor: '#ef4444',
+  borderRadius: '50%',
+  animation: 'pulse 1.5s ease-in-out infinite'
+});
+
 const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   const [message, setMessage] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
   const theme = useTheme();
   const { appState } = useApp();
-  const inputRef = React.useRef(null);
+  const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
   
   // Expose focus method
   React.useImperativeHandle(ref, () => ({
@@ -87,9 +161,83 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   }));
   
   // Auto-focus on mount
-  React.useEffect(() => {
+  useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Check if voice is supported and enabled
+  const isVoiceSupported = voiceService.isSupported().speechRecognition;
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  
+  // Load voice settings
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('sephia_voice_settings');
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        setVoiceEnabled(parsed.voiceEnabled !== false);
+      } catch (e) {
+        console.error('Failed to load voice settings:', e);
+      }
+    }
+  }, []);
+
+  const handleVoiceInput = async () => {
+    if (!isVoiceSupported) {
+      alert('Speech recognition is not supported in your browser. Please use Chrome or Edge.');
+      return;
+    }
+    
+    if (!voiceEnabled) {
+      alert('Voice features are disabled. Enable them in Settings.');
+      return;
+    }
+
+    if (isListening) {
+      // Stop listening
+      voiceService.stopListening();
+      setIsListening(false);
+      
+      // Send the message if we have a transcript
+      if (transcript.trim()) {
+        onSendMessage(transcript.trim());
+        setTranscript('');
+        setMessage('');
+      }
+    } else {
+      // Start listening
+      try {
+        setIsListening(true);
+        setTranscript('');
+        
+        await voiceService.startListening({
+          onStart: () => {
+            console.log('Voice recognition started');
+          },
+          onResult: (result) => {
+            if (result.isFinal) {
+              setTranscript(result.transcript);
+              setMessage(result.transcript);
+            } else {
+              // Show interim results
+              setMessage(result.transcript);
+            }
+          },
+          onError: (error) => {
+            console.error('Voice recognition error:', error);
+            alert(error);
+            setIsListening(false);
+          },
+          onEnd: () => {
+            setIsListening(false);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to start voice recognition:', error);
+        setIsListening(false);
+      }
+    }
+  };
   
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -121,21 +269,61 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   
   return (
     <InputContainer>
+      <style jsx>{`
+        @keyframes pulse {
+          0% {
+            transform: scale(0.95);
+            opacity: 0.7;
+          }
+          50% {
+            transform: scale(1.05);
+            opacity: 1;
+          }
+          100% {
+            transform: scale(0.95);
+            opacity: 0.7;
+          }
+        }
+      `}</style>
       <form onSubmit={handleSubmit}>
         <InputWrapper>
+          <VoiceIndicator isListening={isListening}>
+            <PulsingDot />
+            Listening...
+          </VoiceIndicator>
+          
           <Textarea
             ref={inputRef}
             value={message}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message..."
-            disabled={disabled}
+            placeholder={isListening ? "Listening..." : "Type a message..."}
+            disabled={disabled || isListening}
             rows={1}
           />
           
+          <MicButton
+            type="button"
+            onClick={handleVoiceInput}
+            isListening={isListening}
+            disabled={disabled}
+            title={isListening ? "Stop recording" : "Start voice input"}
+          >
+            {isListening ? (
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C10.9 2 10 2.9 10 4V12C10 13.1 10.9 14 12 14C13.1 14 14 13.1 14 12V4C14 2.9 13.1 2 12 2Z" fill="currentColor"/>
+                <path d="M17 11V12C17 14.76 14.76 17 12 17C9.24 17 7 14.76 7 12V11H5V12C5 15.53 7.61 18.43 11 18.92V22H13V18.92C16.39 18.43 19 15.53 19 12V11H17Z" fill="currentColor"/>
+              </svg>
+            )}
+          </MicButton>
+          
           <SendButton 
             type="submit" 
-            disabled={!message.trim() || disabled}
+            disabled={!message.trim() || disabled || isListening}
           >
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M7 11L12 6L17 11M12 18V7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>

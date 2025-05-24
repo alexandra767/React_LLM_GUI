@@ -5,13 +5,14 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ContentCopy as CopyIcon, Check as CheckIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Psychology as PsychologyIcon } from '@mui/icons-material';
+import { ContentCopy as CopyIcon, Check as CheckIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Psychology as PsychologyIcon, VolumeUp as SpeakerIcon, Stop as StopIcon } from '@mui/icons-material';
 import { Tooltip, IconButton, Box, styled, keyframes, useTheme as useMuiTheme, Collapse, Chip } from '@mui/material';
 import BrainIcon from './BrainIcon';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
 import copyToClipboard from '../../utils/clipboard';
 import { useStreamingContent } from '../../hooks/useStreamingContent';
+import voiceService from '../../services/VoiceService';
 
 // Keyframe animation for pulse effect
 const pulse = keyframes`
@@ -208,6 +209,7 @@ const Message = React.memo(({ message, onDelete }) => {
   const { profile } = useApp();
   const [copyStatus, setCopyStatus] = useState({});
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   
   // Ensure message has required properties
   const safeMessage = React.useMemo(() => ({
@@ -296,6 +298,82 @@ const Message = React.memo(({ message, onDelete }) => {
       .catch(err => {
         console.error('Failed to copy message:', err);
       });
+  };
+
+  const handleSpeakMessage = async () => {
+    // Check if voice is enabled
+    const savedSettings = localStorage.getItem('sephia_voice_settings');
+    let voiceEnabled = true;
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        voiceEnabled = parsed.voiceEnabled !== false;
+      } catch (e) {
+        console.error('Failed to load voice settings:', e);
+      }
+    }
+    
+    if (!voiceEnabled) {
+      alert('Voice features are disabled. Enable them in Settings.');
+      return;
+    }
+    
+    if (isSpeaking) {
+      // Stop speaking
+      voiceService.stopSpeaking();
+      setIsSpeaking(false);
+    } else {
+      // Start speaking
+      try {
+        // Extract text content from the message
+        let textToSpeak = displayContent;
+        
+        // Remove thinking tags
+        textToSpeak = textToSpeak.replace(/<think>[\s\S]*?<\/think>/g, '');
+        
+        // If it's HTML content, extract text
+        if (textToSpeak.includes('<') && textToSpeak.includes('>')) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = textToSpeak;
+          textToSpeak = tempDiv.textContent || tempDiv.innerText || '';
+        }
+        
+        // Clean up markdown syntax
+        textToSpeak = textToSpeak
+          .replace(/```[\s\S]*?```/g, 'code block') // Replace code blocks
+          .replace(/`([^`]+)`/g, '$1') // Remove inline code backticks
+          .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold
+          .replace(/\*([^*]+)\*/g, '$1') // Remove italic
+          .replace(/#+\s/g, '') // Remove headers
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Convert links to text
+          .trim();
+        
+        if (!textToSpeak) {
+          console.warn('No text to speak');
+          return;
+        }
+        
+        setIsSpeaking(true);
+        
+        await voiceService.speak(textToSpeak, {
+          onStart: () => {
+            console.log('Started speaking');
+          },
+          onEnd: () => {
+            setIsSpeaking(false);
+            console.log('Finished speaking');
+          },
+          onError: (error) => {
+            console.error('Speech error:', error);
+            setIsSpeaking(false);
+            alert('Text-to-speech error: ' + error);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to speak message:', error);
+        setIsSpeaking(false);
+      }
+    }
   };
   
   // Custom renderer for code blocks
@@ -714,7 +792,7 @@ const Message = React.memo(({ message, onDelete }) => {
             </div>
           </div>
           
-          {/* Show copy button for assistant messages */}
+          {/* Show action buttons for assistant messages */}
           {!isUser && (
             <div style={{
               ...getStyle(styles.messageActions),
@@ -726,6 +804,23 @@ const Message = React.memo(({ message, onDelete }) => {
               padding: 0,
             }} className="message-actions">
               <Box sx={{ display: 'flex', gap: '4px' }}>
+                <Tooltip title={isSpeaking ? 'Stop speaking' : 'Read aloud'} arrow>
+                  <IconButton 
+                    size="small" 
+                    onClick={handleSpeakMessage}
+                    sx={{
+                      color: isSpeaking ? '#ef4444' : 'rgba(255, 255, 255, 0.6)',
+                      backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                      '&:hover': {
+                        color: isSpeaking ? '#dc2626' : 'rgba(255, 255, 255, 0.9)',
+                        backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.15)',
+                      },
+                    }}
+                  >
+                    {isSpeaking ? <StopIcon fontSize="small" /> : <SpeakerIcon fontSize="small" />}
+                  </IconButton>
+                </Tooltip>
+                
                 <Tooltip title={copyStatus.message ? 'Copied!' : 'Copy message'} arrow>
                   <IconButton 
                     size="small" 

@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { useApp } from '../../context/AppContext';
 import { 
   Refresh as RefreshIcon, 
   Delete as DeleteIcon,
   Download as DownloadIcon,
-  Check as CheckIcon
+  Check as CheckIcon,
+  VolumeUp as SpeakerIcon,
+  Mic as MicIcon
 } from '@mui/icons-material';
 import { Slider } from '@mui/material';
+import voiceService from '../../services/VoiceService';
 
 const SettingsContainer = styled('div')({
   display: 'flex',
@@ -347,12 +350,106 @@ const SettingsView = () => {
     defaultModel: 'llama2'
   });
   
+  // Voice settings state
+  const [voiceSettings, setVoiceSettings] = useState({
+    speechRate: 1.0,
+    speechPitch: 1.0,
+    speechVolume: 1.0,
+    selectedVoice: null,
+    recognitionLanguage: 'en-US',
+    voiceEnabled: true,
+    autoSpeak: false
+  });
+  const [availableVoices, setAvailableVoices] = useState([]);
+  const [isSpeechSupported, setIsSpeechSupported] = useState({
+    recognition: false,
+    synthesis: false
+  });
+  
   const updateSetting = (key, value) => {
     setSettings(prev => ({
       ...prev,
       [key]: value
     }));
   };
+  
+  const updateVoiceSetting = (key, value) => {
+    setVoiceSettings(prev => ({
+      ...prev,
+      [key]: value
+    }));
+    
+    // Apply settings to voice service
+    switch(key) {
+      case 'speechRate':
+        voiceService.setSpeechRate(value);
+        break;
+      case 'speechPitch':
+        voiceService.setSpeechPitch(value);
+        break;
+      case 'speechVolume':
+        voiceService.setSpeechVolume(value);
+        break;
+      case 'selectedVoice':
+        const voice = availableVoices.find(v => v.name === value);
+        if (voice) {
+          voiceService.setVoice(voice);
+        }
+        break;
+      case 'recognitionLanguage':
+        voiceService.setRecognitionLanguage(value);
+        break;
+    }
+    
+    // Save to localStorage
+    localStorage.setItem('sephia_voice_settings', JSON.stringify({
+      ...voiceSettings,
+      [key]: value
+    }));
+  };
+  
+  // Load voices and voice settings on mount
+  useEffect(() => {
+    // Check speech support
+    const support = voiceService.isSupported();
+    setIsSpeechSupported(support);
+    
+    // Load available voices
+    const loadVoices = () => {
+      const voices = voiceService.getVoices();
+      setAvailableVoices(voices);
+      
+      // Set default voice if not already set
+      if (!voiceSettings.selectedVoice && voices.length > 0) {
+        const defaultVoice = voices.find(v => v.lang.startsWith('en')) || voices[0];
+        updateVoiceSetting('selectedVoice', defaultVoice.name);
+      }
+    };
+    
+    loadVoices();
+    
+    // Chrome loads voices asynchronously
+    if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+    
+    // Load saved voice settings
+    const savedSettings = localStorage.getItem('sephia_voice_settings');
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        setVoiceSettings(parsed);
+        
+        // Apply saved settings to voice service
+        voiceService.setSpeechRate(parsed.speechRate || 1.0);
+        voiceService.setSpeechPitch(parsed.speechPitch || 1.0);
+        voiceService.setSpeechVolume(parsed.speechVolume || 1.0);
+        voiceService.setRecognitionLanguage(parsed.recognitionLanguage || 'en-US');
+      } catch (e) {
+        console.error('Failed to load voice settings:', e);
+      }
+    }
+  }, []);
   
   const testOllamaConnection = async () => {
     setIsTestingConnection(true);
@@ -402,6 +499,15 @@ const SettingsView = () => {
     setIsLoadingModel(false);
     setNewModelName('');
     // Would trigger model refresh here in a real implementation
+  };
+  
+  const testVoice = async () => {
+    const testText = "Hello! This is a test of the text-to-speech voice settings.";
+    try {
+      await voiceService.speak(testText);
+    } catch (error) {
+      console.error('Failed to test voice:', error);
+    }
   };
   
   return (
@@ -626,6 +732,200 @@ const SettingsView = () => {
             <Slider />
           </Switch>
         </SettingItem>
+      </SettingsSection>
+      
+      <SettingsSection>
+        <SectionTitle>Voice Settings</SectionTitle>
+        
+        {!isSpeechSupported.synthesis && !isSpeechSupported.recognition ? (
+          <SettingItem>
+            <SettingLabel>
+              <Label>Voice Features Not Supported</Label>
+              <Description2>
+                Your browser doesn't support voice features. Please use Chrome, Edge, or Safari for the best experience.
+              </Description2>
+            </SettingLabel>
+          </SettingItem>
+        ) : (
+          <>
+            <SettingItem>
+              <SettingLabel>
+                <Label>Enable Voice Features</Label>
+                <Description2>
+                  Turn on/off all voice functionality
+                </Description2>
+              </SettingLabel>
+              <ToggleSwitch checked={voiceSettings.voiceEnabled}>
+                <input 
+                  type="checkbox" 
+                  checked={voiceSettings.voiceEnabled}
+                  onChange={(e) => updateVoiceSetting('voiceEnabled', e.target.checked)}
+                />
+                <span className="slider"></span>
+              </ToggleSwitch>
+            </SettingItem>
+            
+            {isSpeechSupported.synthesis && (
+              <>
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Voice Selection</Label>
+                    <Description2>
+                      Choose the voice for text-to-speech
+                    </Description2>
+                  </SettingLabel>
+                  <Select 
+                    value={voiceSettings.selectedVoice || ''} 
+                    onChange={(e) => updateVoiceSetting('selectedVoice', e.target.value)}
+                    disabled={!voiceSettings.voiceEnabled}
+                  >
+                    <option value="">Default Voice</option>
+                    {availableVoices.map(voice => (
+                      <option key={voice.name} value={voice.name}>
+                        {voice.name} ({voice.lang})
+                      </option>
+                    ))}
+                  </Select>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Speech Rate</Label>
+                    <Description2>
+                      How fast the voice speaks (0.1 - 2.0)
+                    </Description2>
+                  </SettingLabel>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                    <Slider
+                      value={voiceSettings.speechRate}
+                      onChange={(_, value) => updateVoiceSetting('speechRate', value)}
+                      min={0.1}
+                      max={2.0}
+                      step={0.1}
+                      valueLabelDisplay="auto"
+                      disabled={!voiceSettings.voiceEnabled}
+                      sx={{ flex: 1 }}
+                    />
+                    <span style={{ minWidth: '40px', textAlign: 'right' }}>
+                      {voiceSettings.speechRate.toFixed(1)}
+                    </span>
+                  </div>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Speech Pitch</Label>
+                    <Description2>
+                      Voice pitch level (0.0 - 2.0)
+                    </Description2>
+                  </SettingLabel>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                    <Slider
+                      value={voiceSettings.speechPitch}
+                      onChange={(_, value) => updateVoiceSetting('speechPitch', value)}
+                      min={0.0}
+                      max={2.0}
+                      step={0.1}
+                      valueLabelDisplay="auto"
+                      disabled={!voiceSettings.voiceEnabled}
+                      sx={{ flex: 1 }}
+                    />
+                    <span style={{ minWidth: '40px', textAlign: 'right' }}>
+                      {voiceSettings.speechPitch.toFixed(1)}
+                    </span>
+                  </div>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Speech Volume</Label>
+                    <Description2>
+                      Voice volume level (0.0 - 1.0)
+                    </Description2>
+                  </SettingLabel>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
+                    <Slider
+                      value={voiceSettings.speechVolume}
+                      onChange={(_, value) => updateVoiceSetting('speechVolume', value)}
+                      min={0.0}
+                      max={1.0}
+                      step={0.1}
+                      valueLabelDisplay="auto"
+                      disabled={!voiceSettings.voiceEnabled}
+                      sx={{ flex: 1 }}
+                    />
+                    <span style={{ minWidth: '40px', textAlign: 'right' }}>
+                      {voiceSettings.speechVolume.toFixed(1)}
+                    </span>
+                  </div>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Test Voice Settings</Label>
+                    <Description2>
+                      Hear a sample with your current settings
+                    </Description2>
+                  </SettingLabel>
+                  <Button 
+                    onClick={testVoice} 
+                    disabled={!voiceSettings.voiceEnabled}
+                  >
+                    <SpeakerIcon style={{ marginRight: '8px' }} />
+                    Test Voice
+                  </Button>
+                </SettingItem>
+              </>
+            )}
+            
+            {isSpeechSupported.recognition && (
+              <>
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Speech Recognition Language</Label>
+                    <Description2>
+                      Language for voice input
+                    </Description2>
+                  </SettingLabel>
+                  <Select 
+                    value={voiceSettings.recognitionLanguage} 
+                    onChange={(e) => updateVoiceSetting('recognitionLanguage', e.target.value)}
+                    disabled={!voiceSettings.voiceEnabled}
+                  >
+                    <option value="en-US">English (US)</option>
+                    <option value="en-GB">English (UK)</option>
+                    <option value="es-ES">Spanish</option>
+                    <option value="fr-FR">French</option>
+                    <option value="de-DE">German</option>
+                    <option value="it-IT">Italian</option>
+                    <option value="pt-BR">Portuguese (Brazil)</option>
+                    <option value="zh-CN">Chinese (Simplified)</option>
+                    <option value="ja-JP">Japanese</option>
+                    <option value="ko-KR">Korean</option>
+                  </Select>
+                </SettingItem>
+                
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Auto-speak Responses</Label>
+                    <Description2>
+                      Automatically read AI responses aloud
+                    </Description2>
+                  </SettingLabel>
+                  <ToggleSwitch checked={voiceSettings.autoSpeak}>
+                    <input 
+                      type="checkbox" 
+                      checked={voiceSettings.autoSpeak}
+                      onChange={(e) => updateVoiceSetting('autoSpeak', e.target.checked)}
+                      disabled={!voiceSettings.voiceEnabled}
+                    />
+                    <span className="slider"></span>
+                  </ToggleSwitch>
+                </SettingItem>
+              </>
+            )}
+          </>
+        )}
       </SettingsSection>
       
       <SettingsSection>
