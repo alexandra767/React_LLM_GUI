@@ -34,11 +34,17 @@ class VoiceService {
     }
 
     try {
-      this.recognition = new (SpeechRecognition || webkitSpeechRecognition)();
-      this.recognition.continuous = false;
-      this.recognition.interimResults = true;
-      this.recognition.lang = 'en-US';
-      this.recognition.maxAlternatives = 1;
+      // Use the already defined SpeechRecognition which includes the webkit prefix
+      if (SpeechRecognition) {
+        this.recognition = new SpeechRecognition();
+        this.recognition.continuous = false;
+        this.recognition.interimResults = true;
+        this.recognition.lang = 'en-US';
+        this.recognition.maxAlternatives = 1;
+      } else {
+        console.warn('No SpeechRecognition API available');
+        this.recognition = null;
+      }
     } catch (error) {
       console.error('Failed to initialize speech recognition:', error);
       this.recognition = null;
