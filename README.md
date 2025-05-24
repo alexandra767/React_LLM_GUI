@@ -4,7 +4,7 @@ A modern, elegant chat interface for interacting with local Large Language Model
 
 ![Sephia Interface](public/images/brain-computer.svg)
 
-## ✨ Latest Updates (v2.0)
+## ✨ Latest Updates (v2.1)
 
 ### Major Features Implemented
 - **🎯 Auto-generating chat titles** - Automatically creates meaningful titles from first message
@@ -12,9 +12,19 @@ A modern, elegant chat interface for interacting with local Large Language Model
 - **📁 Project management system** - Organize chats into projects with isolated contexts
 - **🎨 Modern UI redesign** - Discord-inspired interface with purple accents
 - **💬 Advanced markdown support** - Full GitHub Flavored Markdown with syntax highlighting
-- **📋 Always-visible copy buttons** - Easy copying of AI responses
-- **🔄 Improved streaming** - Fixed chunk handling for complete responses
-- **💾 Enhanced persistence** - Session storage for UI state, localStorage for data
+- **📋 Hover-only copy buttons** - Clean interface with copy on hover
+- **🔄 Robust streaming** - Complete rewrite with SimpleStreamingService
+- **💾 Enhanced persistence** - Fixed save/load for both chats and projects
+
+### Recent Fixes (Jan 2025)
+- **🔧 Fixed component unmounting** during streaming - messages now stream without interruption
+- **⏱️ Added streaming timeouts** - 2-minute timeout with proper error recovery
+- **💾 Improved message persistence** - Chat and project messages save correctly
+- **🎯 Fixed cursor focus** - Input stays focused after sending messages
+- **🔑 Resolved duplicate key warnings** - Better unique ID generation
+- **📦 Added content size limits** - Prevents memory issues with 10MB limit
+- **🚀 Optimized re-renders** - Debounced updates for better performance
+- **🛡️ Enhanced error handling** - Partial content saved on interruption
 
 ## Features
 

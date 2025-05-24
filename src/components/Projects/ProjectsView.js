@@ -475,7 +475,20 @@ const ProjectsView = React.memo(() => {
           </HeaderTop>
         </ProjectsHeader>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <ChatView projectId={projectToDisplay.id} />
+          {/* Keep all project ChatViews mounted to prevent streaming interruption */}
+          {projects.map(project => (
+            <div 
+              key={project.id}
+              style={{ 
+                display: project.id === projectToDisplay.id ? 'flex' : 'none',
+                flexDirection: 'column',
+                width: '100%',
+                height: '100%'
+              }}
+            >
+              <ChatView projectId={project.id} />
+            </div>
+          ))}
         </div>
       </ProjectsContainer>
     );

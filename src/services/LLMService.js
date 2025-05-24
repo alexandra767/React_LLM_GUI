@@ -172,229 +172,140 @@ class OllamaAdapter extends LLMAdapter {
           throw new Error('Ollama API unavailable');
         }
         
-        // Handle streaming with Ollama API
-        console.log('Attempting to stream from Ollama API:', `${this.baseUrl}/api/generate`);
+        // Use Fetch API for better streaming support
+        console.log('Using Fetch API for streaming from:', `${this.baseUrl}/api/generate`);
         
-        // Use XMLHttpRequest for streaming support
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${this.baseUrl}/api/generate`, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.responseType = 'text';
-        xhr.timeout = 180000; // 3 minute timeout for long responses
-        
-        // Buffer for processing incomplete chunks
-        let buffer = '';
-        let lastProcessedIndex = 0;
-        let chunkQueue = [];
-        let isProcessingQueue = false;
-        
-        // Handle abort signal if provided
-        if (options.signal) {
-          // Listen for abort signal
-          options.signal.addEventListener('abort', () => {
-            console.log('Aborting XHR request due to abort signal');
-            xhr.abort();
-            
-            // Clear the chunk queue
-            chunkQueue = [];
-            isProcessingQueue = false;
-            
-            // Send abort notification
-            if (onChunk) {
-              onChunk(JSON.stringify({ 
-                error: true, 
-                response: "Response generation was interrupted.",
-                done: true
-              }));
-            }
-          });
-        }
-        
-        // Process chunks with a delay for better readability
-        const processChunkQueue = async () => {
-          if (isProcessingQueue || chunkQueue.length === 0) return;
-          
-          isProcessingQueue = true;
-          while (chunkQueue.length > 0) {
-            const chunk = chunkQueue.shift();
-            if (onChunk) {
-              onChunk(chunk);
-            }
-            // Reduce delay to ensure faster chunk processing
-            // Only add minimal delay to prevent UI freezing
-            await new Promise(resolve => setTimeout(resolve, 10)); // 10ms delay between chunks
-          }
-          isProcessingQueue = false;
-        };
-        
-        // Handle streaming response
-        xhr.onprogress = function() {
-          const fullText = xhr.responseText;
-          
-          // Only process new data
-          if (lastProcessedIndex >= fullText.length) return;
-          
-          const newData = fullText.substring(lastProcessedIndex);
-          lastProcessedIndex = fullText.length;
-          
-          // Split into lines and handle incomplete lines
-          const lines = (buffer + newData).split('\n');
-          
-          // Save the last line as buffer if it's incomplete
-          buffer = lines[lines.length - 1];
-          
-          // Process all complete lines
-          for (let i = 0; i < lines.length - 1; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            
-            try {
-              // Skip HTTP response headers which can appear in the output
-              if (line.startsWith('HTTP/1.1')) {
-                console.log('Skipping HTTP header:', line);
-                continue;
-              }
-              
-              const data = JSON.parse(line);
-              
-              // Make sure the response is properly formatted
-              if (data.response !== undefined) {
-                // Always ensure it's a proper string
-                const responseText = String(data.response);
-                
-                // Simply use the response as-is without deduplication
-                // The deduplication was causing issues with thinking/reasoning sections
-                let newContent = responseText;
-                
-                // Log raw response for debugging
-                if (responseText && responseText.length > 0) {
-                  console.log('Raw response chunk:', {
-                    text: responseText,
-                    length: responseText.length,
-                    done: data.done
-                  });
-                }
-                
-                // Debug logging
-                if (newContent) {
-                  console.log('New chunk:', { 
-                    content: newContent.substring(0, Math.min(newContent.length, 20)) + (newContent.length > 20 ? '...' : ''),
-                    done: data.done 
-                  });
-                }
-                
-                // Only queue if there's new content
-                if (newContent || data.done) {
-                  chunkQueue.push(JSON.stringify({
-                    response: newContent,
-                    done: data.done
-                  }));
-                  processChunkQueue(); // Start processing if not already running
-                }
-              }
-            } catch (e) {
-              console.warn('Error parsing JSON chunk:', e.message);
-              
-              // Try to handle any plaintext response - only if it seems to be actual content
-              if (typeof line === 'string' && line.length > 10 && !line.includes('HTTP/1.1')) {
-                console.log('Sending plaintext chunk as fallback');
-                chunkQueue.push(JSON.stringify({ response: line }));
-                processChunkQueue();
-              }
-            }
-          }
-        };
-        
-        // Handle completion
-        xhr.onload = async function() {
-          if (xhr.status === 200) {
-            console.log('Stream completed successfully');
-            
-            // If we have a buffer with content at the end, try sending it
-            if (buffer && buffer.length > 0) {
-              try {
-                const data = JSON.parse(buffer);
-                if (data.response) {
-                  chunkQueue.push(JSON.stringify(data));
-                }
-              } catch (e) {
-                // If we can't parse as JSON but it looks like content, send as text
-                if (buffer.length > 10) {
-                  chunkQueue.push(JSON.stringify({ response: buffer, done: true }));
-                }
-              }
-            }
-            
-            // Wait for the queue to finish processing
-            while (chunkQueue.length > 0 || isProcessingQueue) {
-              await new Promise(resolve => setTimeout(resolve, 100));
-            }
-            
-            // Signal completion
-            if (onChunk) {
-              onChunk(JSON.stringify({ done: true }));
-            }
-          } else {
-            console.error('Stream error:', xhr.status, xhr.statusText);
-            
-            // Send an error notification to the callback
-            if (onChunk) {
-              onChunk(JSON.stringify({ 
-                error: true, 
-                response: "Error connecting to Ollama API. Check that Ollama is running on your system." 
-              }));
-            }
-          }
-        };
-        
-        // Handle errors
-        xhr.onerror = function() {
-          console.error('XHR Error in streamMessage');
-          
-          // Send an error notification to the callback
-          if (onChunk) {
-            onChunk(JSON.stringify({ 
-              error: true, 
-              response: "Network error when connecting to Ollama API. Check your connection and that Ollama is running.",
-              done: true
-            }));
-          }
-        };
-        
-        // Handle timeouts
-        xhr.ontimeout = function() {
-          console.error('XHR Timeout in streamMessage');
-          
-          // Send an error notification to the callback
-          if (onChunk) {
-            onChunk(JSON.stringify({ 
-              error: true, 
-              response: "Connection to Ollama API timed out. The model might be taking too long to respond or Ollama might be unresponsive.",
-              done: true
-            }));
-          }
-        };
-        
-        // Send the request with optimized parameters
-        xhr.send(JSON.stringify({
+        const requestBody = {
           model: modelName,
           prompt: message,
           stream: true,
-          temperature: options.temperature || 0.7,
-          max_tokens: options.maxTokens || 4096, // Increased for DeepSeek
-          top_p: options.topP || 0.95,
-          // Parameters for improved response quality
-          num_ctx: 8192,
-          num_predict: 4096, // Increased for longer responses
-          stop: [], // No specific stop sequences
-          num_gpu: 1, // Use GPU for acceleration
-          num_thread: 8, // Use multiple threads for processing
-        }));
+          options: {
+            temperature: options.temperature || 0.7,
+            num_predict: options.max_tokens || 4096,
+            num_ctx: 8192
+          }
+        };
         
-        // Return a placeholder since the actual response is handled via callbacks
-        return { pending: true };
+        console.log('Request payload:', requestBody);
+        
+        // Use fetch with streaming support
+        const response = await fetch(`${this.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: options.signal,
+          mode: 'cors', // Explicitly set CORS mode
+          credentials: 'omit' // Don't send cookies
+        });
+
+        console.log('[Fetch] Response status:', response.status);
+        console.log('[Fetch] Response headers:', response.headers);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[Fetch] Error response:', errorText);
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+          let chunkCount = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log('[Fetch] Stream complete, total chunks:', chunkCount);
+              if (onChunk) {
+                onChunk(JSON.stringify({ done: true }));
+              }
+              break;
+            }
+
+            chunkCount++;
+            // Decode the chunk
+            const chunk = decoder.decode(value, { stream: true });
+            console.log(`[Fetch] Chunk ${chunkCount} - length: ${chunk.length}`);
+            console.log(`[Fetch] Chunk preview:`, chunk.substring(0, 200));
+
+            // Add to buffer and process lines
+            buffer += chunk;
+            const lines = buffer.split('\n');
+            
+            // Keep the last incomplete line in the buffer
+            buffer = lines.pop() || '';
+
+            // Process complete lines
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+
+              try {
+                const data = JSON.parse(trimmedLine);
+                console.log('[Fetch] Parsed data:', { 
+                  hasResponse: data.response !== undefined,
+                  responseLength: data.response?.length || 0,
+                  done: data.done 
+                });
+
+                if (data.response !== undefined) {
+                  if (onChunk) {
+                    const chunkToSend = JSON.stringify({
+                      response: data.response,
+                      done: data.done || false
+                    });
+                    console.log('[Fetch] Sending chunk to callback:', chunkToSend);
+                    onChunk(chunkToSend);
+                  }
+                }
+              } catch (e) {
+                console.warn('[Fetch] Failed to parse JSON:', e.message, 'Line:', trimmedLine);
+              }
+            }
+          }
+        } catch (streamError) {
+          console.error('[Fetch] Stream reading error:', streamError);
+          if (onChunk) {
+            onChunk(JSON.stringify({ 
+              error: true, 
+              response: `Stream error: ${streamError.message}`,
+              done: true
+            }));
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        
+        return;
       } catch (apiError) {
         console.error('Ollama API Streaming Error:', apiError);
+        console.error('Error details:', {
+          message: apiError.message,
+          stack: apiError.stack,
+          name: apiError.name
+        });
+        
+        // Check if it's a CORS error
+        if (apiError.message.includes('Failed to fetch') || apiError.name === 'TypeError') {
+          console.error('This appears to be a CORS error. Ollama may need to be configured to allow CORS.');
+          if (onChunk) {
+            onChunk(JSON.stringify({ 
+              error: true, 
+              response: "CORS error: Unable to connect to Ollama. Make sure Ollama is running with CORS enabled.",
+              done: true
+            }));
+          }
+          return;
+        }
+        
         console.log('Falling back to mock streaming response');
         
         // Try terminal fallback for streaming if in Electron environment

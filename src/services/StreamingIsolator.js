@@ -15,7 +15,10 @@ class StreamingIsolator {
     // Find the message element
     this.messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
     if (!this.messageElement) {
-      console.error('[StreamingIsolator] Message element not found');
+      console.error('[StreamingIsolator] Message element not found for ID:', messageId);
+      console.log('[StreamingIsolator] Available message elements:', 
+        Array.from(document.querySelectorAll('[data-message-id]')).map(el => el.getAttribute('data-message-id'))
+      );
       return false;
     }
 
@@ -53,13 +56,17 @@ class StreamingIsolator {
 
   updateContent(content) {
     if (!this.isActive || !this.streamingContainer) {
-      console.warn('[StreamingIsolator] Not active or container missing');
+      console.warn('[StreamingIsolator] Not active or container missing', {
+        isActive: this.isActive,
+        hasContainer: !!this.streamingContainer
+      });
       return;
     }
 
     // Update only the isolated container
     requestAnimationFrame(() => {
       if (this.streamingContainer) {
+        console.log('[StreamingIsolator] Updating content, length:', content.length);
         this.streamingContainer.innerHTML = this.formatContent(content);
         
         // Maintain scroll position
@@ -70,6 +77,8 @@ class StreamingIsolator {
             scrollContainer.scrollTop = scrollContainer.scrollHeight;
           }
         }
+      } else {
+        console.error('[StreamingIsolator] Container lost during update');
       }
     });
   }
@@ -223,9 +232,9 @@ class StreamingIsolator {
         </div>
       `;
       
-      formattedContent = thinkingHtml + (answer ? `<div>${this.escapeHtml(answer)}</div>` : '');
+      formattedContent = thinkingHtml + (answer ? `<div style="white-space: pre-wrap;">${answer}</div>` : '');
     } else {
-      formattedContent = `<div style="white-space: pre-wrap;">${this.escapeHtml(content)}</div>`;
+      formattedContent = `<div style="white-space: pre-wrap;">${content}</div>`;
     }
     
     return formattedContent;

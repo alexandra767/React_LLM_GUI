@@ -132,13 +132,22 @@ const MessageList = ({ messages = [], onDeleteMessage }) => {
       return [];
     }
     
+    // Check streaming state for each message
+    const streamingId = window.__streamingMessageId;
+    const isStreamingActive = window.__isStreaming;
+    
     // Display each message separately without grouping
-    return messages.map((msg, index) => ({
-      ...msg,
-      isFirstInGroup: true,
-      isLastInGroup: true,
-      key: msg.id || `msg-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    }));
+    return messages.map((msg, index) => {
+      const isThisMessageStreaming = isStreamingActive && msg.id === streamingId;
+      return {
+        ...msg,
+        isFirstInGroup: true,
+        isLastInGroup: true,
+        key: msg.id || `msg-${index}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        // Force streaming flag based on window state
+        isStreaming: msg.isStreaming || isThisMessageStreaming
+      };
+    });
   }, [messages]);
   
   // Add debug info when no messages
@@ -177,35 +186,5 @@ const MessageList = ({ messages = [], onDeleteMessage }) => {
   );
 };
 
-// Memoize MessageList to prevent re-renders during streaming
-export default React.memo(MessageList, (prevProps, nextProps) => {
-  // If streaming is active, prevent re-renders unless messages actually changed
-  if (window.__isStreaming) {
-    console.log('[MessageList] Checking if should re-render during streaming');
-    
-    // Only re-render if message count changed or content of non-streaming messages changed
-    if (prevProps.messages.length !== nextProps.messages.length) {
-      return false; // Allow re-render
-    }
-    
-    // Check if any non-streaming messages changed
-    for (let i = 0; i < prevProps.messages.length; i++) {
-      const prevMsg = prevProps.messages[i];
-      const nextMsg = nextProps.messages[i];
-      
-      // Skip streaming messages in comparison
-      if (prevMsg.isStreaming || nextMsg.isStreaming) {
-        continue;
-      }
-      
-      if (prevMsg.id !== nextMsg.id || prevMsg.content !== nextMsg.content) {
-        return false; // Allow re-render
-      }
-    }
-    
-    return true; // Prevent re-render
-  }
-  
-  // Normal comparison when not streaming
-  return false; // Allow re-render
-});
+// Don't memoize MessageList - let it re-render naturally
+export default MessageList;

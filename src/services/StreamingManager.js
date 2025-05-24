@@ -22,11 +22,9 @@ class StreamingManager {
     window.__streamingMessageId = messageId;
     window.__streamingContent = '';
     
-    // Start isolated streaming
-    const isolated = streamingIsolator.startIsolatedStreaming(messageId);
-    if (!isolated) {
-      console.error('[StreamingManager] Failed to start isolated streaming');
-    }
+    // Skip isolated streaming for now - it's causing more problems than it solves
+    // The React state updates will handle the display
+    console.log('[StreamingManager] Using React state updates for streaming display');
     
     // Notify listeners
     this.notifyListeners('start');
@@ -55,35 +53,14 @@ class StreamingManager {
   }
 
   updateStreamingDOM(content) {
-    // Find the streaming message element and update it directly
-    const messageElement = document.querySelector(`[data-message-id="${this.streamingMessageId}"]`);
-    if (messageElement) {
-      const contentElement = messageElement.querySelector('.message-content');
-      if (contentElement) {
-        // Save scroll position before update
-        const scrollContainer = messageElement.closest('[class*="MessagesContainer"]');
-        const wasAtBottom = scrollContainer && 
-          (scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight) < 100;
-        
-        // Update content
-        contentElement.innerHTML = this.formatContent(content);
-        
-        // Maintain scroll position or follow if at bottom
-        if (scrollContainer && wasAtBottom) {
-          // Use RAF to ensure DOM has updated
-          requestAnimationFrame(() => {
-            scrollContainer.scrollTop = scrollContainer.scrollHeight;
-          });
-        }
-      }
-    }
+    // Don't manipulate DOM directly - let React handle it
+    // This prevents DOM manipulation errors
+    console.log('[StreamingManager] DOM update skipped - using React state instead');
   }
 
   formatContent(content) {
-    // Basic formatting - you can enhance this
+    // Basic formatting - preserve content as-is but add line breaks
     return content
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
       .replace(/\n/g, '<br>')
       .replace(/```(.*?)```/gs, '<pre><code>$1</code></pre>');
   }

@@ -266,7 +266,7 @@ export const AppProvider = ({ children }) => {
     
     // Create the chat object
     const newChat = {
-      id: `chat_${Date.now()}`,
+      id: `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       title: chatTitle,
       description: description,
       messages: firstMessageObj,

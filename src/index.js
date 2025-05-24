@@ -43,11 +43,29 @@ const theme = createTheme({
   },
 });
 
+// Global debug function for streaming
+window.__debugStreaming = () => {
+  console.log('=== Streaming Debug Info ===');
+  console.log('isStreaming:', window.__isStreaming);
+  console.log('streamingMessageId:', window.__streamingMessageId);
+  console.log('streamingContent length:', window.__streamingContent?.length || 0);
+  console.log('streamingContent preview:', window.__streamingContent?.substring(0, 100) || 'empty');
+  console.log('===========================');
+};
+
+// Monitor streaming state changes
+let lastStreamingState = false;
+setInterval(() => {
+  if (window.__isStreaming !== lastStreamingState) {
+    console.log('[Streaming State Changed]', lastStreamingState, '->', window.__isStreaming);
+    window.__debugStreaming();
+    lastStreamingState = window.__isStreaming;
+  }
+}, 100);
+
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
-  <React.StrictMode>
-    <ThemeProvider theme={theme}>
-      <App />
-    </ThemeProvider>
-  </React.StrictMode>
+  <ThemeProvider theme={theme}>
+    <App />
+  </ThemeProvider>
 );

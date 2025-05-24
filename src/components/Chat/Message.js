@@ -11,6 +11,7 @@ import BrainIcon from './BrainIcon';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
 import copyToClipboard from '../../utils/clipboard';
+import { useStreamingContent } from '../../hooks/useStreamingContent';
 
 // Keyframe animation for pulse effect
 const pulse = keyframes`
@@ -41,8 +42,7 @@ const ThinkingSection = styled(Box)(({ theme }) => ({
 }));
 
 // Styled component for expand button
-const ExpandButton = styled(IconButton)(({ theme, expanded }) => ({
-  transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+const ExpandButton = styled(IconButton)(({ theme }) => ({
   transition: 'transform 0.3s ease',
   marginLeft: '8px',
   padding: '4px',
@@ -90,9 +90,9 @@ const styles = {
     gap: '12px',
     position: 'relative',
     alignItems: 'flex-start',
-    '@media (max-width: 600px)': {
-      padding: '4px 16px',
-    },
+    '&:hover .message-actions': {
+      opacity: 1,
+    }
   }),
   messageWrapper: {
     maxWidth: '70%',
@@ -218,6 +218,51 @@ const Message = ({ message, onDelete }) => {
     ...message
   };
   
+  // Use streaming content hook to get live updates
+  const { streamingContent, isStreamingMessage } = useStreamingContent(safeMessage.id);
+  
+  // Force re-render on streaming content changes
+  const [renderKey, setRenderKey] = React.useState(0);
+  
+  React.useEffect(() => {
+    if (isStreamingMessage && streamingContent) {
+      console.log('[Message] Forcing re-render due to streaming content change');
+      setRenderKey(prev => prev + 1);
+    }
+  }, [streamingContent, isStreamingMessage]);
+  
+  // Debug logging
+  if (safeMessage.role === 'assistant') {
+    console.log('[Message] Rendering assistant message:', {
+      id: safeMessage.id,
+      isStreamingMessage,
+      streamingContentLength: streamingContent?.length || 0,
+      messageContentLength: safeMessage.content?.length || 0,
+      windowStreamingId: window.__streamingMessageId,
+      windowIsStreaming: window.__isStreaming,
+      renderKey
+    });
+  }
+  
+  // Use streaming content if this is the actively streaming message, otherwise use message content
+  // Also check if message has isStreaming flag set
+  const displayContent = (isStreamingMessage || safeMessage.isStreaming) ? (streamingContent || safeMessage.content) : safeMessage.content;
+  
+  // Debug what we're displaying
+  React.useEffect(() => {
+    if (safeMessage.role === 'assistant') {
+      console.log('[Message] Display update:', {
+        id: safeMessage.id,
+        isStreamingMessage,
+        messageIsStreaming: safeMessage.isStreaming,
+        displayContentLength: displayContent?.length || 0,
+        preview: displayContent?.substring(0, 100),
+        streamingContentLength: streamingContent?.length || 0,
+        messageContentLength: safeMessage.content?.length || 0
+      });
+    }
+  }, [displayContent, isStreamingMessage, safeMessage.id, safeMessage.role, safeMessage.isStreaming, streamingContent, safeMessage.content]);
+  
   const isUser = safeMessage.role === 'user';
   
   // Get style with theme support
@@ -243,7 +288,7 @@ const Message = ({ message, onDelete }) => {
   
   const handleCopyMessage = () => {
     // If the message contains HTML, we need to extract text content
-    let contentToCopy = message.content;
+    let contentToCopy = displayContent;
     
     // If it's HTML content, create a temporary element to extract text
     if (contentToCopy.includes('<') && contentToCopy.includes('>')) {
@@ -493,10 +538,34 @@ const Message = ({ message, onDelete }) => {
   };
 
   const renderContent = () => {
-    console.log('Message.renderContent - content:', safeMessage.content);
-    console.log('Message.renderContent - role:', safeMessage.role);
+    console.log('Message.renderContent - START', {
+      displayContent: displayContent?.substring(0, 100),
+      displayContentLength: displayContent?.length || 0,
+      role: safeMessage.role,
+      messageId: safeMessage.id,
+      isStreamingMessage,
+      messageIsStreaming: safeMessage.isStreaming,
+      streamingContent: streamingContent?.substring(0, 100),
+      streamingContentLength: streamingContent?.length || 0,
+      originalContent: safeMessage.content?.substring(0, 100),
+      originalContentLength: safeMessage.content?.length || 0
+    });
+    
+    // Handle empty or undefined content
+    if (!displayContent || displayContent.trim() === '') {
+      console.log('[Message] renderContent - empty content, isStreaming:', isStreamingMessage, 'messageIsStreaming:', safeMessage.isStreaming);
+      if (isStreamingMessage || safeMessage.isStreaming) {
+        return <span style={{ color: '#888' }}>Waiting for response...</span>;
+      }
+      // Don't return null for assistant messages - show a placeholder
+      if (safeMessage.role === 'assistant') {
+        return <span style={{ color: '#888' }}>No content</span>;
+      }
+      return null;
+    }
+    
     try {
-      const { hasThinking, thinking, answer } = parseThinkingContent(safeMessage.content);
+      const { hasThinking, thinking, answer } = parseThinkingContent(displayContent);
       console.log('Message.renderContent - parsed:', { hasThinking, thinkingLength: thinking?.length, answerLength: answer?.length });
       
       // Render thinking section if present
@@ -519,10 +588,10 @@ const Message = ({ message, onDelete }) => {
                 }} 
               />
               <ExpandButton
-                expanded={thinkingExpanded}
                 onClick={() => setThinkingExpanded(!thinkingExpanded)}
                 size="small"
                 aria-label="expand thinking"
+                style={{ transform: thinkingExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
               >
                 <ExpandMoreIcon fontSize="small" />
               </ExpandButton>
@@ -548,16 +617,29 @@ const Message = ({ message, onDelete }) => {
         );
       };
       
-      const isHtml = answer.includes('<') && answer.includes('>') && 
-                     !answer.includes('```'); // Don't treat markdown code blocks as HTML
+      // Only treat as HTML if it contains actual HTML tags, not just < or > characters
+      const htmlTagRegex = /<\/?[a-zA-Z][\s\S]*?>/;
+      const isHtml = htmlTagRegex.test(answer) && 
+                     !answer.includes('```') && // Don't treat markdown code blocks as HTML
+                     !answer.includes('<think>'); // Don't treat thinking tags as HTML
       
       // Render main content
       const renderMainContent = () => {
+        console.log('Message.renderMainContent - isHtml:', isHtml, 'answer preview:', answer.substring(0, 100));
+        
+        // If answer is empty after removing thinking tags, show a placeholder
+        if (!answer || answer.trim() === '') {
+          if (isStreamingMessage) {
+            return <span style={{ color: '#888' }}>Generating response...</span>;
+          }
+          return <span style={{ color: '#888' }}>No response content</span>;
+        }
+        
         if (isHtml) {
           // Sanitize and render HTML
           const cleanHTML = DOMPurify.sanitize(answer, {
-            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'img'],
-            ALLOWED_ATTR: ['href', 'src', 'alt', 'target', 'rel']
+            ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'img'],
+            ALLOWED_ATTR: ['href', 'src', 'alt', 'target', 'rel', 'style', 'class']
           });
           
           if (cleanHTML.trim()) {
@@ -592,7 +674,9 @@ const Message = ({ message, onDelete }) => {
   };
 
   return (
-    <div style={getStyle(styles.container, safeMessage.role)}>
+    <div 
+      style={getStyle(styles.container, safeMessage.role)}
+      className="message-container">
       {!isUser && (
         <div style={getStyle(styles.avatar, safeMessage.role)}>
           <BrainIcon size={20} color="#FFFFFF" />
@@ -604,13 +688,8 @@ const Message = ({ message, onDelete }) => {
           <div style={getStyle(styles.messageBubble, safeMessage.role)}>
             <div style={styles.messageContent} className="message-content">
               {renderContent()}
-              {(!safeMessage.content || safeMessage.content.trim() === '') && safeMessage.role === 'assistant' && (
-                <span style={{ color: '#888', fontStyle: 'italic' }}>
-                  [Empty message - streaming: {safeMessage.isStreaming ? 'yes' : 'no'}]
-                </span>
-              )}
-              {safeMessage.isStreaming && (
-                <span style={{ 
+              {(isStreamingMessage || safeMessage.isStreaming) && (
+                <span style={{
                   display: 'inline-block',
                   width: '8px',
                   height: '16px',
@@ -626,7 +705,6 @@ const Message = ({ message, onDelete }) => {
           {!isUser && (
             <div style={{
               ...getStyle(styles.messageActions),
-              opacity: 1,
               position: 'absolute',
               top: '8px',
               right: '8px',

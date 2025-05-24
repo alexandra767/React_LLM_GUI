@@ -36,6 +36,11 @@ const MainLayout = () => {
   const theme = useTheme();
   const appContext = useApp();
   
+  console.log('[MainLayout] Render triggered', {
+    activeSection: appContext?.appState?.activeSection,
+    timestamp: Date.now()
+  });
+  
   // Provide default values if appContext is not available
   const { 
     appState = { activeSection: 'ollama' }, 
@@ -146,20 +151,30 @@ const MainLayout = () => {
         <ContentArea theme={theme}>
           {(() => {
             try {
-              switch(appState?.activeSection || 'ollama') {
-                case 'chat':
-                  return <ChatView />;
-                case 'projects':
-                  return <ProjectsView />;
-                case 'ollama':
-                  return <OllamaChatView />;
-                case 'settings':
-                  return <SettingsView />;
-                case 'terminal':
-                  return <TerminalView />;
-                default:
-                  return <OllamaChatView />;
-              }
+              // Keep components mounted but hidden to prevent unmounting during streaming
+              const activeSection = appState?.activeSection || 'ollama';
+              
+              // Render all components but hide inactive ones to prevent unmounting
+              // Use key prop to ensure stable component identity
+              return (
+                <>
+                  <div key="chat-view" style={{ display: activeSection === 'chat' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <ChatView />
+                  </div>
+                  <div key="projects-view" style={{ display: activeSection === 'projects' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <ProjectsView />
+                  </div>
+                  <div key="ollama-view" style={{ display: activeSection === 'ollama' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <OllamaChatView />
+                  </div>
+                  <div key="settings-view" style={{ display: activeSection === 'settings' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <SettingsView />
+                  </div>
+                  <div key="terminal-view" style={{ display: activeSection === 'terminal' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <TerminalView />
+                  </div>
+                </>
+              );
             } catch (error) {
               console.error('Error rendering section:', error);
               return (

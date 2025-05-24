@@ -77,6 +77,12 @@ const ChatInput = ({ onSendMessage, disabled }) => {
   const [message, setMessage] = useState('');
   const theme = useTheme();
   const { appState } = useApp();
+  const inputRef = React.useRef(null);
+  
+  // Auto-focus on mount
+  React.useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
   
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -84,6 +90,10 @@ const ChatInput = ({ onSendMessage, disabled }) => {
     if (message.trim() && !disabled) {
       onSendMessage(message.trim());
       setMessage('');
+      // Keep focus on input after sending
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
     }
   };
   
@@ -107,6 +117,7 @@ const ChatInput = ({ onSendMessage, disabled }) => {
       <form onSubmit={handleSubmit}>
         <InputWrapper>
           <Textarea
+            ref={inputRef}
             value={message}
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}

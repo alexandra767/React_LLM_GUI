@@ -3,7 +3,12 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AppProvider } from './context/AppContext';
 import MainLayout from './components/Layout/MainLayout';
 import DiagnosticOverlay from './components/DiagnosticOverlay';
+import StreamingTest from './components/StreamingTest';
 import './App.css';
+import { testDirectStreaming } from './utils/testDirectStreaming';
+
+// Make test function available globally
+window.testDirectStreaming = testDirectStreaming;
 
 // Error boundary component
 class ErrorBoundary extends Component {
@@ -66,6 +71,7 @@ function App() {
           <ErrorBoundary>
             <MainLayout />
             <DiagnosticOverlay />
+            {/* <StreamingTest /> */}
           </ErrorBoundary>
         </AppProvider>
       </ThemeProvider>

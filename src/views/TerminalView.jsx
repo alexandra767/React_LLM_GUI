@@ -39,6 +39,15 @@ const TerminalView = () => {
         setIsLoading(true);
         setError(null);
         
+        // Check if electron API is available
+        if (!window.electron || !window.electron.ollama) {
+          console.warn('Electron Ollama API not available, skipping terminal model loading');
+          // Set some default models for web mode
+          setModels(['deepseek-r1:8b-m4', 'llama2', 'mistral']);
+          setSelectedModel('deepseek-r1:8b-m4');
+          return;
+        }
+        
         // First check if Ollama is running
         try {
           const isRunning = await window.electron.ollama.isRunning();
