@@ -5,20 +5,21 @@ export const useStreamingContent = (messageId) => {
   const [isActive, setIsActive] = useState(false);
   
   useEffect(() => {
+    let lastContent = '';
+    
     // Check if this message is the streaming one
     const checkStreaming = () => {
       const isThisMessageStreaming = window.__streamingMessageId === messageId && window.__isStreaming;
       
       if (isThisMessageStreaming) {
         const currentContent = window.__streamingContent || '';
-        // Always update if content is different
-        if (currentContent !== content) {
+        // Only update if content actually changed
+        if (currentContent !== lastContent) {
+          lastContent = currentContent;
           console.log('[useStreamingContent] Updating content for message:', {
             messageId,
             newLength: currentContent.length,
-            oldLength: content.length,
-            preview: currentContent.substring(0, 50),
-            actualContent: currentContent.substring(0, 100)
+            preview: currentContent.substring(0, 50)
           });
           setContent(currentContent);
         }
@@ -32,8 +33,9 @@ export const useStreamingContent = (messageId) => {
           setIsActive(false);
           // Keep the last content when streaming stops
           const finalContent = window.__streamingContent || '';
-          if (finalContent && finalContent !== content) {
+          if (finalContent && finalContent !== lastContent) {
             console.log('[useStreamingContent] Setting final content:', finalContent.length);
+            lastContent = finalContent;
             setContent(finalContent);
           }
         }
@@ -43,24 +45,26 @@ export const useStreamingContent = (messageId) => {
     // Initial check
     checkStreaming();
     
-    // Set up interval to check for updates
-    const interval = setInterval(checkStreaming, 16); // Check every 16ms (60fps) for smooth updates
+    // Use a throttled interval instead of requestAnimationFrame to reduce CPU usage
+    const interval = setInterval(checkStreaming, 50); // Check every 50ms for balance between responsiveness and performance
     
     // Also listen for custom events
     const handleStreamUpdate = (event) => {
-      if (event.detail?.messageId === messageId) {
+      if (event.detail?.messageId === messageId || event.detail?.messageId === 'all') {
         console.log('[useStreamingContent] Custom event received for message:', messageId);
         checkStreaming();
       }
     };
     
     window.addEventListener('streamingUpdate', handleStreamUpdate);
+    window.addEventListener('streamingComplete', handleStreamUpdate);
     
     return () => {
       clearInterval(interval);
       window.removeEventListener('streamingUpdate', handleStreamUpdate);
+      window.removeEventListener('streamingComplete', handleStreamUpdate);
     };
-  }, [messageId, content, isActive]); // Include content and isActive in dependencies
+  }, [messageId]); // Remove content and isActive from dependencies to prevent re-renders
   
   return { streamingContent: content, isStreamingMessage: isActive };
 };

@@ -158,19 +158,42 @@ const ChatView = React.memo(({ projectId }) => {
   const isMountedRef = useRef(true);
   const pendingProjectSaveRef = useRef(null);
   const abortControllerRef = useRef(null);
+  const chatInputRef = useRef(null);
   
-  // Clear refs on unmount
+  // Clear refs on unmount - Track mount state globally to survive Electron re-renders
   useEffect(() => {
+    // Generate unique ID for this component instance
+    const componentId = `chatview-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
     // Set mounted state on mount
     isMountedRef.current = true;
     
+    // Store mount state globally
+    if (!window.__activeChatViews) {
+      window.__activeChatViews = new Set();
+    }
+    window.__activeChatViews.add(componentId);
+    window.__currentChatViewId = componentId;
+    
+    console.log('[ChatView] Component mounted, ID:', componentId, 'Active views:', window.__activeChatViews.size);
+    
     return () => {
+      console.log('[ChatView] Component unmounting, ID:', componentId, 'Was streaming:', window.__isStreaming);
       isMountedRef.current = false;
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      
+      // Remove from active views
+      if (window.__activeChatViews) {
+        window.__activeChatViews.delete(componentId);
       }
-      if (errorTimeoutRef.current) {
-        clearTimeout(errorTimeoutRef.current);
+      
+      // Only cleanup if this was the last active view
+      if (!window.__activeChatViews || window.__activeChatViews.size === 0) {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+        if (errorTimeoutRef.current) {
+          clearTimeout(errorTimeoutRef.current);
+        }
       }
     };
   }, []);
@@ -221,7 +244,8 @@ const ChatView = React.memo(({ projectId }) => {
     projects = [],
     updateProject,
     resetTokenCount,
-    processPendingProjectUpdates
+    processPendingProjectUpdates,
+    generateChatDescription
   } = useApp();
   
   // Force component refresh with version stamp
@@ -304,16 +328,20 @@ const ChatView = React.memo(({ projectId }) => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
   
-  // Force update when streaming content changes
+  // Update message duration while streaming
   useEffect(() => {
-    if (isStreaming && streamingContent) {
-      console.log('[DIAGNOSTIC] Streaming content changed, forcing update', {
-        contentLength: streamingContent.length,
-        preview: streamingContent.substring(0, 50)
-      });
-      forceUpdate();
+    if (isStreaming && streamStart) {
+      const interval = setInterval(() => {
+        const duration = (performance.now() - streamStart) / 1000;
+        setMessageTime(duration);
+      }, 100); // Update every 100ms
+      
+      return () => clearInterval(interval);
     }
-  }, [streamingContent, isStreaming]);
+  }, [isStreaming, streamStart, setMessageTime]);
+  
+  // Remove force update to prevent re-render loops
+  // The streaming content updates will trigger re-renders naturally through state changes
   
   // Save messages on unmount if streaming was interrupted
   React.useEffect(() => {
@@ -419,7 +447,7 @@ const ChatView = React.memo(({ projectId }) => {
   }, [baseMessages, streamingMessageId, streamingContent, isStreaming]); // Include all streaming deps
   
   // Force re-render when messages change
-  const [, forceUpdate] = React.useReducer(x => x + 1, 0);
+  // Removed forceUpdate to prevent re-render loops in Electron
   
   // Minimal debug logging
   if (projectId) {
@@ -456,6 +484,21 @@ const ChatView = React.memo(({ projectId }) => {
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [isStreaming, handleStopGeneration]);
+  
+  // Auto-focus input when streaming completes
+  React.useEffect(() => {
+    if (!isStreaming && chatInputRef.current) {
+      // Small delay to ensure input is enabled
+      const timer = setTimeout(() => {
+        if (chatInputRef.current && chatInputRef.current.focus) {
+          chatInputRef.current.focus();
+          console.log('[ChatView] Auto-focused input after streaming state change');
+        }
+      }, 50);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [isStreaming]);
   
   const estimateTokens = (text) => {
     // Very rough estimate: ~4 chars per token for English text
@@ -516,6 +559,10 @@ const ChatView = React.memo(({ projectId }) => {
       contentLength: userMessage.content.length,
       timestamp: userMessage.timestamp
     });
+    
+    // Calculate input tokens
+    const inputTokens = Math.ceil(userMessage.content.length / 4); // Rough estimate
+    updateTokenCount({ input: inputTokens });
     
     // Create assistant message placeholder
     const assistantMessage = {
@@ -610,6 +657,7 @@ const ChatView = React.memo(({ projectId }) => {
           setCurrentChat(chatWithMessages);
           
           // Update the existing chat in the array with the messages
+          // Delay the update slightly to prevent immediate re-renders
           if (setChats) {
             setTimeout(() => {
               setChats(prevChats => 
@@ -617,15 +665,23 @@ const ChatView = React.memo(({ projectId }) => {
                   chat.id === newChat.id ? chatWithMessages : chat
                 )
               );
-            }, 0);
+            }, 100);
           }
         } else {
           // Add both messages to existing chat
           console.log('handleSendMessage: Adding messages to existing chat');
+          
+          // Check if this is the first message and update title
+          const isFirstMessage = currentChat.messages.length === 0;
+          const description = isFirstMessage ? generateChatDescription(messageText.trim()) : currentChat.description;
+          const title = isFirstMessage ? description : currentChat.title;
+          
           const updatedChat = {
             ...currentChat,
             messages: [...currentChat.messages, userMessage, assistantMessage],
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            title: title,
+            description: description
           };
           setCurrentChat(updatedChat);
           
@@ -655,6 +711,118 @@ const ChatView = React.memo(({ projectId }) => {
     }
   };
   const streamAssistantResponse = async (assistantMessageId, userMessage, startTime) => {
+    // Set up watchdog timer to detect stuck streams
+    let lastContentLength = 0;
+    let watchdogTimer = null;
+    let noProgressCount = 0;
+    const WATCHDOG_ENABLED = true; // Set to false to disable watchdog completely
+    const WATCHDOG_INTERVAL = 30000; // 30 seconds - check less frequently
+    const MAX_NO_PROGRESS_COUNT = 10; // Allow 5 minutes total
+    
+    const startWatchdog = () => {
+      if (!WATCHDOG_ENABLED) {
+        console.log('[ChatView] Watchdog is disabled');
+        return;
+      }
+      
+      // Clear any existing watchdog
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+      }
+      
+      watchdogTimer = setInterval(() => {
+        const currentLength = window.__streamingContent?.length || 0;
+        const currentContent = window.__streamingContent || '';
+        
+        if (window.__isStreaming && currentLength === lastContentLength) {
+          noProgressCount++;
+          console.warn(`[ChatView] No new content for ${noProgressCount * 30}s, content length: ${currentLength}`);
+          
+          // Check if we're in the middle of thinking
+          const isThinking = currentContent.includes('<think>') && !currentContent.includes('</think>');
+          
+          if (noProgressCount >= MAX_NO_PROGRESS_COUNT || (!isThinking && noProgressCount >= 2)) {
+            console.error('[ChatView] Stream timeout after', noProgressCount * 30, 'seconds');
+            
+            // Stop the watchdog immediately to prevent multiple triggers
+            clearInterval(watchdogTimer);
+            watchdogTimer = null;
+            
+            // Force complete the stream with current content
+            if (currentLength > 0) {
+              const content = window.__streamingContent;
+              console.log('[ChatView] Forcing stream completion with content:', currentLength);
+            
+            // Clean up streaming state
+            window.__isStreaming = false;
+            setIsStreaming(false);
+            
+            // Update message with current content
+            if (projectId) {
+              setLocalProjectMessages(currentMessages => {
+                return currentMessages.map(msg => 
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: content + '\n\n[Stream timeout]', isStreaming: false }
+                    : msg
+                );
+              });
+            } else {
+              setCurrentChat(prev => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  messages: prev.messages.map(msg => 
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: content + '\n\n[Stream timeout]', isStreaming: false }
+                      : msg
+                  )
+                };
+              });
+            }
+          } else {
+            // No content received at all - mark as failed
+            console.error('[ChatView] Stream timeout with no content received');
+            
+            const errorMessage = 'Failed to get response from model. Please try again.';
+            
+            // Update message with error
+            if (projectId) {
+              setLocalProjectMessages(currentMessages => {
+                return currentMessages.map(msg => 
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: errorMessage, isStreaming: false }
+                    : msg
+                );
+              });
+            } else {
+              setCurrentChat(prev => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  messages: prev.messages.map(msg => 
+                    msg.id === assistantMessageId
+                      ? { ...msg, content: errorMessage, isStreaming: false }
+                      : msg
+                  )
+                };
+              });
+            }
+          }
+          }
+        } else {
+          // Progress was made, reset counter
+          noProgressCount = 0;
+        }
+        lastContentLength = currentLength;
+      }, WATCHDOG_INTERVAL);
+    };
+    
+    const stopWatchdog = () => {
+      if (watchdogTimer) {
+        clearInterval(watchdogTimer);
+        watchdogTimer = null;
+      }
+    };
     console.log('streamAssistantResponse called with assistantMessageId:', assistantMessageId);
     
     // Don't clear content here - it's already set up in handleSendMessage
@@ -670,6 +838,9 @@ const ChatView = React.memo(({ projectId }) => {
     
     console.log('[streamAssistantResponse] Starting simple streaming');
     
+    // Start watchdog timer
+    startWatchdog();
+    
     try {
       // Use simple streaming service
       await simpleStreamingService.streamChat(
@@ -684,8 +855,10 @@ const ChatView = React.memo(({ projectId }) => {
             currentStreamingContent: streamingContent.length
           });
           
-          if (!isMountedRef.current) {
-            console.warn('[ChatView] Component unmounted, skipping update');
+          // Check if ANY ChatView is still active (handles Electron re-renders)
+          const hasActiveChatView = window.__activeChatViews && window.__activeChatViews.size > 0;
+          if (!isMountedRef.current && !hasActiveChatView) {
+            console.warn('[ChatView] No active ChatView components, skipping update');
             return;
           }
           
@@ -693,22 +866,33 @@ const ChatView = React.memo(({ projectId }) => {
           streamingContentRef.current = fullContent;
           window.__streamingContent = fullContent;
           
+          // Dispatch event for streaming update
+          window.dispatchEvent(new CustomEvent('streamingUpdate', {
+            detail: { messageId: assistantMessageId, content: fullContent }
+          }));
+          
           // Debounce updates to prevent too many re-renders
-          // Update every 100ms at most
-          if (!window.__lastStreamUpdate || Date.now() - window.__lastStreamUpdate > 100) {
+          // Update every 200ms at most to reduce re-render frequency
+          if (!window.__lastStreamUpdate || Date.now() - window.__lastStreamUpdate > 200) {
             window.__lastStreamUpdate = Date.now();
             
-            // Only update state if still mounted
-            if (isMountedRef.current) {
-              // Update React state to trigger re-render
-              setStreamingContent(fullContent);
-              console.log('[ChatView] Setting streaming content:', fullContent.length);
+            // Update state if ANY ChatView is active and streaming is active
+            const hasActiveChatView = window.__activeChatViews && window.__activeChatViews.size > 0;
+            if ((isMountedRef.current || hasActiveChatView) && window.__isStreaming) {
+              // Wrap in try-catch to prevent errors from breaking streaming
+              try {
+                // Update React state to trigger re-render
+                setStreamingContent(fullContent);
+                console.log('[ChatView] Setting streaming content:', fullContent.length, 'Active views:', window.__activeChatViews?.size || 0);
+              } catch (updateError) {
+                console.error('[ChatView] Error updating streaming content:', updateError);
+              }
             }
           }
           
           // Update token count
           const estimatedTokens = Math.ceil(fullContent.length / 4); // Rough estimate
-          updateTokenCount(estimatedTokens, estimatedTokens);
+          updateTokenCount({ output: estimatedTokens });
           
           // Force a small delay to ensure window variable is set before hooks read it
           setTimeout(() => {
@@ -751,6 +935,9 @@ const ChatView = React.memo(({ projectId }) => {
         },
         // onComplete callback
         (finalContent) => {
+          // Stop watchdog timer
+          stopWatchdog();
+          
           console.log('[streamAssistantResponse] Stream complete:', {
             finalLength: finalContent.length,
             messageId: assistantMessageId,
@@ -764,18 +951,25 @@ const ChatView = React.memo(({ projectId }) => {
           }
           
           // Update the message with final content
+          console.log('[streamAssistantResponse] Updating message with final content');
+          
           if (projectId) {
             setLocalProjectMessages(currentMessages => {
-              return currentMessages.map(msg => 
+              const updated = currentMessages.map(msg => 
                 msg.id === assistantMessageId
                   ? { ...msg, content: finalContent, isStreaming: false }
                   : msg
               );
+              console.log('[streamAssistantResponse] Updated project messages:', updated.length);
+              return updated;
             });
           } else {
             setCurrentChat(prev => {
-              if (!prev) return prev;
-              return {
+              if (!prev) {
+                console.error('[streamAssistantResponse] No current chat to update!');
+                return prev;
+              }
+              const updated = {
                 ...prev,
                 messages: prev.messages.map(msg => 
                   msg.id === assistantMessageId
@@ -783,20 +977,79 @@ const ChatView = React.memo(({ projectId }) => {
                     : msg
                 )
               };
+              console.log('[streamAssistantResponse] Updated chat messages:', updated.messages.length);
+              
+              // Immediately save to chats array
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === prev.id ? updated : chat
+                  )
+                );
+              }
+              
+              return updated;
             });
           }
           
-          // Clean up streaming state - but delay slightly to ensure UI updates complete
+          // Immediately disable streaming to re-enable input
+          isStreamingRef.current = false;
+          window.__isStreaming = false;
+          setIsStreaming(false);
+          
+          // Clean up other state - but delay slightly to ensure UI updates complete
           setTimeout(() => {
-            isStreamingRef.current = false;
-            window.__isStreaming = false;
-            setIsStreaming(false);
             setStreamStart(null);
+            
+            // Dispatch completion event
+            window.dispatchEvent(new CustomEvent('streamingComplete', {
+              detail: { messageId: assistantMessageId, content: finalContent }
+            }));
             
             // Calculate duration
             const endTime = performance.now();
             const duration = (endTime - startTime) / 1000;
             setMessageTime(duration);
+            
+            // Force immediate focus restoration using querySelector as backup
+            console.log('[ChatView] Attempting immediate focus restoration');
+            
+            const focusInput = () => {
+              // Try ref first
+              if (chatInputRef.current && chatInputRef.current.focus) {
+                chatInputRef.current.focus();
+                console.log('[ChatView] Focused using ref');
+                return true;
+              }
+              
+              // Fallback to querySelector
+              const textarea = document.querySelector('textarea[placeholder="Type a message..."]');
+              if (textarea) {
+                textarea.focus();
+                console.log('[ChatView] Focused using querySelector');
+                return true;
+              }
+              
+              return false;
+            };
+            
+            // Try immediately
+            focusInput();
+            
+            // Try again after short delay
+            setTimeout(focusInput, 100);
+            
+            // And once more after longer delay
+            setTimeout(focusInput, 300);
+            
+            // Clear streaming content AFTER everything is saved
+            setTimeout(() => {
+              console.log('[streamAssistantResponse] Clearing streaming state');
+              setStreamingMessageId(null);
+              setStreamingContent('');
+              window.__streamingMessageId = null;
+              window.__streamingContent = '';
+            }, 500); // Give time for saves to complete
             
             // Save to project if we have pending save
             if (projectId && pendingProjectSaveRef.current) {
@@ -823,28 +1076,8 @@ const ChatView = React.memo(({ projectId }) => {
                 isActive: false
               };
             } else if (!projectId && currentChat) {
-              // Save to chat context
-              const updatedChat = {
-                ...currentChat,
-                messages: currentChat.messages.map(msg => 
-                  msg.id === assistantMessageId
-                    ? { ...msg, content: finalContent, isStreaming: false }
-                    : msg
-                ),
-                updatedAt: new Date().toISOString()
-              };
-              
-              // Update both current chat and chats array
-              setCurrentChat(updatedChat);
-              
-              // Also update the chats array to ensure persistence
-              if (setChats) {
-                setChats(prevChats => 
-                  prevChats.map(chat => 
-                    chat.id === currentChat.id ? updatedChat : chat
-                  )
-                );
-              }
+              // Already saved in the onComplete callback - just log
+              console.log('[streamAssistantResponse] Chat already updated in onComplete');
             }
             
             console.log('[streamAssistantResponse] Streaming cleanup complete');
@@ -852,6 +1085,9 @@ const ChatView = React.memo(({ projectId }) => {
         },
         // onError callback
         (error) => {
+          // Stop watchdog timer
+          stopWatchdog();
+          
           console.error('[streamAssistantResponse] Stream error:', error);
           
           // Save partial content if we have any
@@ -980,6 +1216,14 @@ const ChatView = React.memo(({ projectId }) => {
       if (!isMountedRef.current) return;
       
       setMessageTime(errorDuration);
+      
+      // Restore focus to input after error
+      setTimeout(() => {
+        if (chatInputRef.current) {
+          chatInputRef.current.focus();
+          console.log('[ChatView] Restored focus to input after error');
+        }
+      }, 100);
       
       const errorContent = error.message === 'No model selected' 
         ? 'No model is currently selected. Please select a model from the sidebar.'
@@ -1233,7 +1477,7 @@ const ChatView = React.memo(({ projectId }) => {
               <span>Ready</span>
             </ModelInfo>
           </StatusBar>
-          <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
+          <ChatInput ref={chatInputRef} onSendMessage={handleSendMessage} disabled={isStreaming} />
         </div>
       </ChatContainer>
     );
@@ -1283,7 +1527,7 @@ const ChatView = React.memo(({ projectId }) => {
             <span>{isStreaming ? 'Generating...' : 'Ready'}</span>
           </ModelInfo>
         </StatusBar>
-        <ChatInput onSendMessage={handleSendMessage} disabled={isStreaming} />
+        <ChatInput ref={chatInputRef} onSendMessage={handleSendMessage} disabled={isStreaming} />
       </div>
     </ChatContainer>
   );

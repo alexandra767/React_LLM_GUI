@@ -2,7 +2,6 @@ import React, { Component } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { AppProvider } from './context/AppContext';
 import MainLayout from './components/Layout/MainLayout';
-import DiagnosticOverlay from './components/DiagnosticOverlay';
 import StreamingTest from './components/StreamingTest';
 import './App.css';
 import { testDirectStreaming } from './utils/testDirectStreaming';
@@ -70,7 +69,6 @@ function App() {
         <AppProvider>
           <ErrorBoundary>
             <MainLayout />
-            <DiagnosticOverlay />
             {/* <StreamingTest /> */}
           </ErrorBoundary>
         </AppProvider>

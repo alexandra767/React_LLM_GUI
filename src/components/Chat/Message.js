@@ -202,7 +202,7 @@ const styles = {
   }),
 };
 
-const Message = ({ message, onDelete }) => {
+const Message = React.memo(({ message, onDelete }) => {
   const theme = useTheme();
   const muiTheme = useMuiTheme();
   const { profile } = useApp();
@@ -210,26 +210,16 @@ const Message = ({ message, onDelete }) => {
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   
   // Ensure message has required properties
-  const safeMessage = {
+  const safeMessage = React.useMemo(() => ({
     id: message.id || `msg-${Date.now()}`,
     role: message.role || 'assistant',
     content: message.content || '',
     timestamp: message.timestamp || new Date().toISOString(),
     ...message
-  };
+  }), [message]);
   
   // Use streaming content hook to get live updates
   const { streamingContent, isStreamingMessage } = useStreamingContent(safeMessage.id);
-  
-  // Force re-render on streaming content changes
-  const [renderKey, setRenderKey] = React.useState(0);
-  
-  React.useEffect(() => {
-    if (isStreamingMessage && streamingContent) {
-      console.log('[Message] Forcing re-render due to streaming content change');
-      setRenderKey(prev => prev + 1);
-    }
-  }, [streamingContent, isStreamingMessage]);
   
   // Debug logging
   if (safeMessage.role === 'assistant') {
@@ -239,8 +229,7 @@ const Message = ({ message, onDelete }) => {
       streamingContentLength: streamingContent?.length || 0,
       messageContentLength: safeMessage.content?.length || 0,
       windowStreamingId: window.__streamingMessageId,
-      windowIsStreaming: window.__isStreaming,
-      renderKey
+      windowIsStreaming: window.__isStreaming
     });
   }
   
@@ -517,6 +506,7 @@ const Message = ({ message, onDelete }) => {
 
   // Parse content to extract thinking and answer sections
   const parseThinkingContent = (content) => {
+    // Check for complete thinking tags
     const thinkRegex = /<think>([\s\S]*?)<\/think>/;
     const match = content.match(thinkRegex);
     
@@ -526,14 +516,28 @@ const Message = ({ message, onDelete }) => {
       return {
         hasThinking: true,
         thinking: thinkingContent,
-        answer: answerContent
+        answer: answerContent,
+        isComplete: true
+      };
+    }
+    
+    // Check for incomplete thinking tag (still streaming)
+    const incompleteThinkMatch = content.match(/<think>([\s\S]*)/);
+    if (incompleteThinkMatch && (isStreamingMessage || safeMessage.isStreaming)) {
+      const thinkingContent = incompleteThinkMatch[1].trim();
+      return {
+        hasThinking: true,
+        thinking: thinkingContent + '...',
+        answer: '', // No answer yet while thinking
+        isComplete: false
       };
     }
     
     return {
       hasThinking: false,
       thinking: null,
-      answer: content
+      answer: content,
+      isComplete: true
     };
   };
 
@@ -555,7 +559,16 @@ const Message = ({ message, onDelete }) => {
     if (!displayContent || displayContent.trim() === '') {
       console.log('[Message] renderContent - empty content, isStreaming:', isStreamingMessage, 'messageIsStreaming:', safeMessage.isStreaming);
       if (isStreamingMessage || safeMessage.isStreaming) {
-        return <span style={{ color: '#888' }}>Waiting for response...</span>;
+        return (
+          <span style={{ color: '#888', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="typing-indicator">
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
+            Thinking...
+          </span>
+        );
       }
       // Don't return null for assistant messages - show a placeholder
       if (safeMessage.role === 'assistant') {
@@ -788,6 +801,16 @@ const Message = ({ message, onDelete }) => {
       )}
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Custom comparison function for React.memo
+  // Only re-render if message content or id changes
+  return (
+    prevProps.message.id === nextProps.message.id &&
+    prevProps.message.content === nextProps.message.content &&
+    prevProps.message.role === nextProps.message.role &&
+    prevProps.message.isStreaming === nextProps.message.isStreaming &&
+    prevProps.onDelete === nextProps.onDelete
+  );
+});
 
 export default Message;

@@ -73,11 +73,18 @@ const SendButton = styled('button')(({ disabled }) => ({
   }
 }));
 
-const ChatInput = ({ onSendMessage, disabled }) => {
+const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   const [message, setMessage] = useState('');
   const theme = useTheme();
   const { appState } = useApp();
   const inputRef = React.useRef(null);
+  
+  // Expose focus method
+  React.useImperativeHandle(ref, () => ({
+    focus: () => {
+      inputRef.current?.focus();
+    }
+  }));
   
   // Auto-focus on mount
   React.useEffect(() => {
@@ -138,6 +145,8 @@ const ChatInput = ({ onSendMessage, disabled }) => {
       </form>
     </InputContainer>
   );
-};
+});
+
+ChatInput.displayName = 'ChatInput';
 
 export default ChatInput;

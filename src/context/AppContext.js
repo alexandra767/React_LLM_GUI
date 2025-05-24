@@ -135,7 +135,15 @@ export const AppProvider = ({ children }) => {
   
   // Handle chat selection and apply theme
   const handleChatSelect = (chat) => {
-    setCurrentChat(chat);
+    // Find the full chat data from the chats array to ensure we have all messages
+    const fullChat = chats.find(c => c.id === chat.id);
+    if (fullChat) {
+      console.log('[AppContext] Loading chat:', fullChat.id, 'with', fullChat.messages?.length || 0, 'messages');
+      setCurrentChat(fullChat);
+    } else {
+      console.warn('[AppContext] Chat not found in chats array:', chat.id);
+      setCurrentChat(chat);
+    }
     // Don't save current chat ID - app should always start fresh
     
     try {
@@ -264,9 +272,10 @@ export const AppProvider = ({ children }) => {
     // Use the generated description as the title if we have a first message
     const chatTitle = firstMessage ? description : initialTitle;
     
-    // Create the chat object
+    // Create the chat object with a more unique ID
+    const uniqueId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${performance.now().toString().replace('.', '')}`;
     const newChat = {
-      id: `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: uniqueId,
       title: chatTitle,
       description: description,
       messages: firstMessageObj,
@@ -840,6 +849,20 @@ export const AppProvider = ({ children }) => {
     });
   };
   
+  // Keep currentChat in sync with chats array
+  React.useEffect(() => {
+    if (currentChat && chats.length > 0) {
+      const updatedChat = chats.find(c => c.id === currentChat.id);
+      if (updatedChat && updatedChat !== currentChat) {
+        // Only update if the chat has actually changed
+        if (JSON.stringify(updatedChat.messages) !== JSON.stringify(currentChat.messages)) {
+          console.log('[AppContext] Syncing currentChat with chats array');
+          setCurrentChat(updatedChat);
+        }
+      }
+    }
+  }, [chats]); // Only depend on chats, not currentChat to avoid loops
+  
   // Create the context value object with all necessary values and methods
   const contextValue = {
     // State values
@@ -884,7 +907,8 @@ export const AppProvider = ({ children }) => {
     loadModel,
     unloadModel,
     toggleStarChat,
-    processPendingProjectUpdates
+    processPendingProjectUpdates,
+    generateChatDescription
   };
   
   // Save chats to localStorage whenever they change
