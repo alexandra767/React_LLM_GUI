@@ -607,6 +607,7 @@ export const AppProvider = ({ children }) => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       model: projectData.model || currentModel || 'deepseek-r1:8b-m4', // Store the model with the project
+      knowledgeFiles: projectData.knowledgeFiles || [], // Initialize knowledge files array
     };
     
     setProjects(prev => [newProject, ...prev]);

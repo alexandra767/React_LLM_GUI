@@ -370,6 +370,24 @@ const ChatView = React.memo(({ projectId }) => {
   const project = projectId ? projects.find(p => p.id === projectId) : null;
   const projectMessages = project?.messages || [];
   
+  // Debug logging for project knowledge
+  useEffect(() => {
+    if (project && project.knowledgeFiles) {
+      console.log('[ChatView] Project knowledge status:', {
+        projectId,
+        projectTitle: project.title,
+        knowledgeFileCount: project.knowledgeFiles.length,
+        currentModel,
+        files: project.knowledgeFiles.map(f => ({
+          name: f.name,
+          type: f.type,
+          hasContent: !!f.content,
+          hasExtractedText: !!f.extractedText
+        }))
+      });
+    }
+  }, [project, currentModel]);
+  
   // Sync local messages with project messages when they change
   React.useEffect(() => {
     if (projectId && project?.messages) {
@@ -711,6 +729,85 @@ const ChatView = React.memo(({ projectId }) => {
     }
   };
   const streamAssistantResponse = async (assistantMessageId, userMessage, startTime) => {
+    // Get project knowledge files if in project context
+    let contextMessage = userMessage;
+    if (projectId && project && project.knowledgeFiles && project.knowledgeFiles.length > 0) {
+      console.log('[ChatView] Adding project knowledge files to context:', project.knowledgeFiles.length);
+      console.log('[ChatView] Knowledge files:', project.knowledgeFiles.map(f => ({
+        name: f.name,
+        isText: f.isText,
+        isManual: f.isManual,
+        hasContent: !!f.content,
+        contentLength: f.content ? f.content.length : 0,
+        extractedTextLength: f.extractedText ? f.extractedText.length : 0
+      })));
+      
+      // Build context with knowledge files
+      let knowledgeContext = "\n\n--- PROJECT KNOWLEDGE FILES ---\n";
+      
+      for (const file of project.knowledgeFiles) {
+        knowledgeContext += `\n### File: ${file.name}\n`;
+        
+        // Check if content is already extracted as text (including manual entries)
+        if (file.isText || file.isManual) {
+          // Direct text content
+          console.log(`[ChatView] Adding text content for ${file.name}, length: ${file.content?.length}`);
+          knowledgeContext += file.content || '[No content]';
+        } else if (file.content && file.content.startsWith('data:')) {
+          // It's a base64 encoded file
+          const [header, base64Content] = file.content.split(',');
+          
+          if (file.isPDF || file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+            // For PDFs, include extracted text if available
+            knowledgeContext += `[PDF Document - ${formatFileSize(file.size)}]\n`;
+            
+            if (file.extractedText && file.extractedText.trim().length > 0) {
+              // We have extracted text from the PDF
+              knowledgeContext += `Content extracted from PDF:\n`;
+              knowledgeContext += file.extractedText;
+              knowledgeContext += `\n[End of PDF content]\n`;
+            } else {
+              // Fallback if text extraction failed
+              knowledgeContext += `Note: This is a PDF file named "${file.name}". `;
+              knowledgeContext += `The text content could not be extracted automatically. `;
+              knowledgeContext += `The PDF might contain scanned images, be encrypted, or use a complex format. `;
+              knowledgeContext += `You can describe its contents or ask me questions assuming you've read it.\n`;
+            }
+          } else if (file.type && file.type.startsWith('image/')) {
+            // For images, provide detailed context
+            knowledgeContext += `[Image file - ${file.type} - ${formatFileSize(file.size)}]\n`;
+            knowledgeContext += `Note: This is an image file named "${file.name}". `;
+            knowledgeContext += `You can describe what's in the image or ask me to help with tasks related to it.\n`;
+          } else {
+            // Try to decode if it might be text
+            try {
+              const decodedContent = atob(base64Content);
+              // Check if it's valid UTF-8 text
+              if (/^[\x00-\x7F]*$/.test(decodedContent)) {
+                knowledgeContext += decodedContent;
+              } else {
+                knowledgeContext += `[Binary file - ${file.type || 'unknown type'} - ${formatFileSize(file.size)}]\n`;
+                knowledgeContext += `Note: This is a binary file that cannot be displayed as text.\n`;
+              }
+            } catch (e) {
+              knowledgeContext += `[Binary file - ${file.type || 'unknown type'} - ${formatFileSize(file.size)}]\n`;
+              knowledgeContext += `Note: This file cannot be decoded as text.\n`;
+            }
+          }
+        } else {
+          // Fallback for any other content format
+          knowledgeContext += file.content || '[No content available]';
+        }
+        knowledgeContext += "\n";
+      }
+      
+      knowledgeContext += "\n--- END OF PROJECT KNOWLEDGE FILES ---\n\n";
+      
+      // Prepend knowledge context to user message
+      contextMessage = knowledgeContext + "User message: " + userMessage;
+      
+      console.log('[ChatView] Context message length:', contextMessage.length);
+    }
     // Set up watchdog timer to detect stuck streams
     let lastContentLength = 0;
     let watchdogTimer = null;
@@ -844,7 +941,7 @@ const ChatView = React.memo(({ projectId }) => {
     try {
       // Use simple streaming service
       await simpleStreamingService.streamChat(
-        userMessage,
+        contextMessage,
         currentModel || 'deepseek-r1:8b-m4',
         // onChunk callback
         (newContent, fullContent) => {
@@ -1364,6 +1461,15 @@ const ChatView = React.memo(({ projectId }) => {
   const getModelName = () => {
     const model = models.find(m => m.id === currentModel);
     return model ? model.name : currentModel;
+  };
+
+  // Format file size
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
   // Format token count to show k for thousands

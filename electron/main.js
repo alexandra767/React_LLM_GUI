@@ -82,10 +82,10 @@ function createWindow() {
   try {
     console.log('Creating new BrowserWindow...');
     mainWindow = new BrowserWindow({
-      width: 1200,
-      height: 800,
-      minWidth: 800,
-      minHeight: 600,
+      width: 1600,
+      height: 1000,
+      minWidth: 1200,
+      minHeight: 800,
       webPreferences: {
         nodeIntegration: false, // Disable nodeIntegration for security
         contextIsolation: true, // Enable context isolation for security

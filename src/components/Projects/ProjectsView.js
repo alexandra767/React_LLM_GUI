@@ -3,7 +3,8 @@ import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import ChatView from '../Chat/ChatView';
-import { Add as AddIcon, Folder as FolderIcon, Lock as LockIcon } from '@mui/icons-material';
+import ProjectKnowledge from './ProjectKnowledge';
+import { Add as AddIcon, Folder as FolderIcon, Lock as LockIcon, Delete as DeleteIcon } from '@mui/icons-material';
 import { useStreamingProtection } from '../../hooks/useStreamingProtection';
 
 const ProjectsContainer = styled.div`
@@ -128,6 +129,39 @@ const ProjectCard = styled.div`
     transform: translateY(-2px);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
     border-color: #404040;
+    
+    .delete-button {
+      opacity: 1;
+    }
+  }
+`;
+
+const DeleteButton = styled.button`
+  position: absolute;
+  top: 16px;
+  right: 56px; /* Position it next to the privacy badge */
+  background: #333333;
+  border: none;
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: #AAAAAA;
+  opacity: 0;
+  z-index: 10;
+  
+  &:hover {
+    background: #FF4444;
+    color: #FFFFFF;
+    transform: scale(1.1);
+  }
+  
+  &:active {
+    transform: scale(0.95);
   }
 `;
 
@@ -289,6 +323,28 @@ const Button = styled.button`
   }
 `;
 
+const ProjectContentWrapper = styled.div`
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+`;
+
+const ProjectSidebar = styled.div`
+  width: 320px;
+  background-color: #1E1E1E;
+  border-right: 1px solid #333333;
+  padding: 20px;
+  overflow-y: auto;
+  flex-shrink: 0;
+`;
+
+const ProjectChatArea = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+`;
+
 // Custom comparison function to prevent re-renders during streaming
 const areEqual = (prevProps, nextProps) => {
   // If streaming is active, prevent any re-renders
@@ -311,8 +367,10 @@ const ProjectsView = React.memo(() => {
   
   const theme = useTheme();
   const appContext = useApp();
-  const { projects = [], createNewProject, appState, setAppState, currentModel } = appContext;
+  const { projects = [], createNewProject, deleteProject, updateProject, appState, setAppState, currentModel } = appContext;
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState(null);
   // Initialize selectedProject from sessionStorage if available
   const [selectedProject, setSelectedProject] = useState(() => {
     const savedProjectId = sessionStorage.getItem('sephia_selected_project');
@@ -428,6 +486,25 @@ const ProjectsView = React.memo(() => {
   const handleBackToProjects = () => {
     setSelectedProject(null);
   };
+  
+  const handleDeleteClick = (e, project) => {
+    e.stopPropagation(); // Prevent card click
+    setProjectToDelete(project);
+    setShowDeleteConfirm(true);
+  };
+  
+  const confirmDelete = () => {
+    if (projectToDelete && deleteProject) {
+      deleteProject(projectToDelete.id);
+      // If we're deleting the currently selected project, go back to projects list
+      if (selectedProject && selectedProject.id === projectToDelete.id) {
+        setSelectedProject(null);
+        sessionStorage.removeItem('sephia_selected_project');
+      }
+    }
+    setShowDeleteConfirm(false);
+    setProjectToDelete(null);
+  };
 
   // If a project is selected, show the chat view for that project
   if (selectedProject) {
@@ -474,22 +551,31 @@ const ProjectsView = React.memo(() => {
             </div>
           </HeaderTop>
         </ProjectsHeader>
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          {/* Keep all project ChatViews mounted to prevent streaming interruption */}
-          {projects.map(project => (
-            <div 
-              key={project.id}
-              style={{ 
-                display: project.id === projectToDisplay.id ? 'flex' : 'none',
-                flexDirection: 'column',
-                width: '100%',
-                height: '100%'
-              }}
-            >
-              <ChatView projectId={project.id} />
-            </div>
-          ))}
-        </div>
+        <ProjectContentWrapper>
+          <ProjectSidebar>
+            <ProjectKnowledge 
+              project={projectToDisplay} 
+              onUpdateProject={updateProject}
+            />
+          </ProjectSidebar>
+          
+          <ProjectChatArea>
+            {/* Keep all project ChatViews mounted to prevent streaming interruption */}
+            {projects.map(project => (
+              <div 
+                key={project.id}
+                style={{ 
+                  display: project.id === projectToDisplay.id ? 'flex' : 'none',
+                  flexDirection: 'column',
+                  width: '100%',
+                  height: '100%'
+                }}
+              >
+                <ChatView projectId={project.id} />
+              </div>
+            ))}
+          </ProjectChatArea>
+        </ProjectContentWrapper>
       </ProjectsContainer>
     );
   }
@@ -534,6 +620,14 @@ const ProjectsView = React.memo(() => {
           
           {filteredProjects.map(project => (
             <ProjectCard key={project.id} onClick={() => handleProjectClick(project)}>
+              <DeleteButton 
+                className="delete-button"
+                onClick={(e) => handleDeleteClick(e, project)}
+                title="Delete project"
+              >
+                <DeleteIcon style={{ fontSize: 20 }} />
+              </DeleteButton>
+              
               <PrivacyBadge private={project.isPrivate}>
                 {project.isPrivate && <LockIcon style={{ fontSize: 12 }} />}
                 {project.isPrivate ? 'Private' : 'Public'}
@@ -589,6 +683,32 @@ const ProjectsView = React.memo(() => {
               </Button>
               <Button className="primary" onClick={handleCreateProject}>
                 Create Project
+              </Button>
+            </ButtonGroup>
+          </ModalContent>
+        </CreateProjectModal>
+      )}
+      
+      {showDeleteConfirm && (
+        <CreateProjectModal onClick={() => setShowDeleteConfirm(false)}>
+          <ModalContent onClick={(e) => e.stopPropagation()}>
+            <ModalTitle>Delete Project</ModalTitle>
+            
+            <Description style={{ marginBottom: 24, lineHeight: 1.6 }}>
+              Are you sure you want to delete "{projectToDelete?.title}"? 
+              This action cannot be undone and will permanently delete all messages and data associated with this project.
+            </Description>
+            
+            <ButtonGroup>
+              <Button className="secondary" onClick={() => setShowDeleteConfirm(false)}>
+                Cancel
+              </Button>
+              <Button 
+                className="primary" 
+                onClick={confirmDelete}
+                style={{ backgroundColor: '#FF4444' }}
+              >
+                Delete Project
               </Button>
             </ButtonGroup>
           </ModalContent>
