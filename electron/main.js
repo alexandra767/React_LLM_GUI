@@ -97,8 +97,8 @@ function createWindow() {
         enableRemoteModule: false, // Disable remote module for security
         preload: path.join(__dirname, 'preload.js'),
         sandbox: false, // Disable sandbox to allow child_process
-        webSecurity: true,
-        allowRunningInsecureContent: false,
+        webSecurity: false, // Temporarily disable for testing
+        allowRunningInsecureContent: true,
         // Enable features needed for voice
         experimentalFeatures: true,
         // Allow network access for speech recognition

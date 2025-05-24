@@ -344,11 +344,29 @@ const SettingsView = () => {
   const [loadingModelId, setLoadingModelId] = useState(null);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState(null);
-  const [settings, setSettings] = useState({
-    ollamaEndpoint: 'http://localhost:11434',
-    temperature: 0.7,
-    defaultModel: 'llama2'
-  });
+  // Load settings from localStorage or use defaults
+  const loadSettings = () => {
+    const saved = localStorage.getItem('sephia_settings');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error('Failed to load settings:', e);
+      }
+    }
+    return {
+      ollamaEndpoint: 'http://localhost:11434',
+      temperature: 0.7,
+      defaultModel: 'llama2',
+      connectionType: 'ollama',
+      syntaxHighlighting: true,
+      streamingResponses: true,
+      autoCollapseSidebar: true,
+      showTokenCounter: true
+    };
+  };
+  
+  const [settings, setSettings] = useState(loadSettings());
   
   // Voice settings state
   const [voiceSettings, setVoiceSettings] = useState({
@@ -358,7 +376,8 @@ const SettingsView = () => {
     selectedVoice: null,
     recognitionLanguage: 'en-US',
     voiceEnabled: true,
-    autoSpeak: false
+    autoSpeak: false,
+    useOfflineRecognition: true  // Default to offline
   });
   const [availableVoices, setAvailableVoices] = useState([]);
   const [isSpeechSupported, setIsSpeechSupported] = useState({
@@ -367,10 +386,15 @@ const SettingsView = () => {
   });
   
   const updateSetting = (key, value) => {
-    setSettings(prev => ({
-      ...prev,
-      [key]: value
-    }));
+    setSettings(prev => {
+      const updated = {
+        ...prev,
+        [key]: value
+      };
+      // Save to localStorage
+      localStorage.setItem('sephia_settings', JSON.stringify(updated));
+      return updated;
+    });
   };
   
   const updateVoiceSetting = (key, value) => {
@@ -483,7 +507,10 @@ const SettingsView = () => {
   };
   
   const handleModelChange = (e) => {
-    setCurrentModel(e.target.value);
+    const newModel = e.target.value;
+    setCurrentModel(newModel);
+    // Save current model to localStorage
+    localStorage.setItem('sephia_current_model', newModel);
   };
   
   const handleLoadModel = async (modelId) => {
@@ -541,7 +568,10 @@ const SettingsView = () => {
               Choose how to connect to your local language models
             </Description2>
           </SettingLabel>
-          <Select defaultValue="ollama">
+          <Select 
+            value={settings.connectionType || 'ollama'}
+            onChange={(e) => updateSetting('connectionType', e.target.value)}
+          >
             <option value="ollama">Ollama API</option>
             <option value="terminal">Terminal Command</option>
           </Select>
@@ -700,10 +730,14 @@ const SettingsView = () => {
               Enable syntax highlighting for code blocks
             </Description2>
           </SettingLabel>
-          <Switch>
-            <SwitchInput type="checkbox" defaultChecked />
-            <Slider />
-          </Switch>
+          <ToggleSwitch checked={settings.syntaxHighlighting}>
+            <input 
+              type="checkbox" 
+              checked={settings.syntaxHighlighting}
+              onChange={(e) => updateSetting('syntaxHighlighting', e.target.checked)}
+            />
+            <span className="slider"></span>
+          </ToggleSwitch>
         </SettingItem>
         
         <SettingItem>
@@ -713,10 +747,14 @@ const SettingsView = () => {
               Show AI responses as they're being generated
             </Description2>
           </SettingLabel>
-          <Switch>
-            <SwitchInput type="checkbox" defaultChecked />
-            <Slider />
-          </Switch>
+          <ToggleSwitch checked={settings.streamingResponses}>
+            <input 
+              type="checkbox" 
+              checked={settings.streamingResponses}
+              onChange={(e) => updateSetting('streamingResponses', e.target.checked)}
+            />
+            <span className="slider"></span>
+          </ToggleSwitch>
         </SettingItem>
         
         <SettingItem>
@@ -726,10 +764,14 @@ const SettingsView = () => {
               Collapse sidebar when window size is reduced
             </Description2>
           </SettingLabel>
-          <Switch>
-            <SwitchInput type="checkbox" defaultChecked />
-            <Slider />
-          </Switch>
+          <ToggleSwitch checked={settings.autoCollapseSidebar}>
+            <input 
+              type="checkbox" 
+              checked={settings.autoCollapseSidebar}
+              onChange={(e) => updateSetting('autoCollapseSidebar', e.target.checked)}
+            />
+            <span className="slider"></span>
+          </ToggleSwitch>
         </SettingItem>
         
         <SettingItem>
@@ -739,10 +781,14 @@ const SettingsView = () => {
               Show token usage statistics
             </Description2>
           </SettingLabel>
-          <Switch>
-            <SwitchInput type="checkbox" defaultChecked />
-            <Slider />
-          </Switch>
+          <ToggleSwitch checked={settings.showTokenCounter}>
+            <input 
+              type="checkbox" 
+              checked={settings.showTokenCounter}
+              onChange={(e) => updateSetting('showTokenCounter', e.target.checked)}
+            />
+            <span className="slider"></span>
+          </ToggleSwitch>
         </SettingItem>
       </SettingsSection>
       
@@ -1001,38 +1047,71 @@ const SettingsView = () => {
               <>
                 <SettingItem>
                   <SettingLabel>
-                    <Label>Speech Recognition Language</Label>
+                    <Label>Use Offline Speech Recognition</Label>
                     <Description2>
-                      Language for voice input
+                      Use macOS dictation instead of Google's online service
                     </Description2>
                   </SettingLabel>
-                  <Select 
-                    value={voiceSettings.recognitionLanguage} 
-                    onChange={(e) => updateVoiceSetting('recognitionLanguage', e.target.value)}
-                    disabled={!voiceSettings.voiceEnabled}
-                  >
-                    <option value="en-US">English (US)</option>
-                    <option value="en-GB">English (UK)</option>
-                    <option value="es-ES">Spanish</option>
-                    <option value="fr-FR">French</option>
-                    <option value="de-DE">German</option>
-                    <option value="it-IT">Italian</option>
-                    <option value="pt-BR">Portuguese (Brazil)</option>
-                    <option value="zh-CN">Chinese (Simplified)</option>
-                    <option value="ja-JP">Japanese</option>
-                    <option value="ko-KR">Korean</option>
-                  </Select>
+                  <ToggleSwitch checked={voiceSettings.useOfflineRecognition}>
+                    <input 
+                      type="checkbox" 
+                      checked={voiceSettings.useOfflineRecognition}
+                      onChange={(e) => updateVoiceSetting('useOfflineRecognition', e.target.checked)}
+                      disabled={!voiceSettings.voiceEnabled}
+                    />
+                    <span className="slider"></span>
+                  </ToggleSwitch>
                 </SettingItem>
                 
-                <SettingItem>
-                  <SettingLabel>
-                    <Label>⚠️ Speech Recognition Notice</Label>
-                    <Description2 style={{ color: '#FFA500' }}>
-                      Voice input requires an active internet connection as audio is processed by Google's servers. 
-                      Make sure you're connected to the internet when using the microphone feature.
-                    </Description2>
-                  </SettingLabel>
-                </SettingItem>
+                {!voiceSettings.useOfflineRecognition && (
+                  <>
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Speech Recognition Language</Label>
+                        <Description2>
+                          Language for voice input
+                        </Description2>
+                      </SettingLabel>
+                      <Select 
+                        value={voiceSettings.recognitionLanguage} 
+                        onChange={(e) => updateVoiceSetting('recognitionLanguage', e.target.value)}
+                        disabled={!voiceSettings.voiceEnabled}
+                      >
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="fr-FR">French</option>
+                        <option value="de-DE">German</option>
+                        <option value="it-IT">Italian</option>
+                        <option value="pt-BR">Portuguese (Brazil)</option>
+                        <option value="zh-CN">Chinese (Simplified)</option>
+                        <option value="ja-JP">Japanese</option>
+                        <option value="ko-KR">Korean</option>
+                      </Select>
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>⚠️ Online Speech Recognition Notice</Label>
+                        <Description2 style={{ color: '#FFA500' }}>
+                          Online voice input requires an active internet connection as audio is processed by Google's servers.
+                        </Description2>
+                      </SettingLabel>
+                    </SettingItem>
+                  </>
+                )}
+                
+                {voiceSettings.useOfflineRecognition && (
+                  <SettingItem>
+                    <SettingLabel>
+                      <Label>ℹ️ Offline Speech Recognition</Label>
+                      <Description2 style={{ color: '#4CAF50' }}>
+                        Using macOS dictation. Press Fn+Fn (or your dictation key) when the input appears. 
+                        Make sure dictation is enabled in System Settings → Keyboard → Dictation.
+                      </Description2>
+                    </SettingLabel>
+                  </SettingItem>
+                )}
                 
                 <SettingItem>
                   <SettingLabel>

@@ -3,6 +3,7 @@ import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import voiceService from '../../services/VoiceService';
+import offlineVoiceService from '../../services/OfflineVoiceService';
 
 const InputContainer = styled('div')({
   position: 'relative',
@@ -148,6 +149,7 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   const [message, setMessage] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const theme = useTheme();
   const { appState } = useApp();
   const inputRef = useRef(null);
@@ -168,18 +170,32 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   // Check if voice is supported and enabled
   const isVoiceSupported = voiceService.isSupported().speechRecognition;
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [useOfflineRecognition, setUseOfflineRecognition] = useState(true);
   
-  // Load voice settings
+  // Load voice settings and monitor online status
   useEffect(() => {
     const savedSettings = localStorage.getItem('sephia_voice_settings');
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
         setVoiceEnabled(parsed.voiceEnabled !== false);
+        setUseOfflineRecognition(parsed.useOfflineRecognition !== false);
       } catch (e) {
         console.error('Failed to load voice settings:', e);
       }
     }
+    
+    // Monitor online/offline status
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
   const handleVoiceInput = async () => {
@@ -192,10 +208,17 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
       alert('Voice features are disabled. Enable them in Settings.');
       return;
     }
+    
+    // Only check online status if using online recognition
+    if (!useOfflineRecognition && !isOnline) {
+      alert('Online speech recognition requires an internet connection. Enable offline recognition in Settings or connect to the internet.');
+      return;
+    }
 
     if (isListening) {
       // Stop listening
-      voiceService.stopListening();
+      const selectedService = useOfflineRecognition ? offlineVoiceService : voiceService;
+      selectedService.stopListening();
       setIsListening(false);
       
       // Send the message if we have a transcript
@@ -223,7 +246,10 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
         setIsListening(true);
         setTranscript('');
         
-        await voiceService.startListening({
+        // Use offline or online service based on settings
+        const selectedService = useOfflineRecognition ? offlineVoiceService : voiceService;
+        
+        await selectedService.startListening({
           onStart: () => {
             console.log('[ChatInput] Voice recognition started');
           },
@@ -330,8 +356,13 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
             type="button"
             onClick={handleVoiceInput}
             isListening={isListening}
-            disabled={disabled}
-            title={isListening ? "Stop recording" : "Start voice input"}
+            disabled={disabled || (!useOfflineRecognition && !isOnline)}
+            title={
+              useOfflineRecognition 
+                ? (isListening ? "Stop recording" : "Start voice input (Offline mode)")
+                : (!isOnline ? "Offline - Internet required for online voice input" : (isListening ? "Stop recording" : "Start voice input"))
+            }
+            style={{ opacity: (!useOfflineRecognition && !isOnline) ? 0.5 : 1 }}
           >
             {isListening ? (
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -344,6 +375,23 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
               </svg>
             )}
           </MicButton>
+          
+          {!isOnline && (
+            <div style={{
+              position: 'absolute',
+              right: '56px',
+              bottom: '-20px',
+              fontSize: '10px',
+              color: '#ff6b6b',
+              whiteSpace: 'nowrap',
+              background: '#1E1E1E',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              border: '1px solid #ff6b6b'
+            }}>
+              Offline - Voice input disabled
+            </div>
+          )}
           
           <SendButton 
             type="submit" 

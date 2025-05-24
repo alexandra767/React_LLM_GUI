@@ -66,7 +66,9 @@ export const AppProvider = ({ children }) => {
   // Initialize theme
   const theme = useTheme();
   // State declarations first
-  const [currentModel, setCurrentModel] = useState('deepseek-r1:8b-m4');
+  const [currentModel, setCurrentModel] = useState(
+    localStorage.getItem('sephia_current_model') || 'deepseek-r1:8b-m4'
+  );
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
