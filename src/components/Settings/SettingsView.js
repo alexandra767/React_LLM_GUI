@@ -9,7 +9,7 @@ import {
   VolumeUp as SpeakerIcon,
   Mic as MicIcon
 } from '@mui/icons-material';
-import { Slider } from '@mui/material';
+import { Slider, Divider } from '@mui/material';
 import voiceService from '../../services/VoiceService';
 
 const SettingsContainer = styled('div')({
@@ -410,9 +410,21 @@ const SettingsView = () => {
   
   // Load voices and voice settings on mount
   useEffect(() => {
+    // Check if voice is force enabled
+    const forceVoice = localStorage.getItem('sephia_force_voice') === 'true';
+    
     // Check speech support
     const support = voiceService.isSupported();
-    setIsSpeechSupported(support);
+    
+    // If force enabled or supported, set as supported
+    if (forceVoice || support.synthesis || support.recognition) {
+      setIsSpeechSupported({
+        synthesis: forceVoice || support.synthesis,
+        recognition: forceVoice || support.recognition
+      });
+    } else {
+      setIsSpeechSupported(support);
+    }
     
     // Load available voices
     const loadVoices = () => {
@@ -738,14 +750,26 @@ const SettingsView = () => {
         <SectionTitle>Voice Settings</SectionTitle>
         
         {!isSpeechSupported.synthesis && !isSpeechSupported.recognition ? (
-          <SettingItem>
-            <SettingLabel>
-              <Label>Voice Features Not Supported</Label>
-              <Description2>
-                Your browser doesn't support voice features. Please use Chrome, Edge, or Safari for the best experience.
-              </Description2>
-            </SettingLabel>
-          </SettingItem>
+          <>
+            <SettingItem>
+              <SettingLabel>
+                <Label>Voice Features Detection Issue</Label>
+                <Description2>
+                  Voice features may not be properly detected. In Electron apps, voice features should work. You can try enabling them below.
+                </Description2>
+              </SettingLabel>
+              <Button 
+                onClick={() => {
+                  setIsSpeechSupported({ synthesis: true, recognition: true });
+                  localStorage.setItem('sephia_force_voice', 'true');
+                }} 
+                style={{ fontSize: '14px', padding: '6px 12px' }}
+              >
+                Enable Voice Features
+              </Button>
+            </SettingItem>
+            <Divider />
+          </>
         ) : (
           <>
             <SettingItem>

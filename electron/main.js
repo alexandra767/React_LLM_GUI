@@ -6,6 +6,11 @@ const { spawn } = require('child_process');
 const isDev = require('electron-is-dev');
 const electronLog = require('electron-log');
 
+// Enable features needed for Web Speech API
+app.commandLine.appendSwitch('enable-speech-dispatcher');
+app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
+app.commandLine.appendSwitch('enable-web-speech');
+
 // Terminal process management
 let terminalProcess = null;
 

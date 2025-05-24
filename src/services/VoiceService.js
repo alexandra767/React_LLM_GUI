@@ -236,11 +236,29 @@ class VoiceService {
     // Check if we're in Electron
     const isElectron = !!(window.electron || (window.process && window.process.type) || navigator.userAgent.includes('Electron'));
     
+    console.log('[VoiceService] isSupported check:', {
+      isElectron,
+      hasElectronGlobal: !!window.electron,
+      hasProcessType: !!(window.process && window.process.type),
+      userAgent: navigator.userAgent,
+      hasSpeechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+      hasSpeechSynthesis: 'speechSynthesis' in window
+    });
+    
     // In Electron, we should have access to Web Speech API through Chromium
     if (isElectron) {
+      // Still check if the APIs are actually available
+      const hasRecognition = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+      const hasSynthesis = 'speechSynthesis' in window;
+      
+      console.log('[VoiceService] Electron detected, API availability:', {
+        hasRecognition,
+        hasSynthesis
+      });
+      
       return {
-        speechRecognition: true, // Chromium in Electron supports this
-        speechSynthesis: true    // Chromium in Electron supports this
+        speechRecognition: hasRecognition,
+        speechSynthesis: hasSynthesis
       };
     }
     
