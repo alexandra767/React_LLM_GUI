@@ -36,7 +36,7 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "electron:start": "electron .",
-    "electron:dev": "cross-env DEBUG=electron:*,concurrently,wait-on concurrently -k \"cross-env BROWSER=none PORT=3002 react-scripts start\" \"wait-on http://localhost:3002 && electron .\"",
+    "electron:dev": "cross-env DEBUG=electron:*,concurrently,wait-on concurrently -k \"cross-env BROWSER=none PORT=3000 react-scripts start\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "node scripts/generate-icons.js && npm run build && electron-builder build --mac --publish never"
   },
   "eslintConfig": {

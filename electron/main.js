@@ -139,7 +139,7 @@ function createWindow() {
   console.log('Loading application...');
   if (isDev) {
     console.log('Running in development mode');
-    const startUrl = 'http://localhost:3002';
+    const startUrl = process.env.ELECTRON_START_URL || 'http://localhost:3000';
     console.log(`Loading development URL: ${startUrl}`);
     
     // Load the React development server

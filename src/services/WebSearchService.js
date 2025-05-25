@@ -1,0 +1,283 @@
+// Enhanced web search service with article summarization
+class WebSearchService {
+  constructor() {
+    this.newsApiKey = localStorage.getItem('news_api_key'); // Optional NewsAPI key
+  }
+
+  // Main search function that aggregates results from multiple sources
+  async search(query) {
+    console.log('[WebSearchService] Searching for:', query);
+    
+    const results = [];
+    
+    // Try multiple search strategies in parallel
+    const searchPromises = [
+      this.searchDuckDuckGo(query),
+      this.searchWikipedia(query),
+      this.generateNewsLinks(query),
+      this.searchNewsAPI(query) // Only works with API key
+    ];
+    
+    const searchResults = await Promise.allSettled(searchPromises);
+    
+    // Combine results from successful searches
+    searchResults.forEach((result, index) => {
+      if (result.status === 'fulfilled' && result.value) {
+        results.push(...(Array.isArray(result.value) ? result.value : [result.value]));
+      }
+    });
+    
+    // Remove duplicates and limit results
+    const uniqueResults = this.deduplicateResults(results);
+    
+    // Try to fetch summaries for more results
+    const resultsWithSummaries = await this.fetchSummaries(uniqueResults.slice(0, 20));
+    
+    return resultsWithSummaries;
+  }
+
+  // DuckDuckGo Instant Answer API
+  async searchDuckDuckGo(query) {
+    try {
+      const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+      const response = await fetch(url);
+      
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      const results = [];
+      
+      // Main abstract/answer
+      if (data.Abstract) {
+        results.push({
+          title: data.Heading || query,
+          url: data.AbstractURL,
+          snippet: data.Abstract,
+          source: 'DuckDuckGo',
+          type: 'summary'
+        });
+      }
+      
+      // Definition
+      if (data.Definition) {
+        results.push({
+          title: `Definition: ${query}`,
+          url: data.DefinitionURL,
+          snippet: data.Definition,
+          source: 'DuckDuckGo',
+          type: 'definition'
+        });
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('[WebSearchService] DuckDuckGo search failed:', error);
+      return [];
+    }
+  }
+
+  // Wikipedia search
+  async searchWikipedia(query) {
+    try {
+      const searchUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=5&format=json`;
+      const response = await fetch(searchUrl);
+      
+      if (!response.ok) return [];
+      
+      const [searchTerm, titles, descriptions, urls] = await response.json();
+      const results = [];
+      
+      for (let i = 0; i < titles.length; i++) {
+        if (titles[i] && urls[i]) {
+          // Try to get extract for each result
+          const extract = await this.getWikipediaExtract(titles[i]);
+          
+          results.push({
+            title: titles[i],
+            url: urls[i],
+            snippet: extract || descriptions[i] || 'Wikipedia article',
+            source: 'Wikipedia',
+            type: 'encyclopedia'
+          });
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('[WebSearchService] Wikipedia search failed:', error);
+      return [];
+    }
+  }
+
+  // Get Wikipedia article extract
+  async getWikipediaExtract(title) {
+    try {
+      const url = `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&exsentences=3&titles=${encodeURIComponent(title)}&format=json`;
+      const response = await fetch(url);
+      
+      if (!response.ok) return null;
+      
+      const data = await response.json();
+      const pages = data.query?.pages;
+      
+      if (pages) {
+        const page = Object.values(pages)[0];
+        return page.extract || null;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[WebSearchService] Wikipedia extract failed:', error);
+      return null;
+    }
+  }
+
+  // Generate direct links to major news sites
+  generateNewsLinks(query) {
+    const encodedQuery = encodeURIComponent(query);
+    
+    return [
+      {
+        title: `CNN: ${query}`,
+        url: `https://www.cnn.com/search?q=${encodedQuery}`,
+        snippet: `Search CNN for breaking news and in-depth reporting about "${query}". CNN provides 24-hour news coverage and analysis.`,
+        source: 'CNN',
+        type: 'news'
+      },
+      {
+        title: `BBC News: ${query}`,
+        url: `https://www.bbc.co.uk/search?q=${encodedQuery}`,
+        snippet: `Search BBC for international news and unbiased reporting about "${query}". BBC offers comprehensive global news coverage.`,
+        source: 'BBC',
+        type: 'news'
+      },
+      {
+        title: `Associated Press: ${query}`,
+        url: `https://apnews.com/search?q=${encodedQuery}`,
+        snippet: `Search AP News for factual, unbiased reporting about "${query}". The Associated Press is a trusted source for breaking news.`,
+        source: 'AP News',
+        type: 'news'
+      },
+      {
+        title: `Reuters: ${query}`,
+        url: `https://www.reuters.com/site-search/?query=${encodedQuery}`,
+        snippet: `Search Reuters for business news and global reporting about "${query}". Reuters provides trusted financial and world news.`,
+        source: 'Reuters',
+        type: 'news'
+      },
+      {
+        title: `The Guardian: ${query}`,
+        url: `https://www.theguardian.com/search?q=${encodedQuery}`,
+        snippet: `Search The Guardian for news, opinion, and investigative journalism about "${query}".`,
+        source: 'The Guardian',
+        type: 'news'
+      }
+    ];
+  }
+
+  // Search using NewsAPI (requires API key)
+  async searchNewsAPI(query) {
+    if (!this.newsApiKey) return [];
+    
+    try {
+      const url = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&sortBy=relevancy&pageSize=15&apiKey=${this.newsApiKey}`;
+      const response = await fetch(url);
+      
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      
+      if (data.articles) {
+        return data.articles.map(article => ({
+          title: article.title,
+          url: article.url,
+          snippet: article.description || article.content?.substring(0, 200) || 'No description available',
+          source: article.source.name,
+          type: 'news',
+          publishedAt: article.publishedAt
+        }));
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('[WebSearchService] NewsAPI search failed:', error);
+      return [];
+    }
+  }
+
+  // Try to fetch article content and generate summaries
+  async fetchSummaries(results) {
+    // In Electron, we're limited by CORS, so we can only enhance what we have
+    return results.map(result => {
+      // Add more context based on source
+      if (result.type === 'news' && !result.publishedAt) {
+        result.snippet = `📰 Latest news from ${result.source}: ${result.snippet}`;
+      } else if (result.type === 'encyclopedia') {
+        result.snippet = `📚 ${result.snippet}`;
+      } else if (result.type === 'definition') {
+        result.snippet = `📖 ${result.snippet}`;
+      }
+      
+      // Add search tips
+      if (result.source === 'CNN' || result.source === 'BBC' || result.source === 'AP News') {
+        result.snippet += '\n💡 Tip: Click to see the latest articles and videos.';
+      }
+      
+      return result;
+    });
+  }
+
+  // Remove duplicate results
+  deduplicateResults(results) {
+    const seen = new Set();
+    return results.filter(result => {
+      const key = result.url || result.title;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  // Format results for display
+  formatResults(results) {
+    if (!results || results.length === 0) {
+      return 'No search results found.';
+    }
+    
+    return results.map((result, index) => {
+      let icon = '🔍';
+      
+      // Choose icon based on source/type
+      switch (result.source) {
+        case 'Wikipedia': icon = '📚'; break;
+        case 'CNN': icon = '📺'; break;
+        case 'BBC': icon = '🌍'; break;
+        case 'AP News': icon = '📡'; break;
+        case 'Reuters': icon = '💼'; break;
+        case 'The Guardian': icon = '📰'; break;
+        case 'DuckDuckGo': 
+          icon = result.type === 'definition' ? '📖' : '🦆'; 
+          break;
+        default:
+          if (result.type === 'news') icon = '📰';
+          else if (result.type === 'encyclopedia') icon = '📚';
+      }
+      
+      let output = `${icon} ${result.title}\n`;
+      output += `   Source: ${result.source}`;
+      
+      if (result.publishedAt) {
+        const date = new Date(result.publishedAt);
+        output += ` | ${date.toLocaleDateString()}`;
+      }
+      
+      output += `\n   URL: ${result.url}\n`;
+      output += `   ${result.snippet}`;
+      
+      return output;
+    }).join('\n\n');
+  }
+}
+
+// Export as singleton
+export default new WebSearchService();

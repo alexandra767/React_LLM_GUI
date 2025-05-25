@@ -5,9 +5,11 @@ import MainLayout from './components/Layout/MainLayout';
 import StreamingTest from './components/StreamingTest';
 import './App.css';
 import { testDirectStreaming } from './utils/testDirectStreaming';
+import { exportAllData } from './utils/exportData';
 
 // Make test function available globally
 window.testDirectStreaming = testDirectStreaming;
+window.exportSephiaData = exportAllData;
 
 // Error boundary component
 class ErrorBoundary extends Component {

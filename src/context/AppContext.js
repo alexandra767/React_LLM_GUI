@@ -33,7 +33,7 @@ const loadProjects = () => {
       // Ensure all projects have a model property
       return projects.map(project => ({
         ...project,
-        model: project.model || 'deepseek-r1:8b-m4'
+        model: project.model || 'deepseek-r1:14b-m4'
       }));
     }
     return [];
@@ -67,7 +67,7 @@ export const AppProvider = ({ children }) => {
   const theme = useTheme();
   // State declarations first
   const [currentModel, setCurrentModel] = useState(
-    localStorage.getItem('sephia_current_model') || 'deepseek-r1:8b-m4'
+    localStorage.getItem('sephia_current_model') || 'deepseek-r1:14b-m4'
   );
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -608,7 +608,7 @@ export const AppProvider = ({ children }) => {
       lastUpdated: projectData.lastUpdated || new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      model: projectData.model || currentModel || 'deepseek-r1:8b-m4', // Store the model with the project
+      model: projectData.model || currentModel || 'deepseek-r1:14b-m4', // Store the model with the project
       knowledgeFiles: projectData.knowledgeFiles || [], // Initialize knowledge files array
     };
     
@@ -1008,9 +1008,9 @@ export const AppProvider = ({ children }) => {
         
         // Immediately set hard-coded models that match what we know exists
         const hardcodedModels = [
+          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
           { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
           { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
-          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
           { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
           { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
         ];

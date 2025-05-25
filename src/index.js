@@ -1,3 +1,8 @@
+// Block Google APIs in Electron FIRST before anything else
+import './utils/blockGoogleApis';
+import './utils/suppressGoogleErrors';
+import './utils/debugGoogleError';
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';

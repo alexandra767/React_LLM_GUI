@@ -11,6 +11,7 @@ import llmService from '../../services/LLMService';
 import streamingManager from '../../services/StreamingManager';
 import { useStreamingProtection } from '../../hooks/useStreamingProtection';
 import simpleStreamingService from '../../services/SimpleStreamingService';
+import { processCommand } from '../../utils/commandProcessor';
 // DeleteIcon import removed as it's no longer needed here
 import ErrorBoundary from '../Common/ErrorBoundary';
 
@@ -536,6 +537,81 @@ const ChatView = React.memo(({ projectId }) => {
     if (isStreamingRef.current) {
       console.warn('handleSendMessage: Already streaming, ignoring new message');
       return;
+    }
+    
+    // Check for @ commands
+    if (messageText.trim().startsWith('@')) {
+      console.log('Processing @ command:', messageText);
+      try {
+        const commandResult = await processCommand(messageText.trim());
+        
+        if (commandResult) {
+          // Create user message
+          const userMessage = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            role: 'user',
+            content: messageText.trim(),
+            timestamp: new Date().toISOString()
+          };
+          
+          // Create system response
+          const systemMessage = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            role: 'assistant',
+            content: commandResult.content,
+            timestamp: new Date().toISOString()
+          };
+          
+          // Handle project context
+          if (projectId && updateProject) {
+            const currentMessages = Array.isArray(messages) ? messages : [];
+            const updatedMessages = [...currentMessages, userMessage, systemMessage];
+            setLocalProjectMessages(updatedMessages);
+            updateProject(projectId, { 
+              messages: updatedMessages,
+              lastUpdated: new Date().toISOString()
+            });
+          } else {
+            // Handle regular chat context
+            if (!currentChat) {
+              const newChat = createNewChat('New Chat', theme?.name || 'dark', messageText.trim());
+              const chatWithMessages = {
+                ...newChat,
+                messages: [userMessage, systemMessage],
+                updatedAt: new Date().toISOString()
+              };
+              setCurrentChat(chatWithMessages);
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === newChat.id ? chatWithMessages : chat
+                  )
+                );
+              }
+            } else {
+              const updatedChat = {
+                ...currentChat,
+                messages: [...currentChat.messages, userMessage, systemMessage],
+                updatedAt: new Date().toISOString()
+              };
+              setCurrentChat(updatedChat);
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === currentChat.id ? updatedChat : chat
+                  )
+                );
+              }
+            }
+          }
+          
+          // Don't continue with normal AI processing
+          return;
+        }
+      } catch (error) {
+        console.error('Error processing command:', error);
+        // Continue with normal processing if command fails
+      }
     }
     
     console.log('handleSendMessage: Starting message processing');
