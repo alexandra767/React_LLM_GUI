@@ -5,6 +5,7 @@ const fs = require('fs');
 const { spawn } = require('child_process');
 const isDev = require('electron-is-dev');
 const electronLog = require('electron-log');
+const https = require('https');
 
 // Enable features needed for Web Speech API
 app.commandLine.appendSwitch('enable-speech-dispatcher');
@@ -326,11 +327,118 @@ app.on('web-contents-created', (event, contents) => {
   });
 });
 
+// CalDAV Request Handler
+function setupCalDAVHandlers() {
+  ipcMain.handle('caldav:request', async (event, options) => {
+    console.log('[Main] CalDAV request:', {
+      url: options.url,
+      method: options.method,
+      hasAuth: !!options.headers?.Authorization,
+      authPrefix: options.headers?.Authorization?.substring(0, 10)
+    });
+    
+    return new Promise((resolve, reject) => {
+      const urlParts = new URL(options.url);
+      
+      const requestOptions = {
+        hostname: urlParts.hostname,
+        port: urlParts.port || 443,
+        path: urlParts.pathname + urlParts.search,
+        method: options.method,
+        headers: options.headers
+      };
+      
+      console.log('[Main] CalDAV request options:', requestOptions);
+      
+      const req = https.request(requestOptions, (res) => {
+        let data = '';
+        
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        
+        res.on('end', () => {
+          console.log('[Main] CalDAV response:', {
+            status: res.statusCode,
+            statusText: res.statusMessage,
+            dataLength: data.length,
+            dataPreview: data.substring(0, 200)
+          });
+          resolve({
+            status: res.statusCode,
+            statusText: res.statusMessage,
+            headers: res.headers,
+            text: data
+          });
+        });
+      });
+      
+      req.on('error', (error) => {
+        console.error('[Main] CalDAV request error:', error);
+        reject(error);
+      });
+      
+      if (options.body) {
+        req.write(options.body);
+      }
+      
+      req.end();
+    });
+  });
+}
+
+// AppleScript Handler
+function setupAppleScriptHandlers() {
+  const { exec } = require('child_process');
+  
+  ipcMain.handle('applescript:exec', async (event, script) => {
+    console.log('[Main] Executing AppleScript');
+    console.log('[Main] Script preview:', script.substring(0, 100) + '...');
+    
+    return new Promise((resolve, reject) => {
+      // Write script to temp file to avoid escaping issues
+      const fs = require('fs');
+      const path = require('path');
+      const os = require('os');
+      const tempFile = path.join(os.tmpdir(), `calendar-script-${Date.now()}.applescript`);
+      
+      fs.writeFileSync(tempFile, script);
+      
+      exec(`osascript "${tempFile}"`, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+        // Clean up temp file
+        try {
+          fs.unlinkSync(tempFile);
+        } catch (e) {
+          console.error('[Main] Failed to delete temp file:', e);
+        }
+        
+        if (error) {
+          console.error('[Main] AppleScript error:', error);
+          console.error('[Main] Error code:', error.code);
+          console.error('[Main] Error stderr:', stderr);
+          reject(error);
+          return;
+        }
+        
+        if (stderr) {
+          console.error('[Main] AppleScript stderr:', stderr);
+        }
+        
+        console.log('[Main] AppleScript result length:', stdout.length);
+        console.log('[Main] AppleScript result preview:', stdout.substring(0, 200));
+        resolve(stdout.trim());
+      });
+    });
+  });
+}
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
   console.log('App is ready, creating window...');
   setupTerminalHandlers();
   setupSpeechHandlers();
+  setupCalDAVHandlers();
+  setupAppleScriptHandlers();
   createWindow();
 }).catch(err => {
   console.error('Failed to start app:', err);

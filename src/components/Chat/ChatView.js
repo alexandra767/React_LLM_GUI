@@ -543,7 +543,15 @@ const ChatView = React.memo(({ projectId }) => {
   };
   
   const handleSendMessage = async (messageText) => {
-    console.log('handleSendMessage called with text:', messageText);
+    console.log('[ChatView] ============ handleSendMessage START ============');
+    console.log('[ChatView] handleSendMessage called with text:', messageText);
+    console.log('[ChatView] Message details:', {
+      length: messageText?.length,
+      trimmed: messageText?.trim(),
+      startsWithAt: messageText?.trim()?.startsWith('@'),
+      firstChar: messageText?.charAt(0),
+      charCode: messageText?.charCodeAt(0)
+    });
     
     // Validate input
     if (!messageText || typeof messageText !== 'string' || !messageText.trim()) {
@@ -559,11 +567,14 @@ const ChatView = React.memo(({ projectId }) => {
     
     // Check for @ commands
     if (messageText.trim().startsWith('@')) {
-      console.log('Processing @ command:', messageText);
+      console.log('[ChatView] Detected @ command:', messageText);
       try {
+        console.log('[ChatView] Calling processCommand...');
         const commandResult = await processCommand(messageText.trim());
+        console.log('[ChatView] Command result:', commandResult);
         
         if (commandResult) {
+          console.log('[ChatView] Creating messages for command result');
           // Create user message
           const userMessage = {
             id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
@@ -579,6 +590,9 @@ const ChatView = React.memo(({ projectId }) => {
             content: commandResult.content,
             timestamp: new Date().toISOString()
           };
+          
+          console.log('[ChatView] User message:', userMessage);
+          console.log('[ChatView] System message:', systemMessage);
           
           // Handle project context
           if (projectId && updateProject) {
@@ -625,10 +639,54 @@ const ChatView = React.memo(({ projectId }) => {
           
           // Don't continue with normal AI processing
           return;
+        } else {
+          console.log('[ChatView] Command returned null or undefined');
         }
       } catch (error) {
-        console.error('Error processing command:', error);
-        // Continue with normal processing if command fails
+        console.error('[ChatView] Error processing command:', error);
+        console.error('[ChatView] Error stack:', error.stack);
+        
+        // Show error to user
+        const userMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'user',
+          content: messageText.trim(),
+          timestamp: new Date().toISOString()
+        };
+        
+        const errorMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'assistant',
+          content: `Error processing command: ${error.message}`,
+          timestamp: new Date().toISOString()
+        };
+        
+        // Update messages to show the error
+        if (projectId && updateProject) {
+          const currentMessages = Array.isArray(messages) ? messages : [];
+          const updatedMessages = [...currentMessages, userMessage, errorMessage];
+          setLocalProjectMessages(updatedMessages);
+          updateProject(projectId, { 
+            messages: updatedMessages,
+            lastUpdated: new Date().toISOString()
+          });
+        } else if (currentChat) {
+          const updatedChat = {
+            ...currentChat,
+            messages: [...currentChat.messages, userMessage, errorMessage],
+            updatedAt: new Date().toISOString()
+          };
+          setCurrentChat(updatedChat);
+          if (setChats) {
+            setChats(prevChats => 
+              prevChats.map(chat => 
+                chat.id === currentChat.id ? updatedChat : chat
+              )
+            );
+          }
+        }
+        
+        return; // Don't continue with normal processing
       }
     }
     

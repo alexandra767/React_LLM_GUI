@@ -36,10 +36,15 @@ const getIntegrationService = async () => {
 };
 
 export const processCommand = async (message) => {
+  console.log('[commandProcessor] Processing command:', message);
+  
   // Get the appropriate service
   const service = await getIntegrationService();
+  console.log('[commandProcessor] Service loaded:', service.constructor.name);
+  
   // Check if message starts with @
   if (!message.startsWith('@')) {
+    console.log('[commandProcessor] Not a command (no @ prefix)');
     return null;
   }
 
@@ -119,31 +124,106 @@ export const processCommand = async (message) => {
         }
 
       case '@calendar':
-        // @calendar [days ahead, default 7]
-        if (!service.isAppleAuthorized) {
-          // Try to use saved credentials
-          const username = localStorage.getItem('apple_calendar_username');
-          const password = localStorage.getItem('apple_calendar_password');
+        // @calendar [days ahead, default 7] [google/apple]
+        try {
+          console.log('[Calendar] Processing @calendar command...');
           
-          if (!username || !password) {
+          const parts = args.split(' ');
+          const daysAhead = parseInt(parts[0]) || 7;
+          const calendarType = parts[1]?.toLowerCase() || 'google'; // Default to Google
+          
+          const startDate = new Date();
+          const endDate = new Date(startDate.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+          
+          if (calendarType === 'google') {
+            // Try Google Calendar
+            try {
+              // Check Google authorization
+              if (!service.isGoogleAuthorized) {
+                await service.signInGoogle();
+              }
+              
+              console.log('[Calendar] Fetching Google Calendar events...');
+              const events = await service.getGoogleCalendarEvents(startDate, endDate);
+              const formattedEvents = service.formatGoogleCalendarEvents(events);
+              
+              return {
+                type: 'integration',
+                content: `Your Google Calendar events for the next ${daysAhead} days:\n\n${formattedEvents}`
+              };
+            } catch (error) {
+              console.error('[Calendar] Google Calendar error:', error);
+              if (error.message.includes('401') || error.message.includes('Invalid Credentials')) {
+                return {
+                  type: 'error',
+                  content: 'Google Calendar authentication failed. Please sign in to Google in Settings.'
+                };
+              }
+              return {
+                type: 'error',
+                content: `Google Calendar error: ${error.message}`
+              };
+            }
+          } else {
+            // Apple Calendar (existing code)
+            if (!service.isAppleAuthorized) {
+              // Try to use saved credentials from settings
+              const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+              const username = settings.appleId;
+              const password = settings.appleAppPassword;
+              
+              console.log('[Calendar] Checking credentials:', { 
+                hasUsername: !!username, 
+                hasPassword: !!password,
+                username: username,
+                passwordLength: password ? password.length : 0,
+                passwordPreview: password ? password.substring(0, 4) + '...' : 'none'
+              });
+              
+              if (!username || !password) {
+                return {
+                  type: 'error',
+                  content: 'Apple Calendar not configured. Please add your Apple ID and app-specific password in Settings → Integrations → Apple Calendar.'
+                };
+              }
+              
+              try {
+                console.log('[Calendar] Attempting to connect...');
+                await service.connectAppleCalendar(username, password);
+              } catch (authError) {
+                console.error('[Calendar] Connection error:', authError);
+                
+                // If it's a CORS error, show demo events instead
+                if (authError.message.includes('CORS') || authError.message.includes('Failed to fetch')) {
+                  console.log('[Calendar] CORS error detected, falling back to demo events');
+                  // Continue to show demo events
+                } else {
+                  return {
+                    type: 'error',
+                    content: `Failed to connect to Apple Calendar: ${authError.message}\n\nPlease check your credentials in Settings.`
+                  };
+                }
+              }
+            }
+            
+            console.log('[Calendar] Fetching Apple Calendar events for', daysAhead, 'days');
+            const events = await service.getAppleCalendarEvents(startDate, endDate);
+            
+            console.log('[Calendar] Got events:', events);
+            const formattedEvents = service.formatCalendarEvents(events);
+            
             return {
-              type: 'error',
-              content: 'Apple Calendar not configured. Please add your iCloud credentials in Settings → API Keys & Integrations.'
+              type: 'integration',
+              content: `Your calendar events for the next ${daysAhead} days:\n\n${formattedEvents || 'No events found.'}`
             };
           }
-          
-          await service.connectAppleCalendar(username, password);
+        } catch (calendarError) {
+          console.error('[Calendar] Unexpected error:', calendarError);
+          return {
+            type: 'error',
+            content: `Calendar error: ${calendarError.message}`
+          };
         }
-        
-        const daysAhead = parseInt(args) || 7;
-        const startDate = new Date();
-        const endDate = new Date(startDate.getTime() + daysAhead * 24 * 60 * 60 * 1000);
-        const events = await service.getAppleCalendarEvents(startDate, endDate);
-        const formattedEvents = service.formatCalendarEvents(events);
-        return {
-          type: 'integration',
-          content: `Your calendar events for the next ${daysAhead} days:\n\n${formattedEvents || 'No events found.'}`
-        };
 
       case '@search':
       case '@web':
@@ -160,6 +240,56 @@ export const processCommand = async (message) => {
           type: 'integration',
           content: `Web search results for "${args}":\n\n${formattedResults}`
         };
+
+      case '@test':
+        // @test - test AppleScript functionality
+        if (window.electron && window.electron.execAppleScript) {
+          try {
+            const testService = await import('../services/TestAppleScriptService');
+            const test = testService.default;
+            
+            let results = '🧪 AppleScript Test Results:\n\n';
+            
+            // Test 1: Basic
+            try {
+              const basic = await test.testBasic();
+              results += '✅ Basic test: ' + basic + '\n';
+            } catch (e) {
+              results += '❌ Basic test failed: ' + e.message + '\n';
+            }
+            
+            // Test 2: Calendar Access
+            try {
+              const calAccess = await test.testCalendarAccess();
+              results += '✅ Calendar access: ' + calAccess + '\n';
+            } catch (e) {
+              results += '❌ Calendar access failed: ' + e.message + '\n';
+            }
+            
+            // Test 3: Simple Event
+            try {
+              const event = await test.testSimpleEvents();
+              results += '✅ Event fetch: ' + event + '\n';
+            } catch (e) {
+              results += '❌ Event fetch failed: ' + e.message + '\n';
+            }
+            
+            return {
+              type: 'test',
+              content: results
+            };
+          } catch (error) {
+            return {
+              type: 'error',
+              content: 'Test failed: ' + error.message
+            };
+          }
+        } else {
+          return {
+            type: 'error',
+            content: 'AppleScript not available in this environment'
+          };
+        }
 
       case '@help':
         // @help - show available commands
@@ -187,14 +317,16 @@ Examples:
           content: `Available commands:
 • @gmail [search] - Search Gmail (e.g., @gmail from:john)
 • @drive [search] - List or search Google Drive files
-• @calendar [days] - Show calendar events (default: 7 days)
+• @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @search [query] - Search the web
 • @help - Show this help message
 
 Examples:
 • @gmail is:unread
 • @drive presentation
-• @calendar 14
+• @calendar - Show Google Calendar for next 7 days
+• @calendar 14 google - Show Google Calendar for next 14 days
+• @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
 • @search weather tomorrow`
         };
 
