@@ -640,19 +640,25 @@ const SettingsView = () => {
         
         <SettingItem>
           <SettingLabel>
-            <Label>Default Model</Label>
+            <Label>Current Model</Label>
             <Description2>
-              The default model to use for new conversations
+              The active model for conversations (automatically saved)
             </Description2>
           </SettingLabel>
           <Select 
-            value={settings.defaultModel || 'llama2'} 
-            onChange={(e) => updateSetting('defaultModel', e.target.value)}
+            value={currentModel} 
+            onChange={(e) => handleLoadModel(e.target.value)}
+            disabled={isLoadingModel}
           >
-            <option value="llama2">Llama 2</option>
-            <option value="mistral">Mistral</option>
-            <option value="codellama">CodeLlama</option>
-            <option value="custom">Custom</option>
+            {models.length === 0 ? (
+              <option value="">No models available</option>
+            ) : (
+              models.map(model => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))
+            )}
           </Select>
         </SettingItem>
         

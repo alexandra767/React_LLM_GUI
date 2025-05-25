@@ -49,6 +49,7 @@ const loadProfile = () => {
     const savedProfile = localStorage.getItem('sephia_profile');
     return savedProfile ? JSON.parse(savedProfile) : {
       name: 'User',
+      email: '',
       picture: null,
       bio: '',
     };
@@ -56,6 +57,7 @@ const loadProfile = () => {
     console.error('Failed to load profile from localStorage:', error);
     return {
       name: 'User',
+      email: '',
       picture: null,
       bio: '',
     };
@@ -66,9 +68,11 @@ export const AppProvider = ({ children }) => {
   // Initialize theme
   const theme = useTheme();
   // State declarations first
-  const [currentModel, setCurrentModel] = useState(
-    localStorage.getItem('sephia_current_model') || 'deepseek-r1:14b-m4'
-  );
+  const [currentModel, setCurrentModel] = useState(() => {
+    const savedModel = localStorage.getItem('sephia_current_model');
+    console.log('[AppContext] Loading saved model:', savedModel || 'deepseek-r1:14b-m4 (default)');
+    return savedModel || 'deepseek-r1:14b-m4';
+  });
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

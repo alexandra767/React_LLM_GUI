@@ -98,6 +98,23 @@ const EmptyStateText = styled('p')({
   lineHeight: 1.5
 });
 
+const Select = styled('select')({
+  backgroundColor: '#1E1E1E',
+  color: '#FFFFFF',
+  border: '1px solid #333333',
+  borderRadius: '4px',
+  fontSize: '14px',
+  cursor: 'pointer',
+  '&:focus': {
+    outline: 'none',
+    borderColor: '#FF643D'
+  },
+  '& option': {
+    backgroundColor: '#1E1E1E',
+    color: '#FFFFFF'
+  }
+});
+
 const EmptyStateDescription = styled('p')({
   fontSize: '16px',
   color: '#888888',
@@ -236,6 +253,7 @@ const ChatView = React.memo(({ projectId }) => {
     setAppState,
     currentModel,
     models = [],
+    loadModel,
     createNewChat: createNewChatFromContext,
     setCurrentChat,
     tokenCount = { input: 0, output: 0, total: 0 },
@@ -1743,7 +1761,30 @@ const ChatView = React.memo(({ projectId }) => {
               <span>0s · 0 tokens</span>
             </div>
             <ModelInfo theme={theme}>
-              <span>{getModelName()}</span>
+              <Select
+                value={currentModel}
+                onChange={(e) => {
+                  const modelId = e.target.value;
+                  console.log('[ChatView] Changing model to:', modelId);
+                  loadModel(modelId);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontSize: '12px',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  minWidth: '120px'
+                }}
+              >
+                {models.map(model => (
+                  <option key={model.id} value={model.id} style={{ background: '#1E1E1E', color: '#FFFFFF' }}>
+                    {model.name}
+                  </option>
+                ))}
+              </Select>
               <span>Ready</span>
             </ModelInfo>
           </StatusBar>
@@ -1793,7 +1834,31 @@ const ChatView = React.memo(({ projectId }) => {
             </button>
           </div>
           <ModelInfo theme={theme}>
-            <span>{getModelName()}</span>
+            <Select
+              value={currentModel}
+              onChange={(e) => {
+                const modelId = e.target.value;
+                console.log('[ChatView] Changing model to:', modelId);
+                loadModel(modelId);
+              }}
+              style={{
+                background: 'transparent',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                color: 'rgba(255, 255, 255, 0.9)',
+                fontSize: '12px',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                minWidth: '120px'
+              }}
+              disabled={isStreaming}
+            >
+              {models.map(model => (
+                <option key={model.id} value={model.id} style={{ background: '#1E1E1E', color: '#FFFFFF' }}>
+                  {model.name}
+                </option>
+              ))}
+            </Select>
             <span>{isStreaming ? 'Generating...' : 'Ready'}</span>
           </ModelInfo>
         </StatusBar>

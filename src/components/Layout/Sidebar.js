@@ -155,15 +155,15 @@ const ProfileSection = styled('div', {
   };
 });
 
-const ProfileImage = styled('div')(({ theme }) => {
+const ProfileImage = styled('div')(({ theme, large }) => {
   const colors = theme?.colors || {};
   // Default values
   const defaultSecondaryBg = '#252525';
   const defaultPrimaryText = '#FFFFFF';
   
   return {
-    width: '40px',
-    height: '40px',
+    width: large ? '80px' : '40px',
+    height: large ? '80px' : '40px',
     borderRadius: '50%',
     backgroundColor: colors?.secondaryBg || defaultSecondaryBg,
     display: 'flex',
@@ -171,10 +171,20 @@ const ProfileImage = styled('div')(({ theme }) => {
     justifyContent: 'center',
     overflow: 'hidden',
     color: colors?.primaryText || defaultPrimaryText,
+    cursor: 'pointer',
+    transition: 'transform 0.2s ease',
+    border: '2px solid transparent',
+    '&:hover': {
+      transform: 'scale(1.05)',
+      borderColor: '#FF643D',
+    },
     '& img': {
       width: '100%',
       height: '100%',
       objectFit: 'cover',
+    },
+    '& svg': {
+      fontSize: large ? '48px' : '24px',
     },
   };
 });
@@ -204,6 +214,7 @@ const ProfileName = styled('div')(({ theme }) => {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     fontWeight: 500,
+    fontSize: '14px',
     color: colors.primaryText || '#FFFFFF',
   };
 });
@@ -370,6 +381,7 @@ const Sidebar = () => {
     setCurrentProjectId,
     currentProjectId,
     profile = { name: 'User', picture: null },
+    updateProfile,
     connectionStatus = 'connected',
     sidebarCollapsed = false,
     toggleSidebar = () => {},
@@ -420,40 +432,68 @@ const Sidebar = () => {
   
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editName, setEditName] = useState(profile.name);
+  const [editEmail, setEditEmail] = useState(profile.email || '');
+  const [tempProfilePicture, setTempProfilePicture] = useState(profile.picture);
   const fileInputRef = useRef(null);
   
   const handleNewChat = handleNewChatWithTheme;
   
   const handleSaveProfile = () => {
-    // Save profile logic here
+    if (updateProfile) {
+      updateProfile({
+        name: editName,
+        email: editEmail,
+        picture: tempProfilePicture
+      });
+    }
     setIsEditDialogOpen(false);
   };
 
   const handleCancelEdit = () => {
     setEditName(profile.name);
+    setEditEmail(profile.email || '');
+    setTempProfilePicture(profile.picture);
     setIsEditDialogOpen(false);
   };
 
   const handleProfileClick = () => {
-    fileInputRef.current?.click();
+    if (isEditDialogOpen) {
+      fileInputRef.current?.click();
+    } else {
+      handleEditProfile();
+    }
   };
 
   const handleFileChange = (event) => {
     const file = event.target.files[0];
     if (file) {
-      // Handle file upload logic here
-      console.log('File selected:', file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (isEditDialogOpen) {
+          setTempProfilePicture(reader.result);
+        } else {
+          if (updateProfile) {
+            updateProfile({ picture: reader.result });
+          }
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
   const handleEditProfile = () => {
     setEditName(profile.name);
+    setEditEmail(profile.email || '');
+    setTempProfilePicture(profile.picture);
     setIsEditDialogOpen(true);
   };
 
   const handleRemoveProfilePicture = () => {
-    // Handle remove profile picture logic here
-    console.log('Remove profile picture');
+    if (window.confirm('Remove profile picture?')) {
+      if (updateProfile) {
+        updateProfile({ picture: null });
+      }
+    }
   };
 
 
@@ -488,23 +528,76 @@ const Sidebar = () => {
 
   return (
     <>
-      <Dialog open={isEditDialogOpen} onClose={handleCancelEdit}>
-        <DialogTitle>Edit Profile Name</DialogTitle>
+      <Dialog 
+        open={isEditDialogOpen} 
+        onClose={handleCancelEdit}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Profile</DialogTitle>
         <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Name"
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, pt: 2 }}>
+            <ProfileImage 
+              theme={theme} 
+              large
+              onClick={() => fileInputRef.current?.click()}
+              style={{ cursor: 'pointer' }}
+            >
+              {tempProfilePicture ? (
+                <img src={tempProfilePicture} alt="Profile" />
+              ) : (
+                <AccountIcon style={{ fontSize: '48px' }} />
+              )}
+            </ProfileImage>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button 
+                size="small" 
+                onClick={() => fileInputRef.current?.click()}
+                startIcon={<PhotoIcon />}
+              >
+                Upload Photo
+              </Button>
+              {tempProfilePicture && (
+                <Button 
+                  size="small" 
+                  onClick={() => setTempProfilePicture(null)}
+                  color="error"
+                  startIcon={<DeleteIcon />}
+                >
+                  Remove
+                </Button>
+              )}
+            </Box>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Name"
+              type="text"
+              fullWidth
+              variant="outlined"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+            />
+            <TextField
+              margin="dense"
+              label="Email"
+              type="email"
+              fullWidth
+              variant="outlined"
+              value={editEmail}
+              onChange={(e) => setEditEmail(e.target.value)}
+            />
+          </Box>
+          <FileInput 
+            ref={fileInputRef} 
+            type="file" 
+            accept="image/*" 
+            onChange={handleFileChange}
           />
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCancelEdit}>Cancel</Button>
-          <Button onClick={handleSaveProfile} color="primary">
+          <Button onClick={handleSaveProfile} color="primary" variant="contained">
             Save
           </Button>
         </DialogActions>
@@ -819,6 +912,17 @@ const Sidebar = () => {
             
             <ProfileInfo collapsed={sidebarCollapsed} theme={theme}>
               <ProfileName theme={theme}>{profile.name}</ProfileName>
+              {profile.email && !sidebarCollapsed && (
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: colors.tertiaryText || '#AAAAAA',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {profile.email}
+                </div>
+              )}
               <ConnectionStatus theme={theme} status={connectionStatus}>
                 {connectionStatus}
               </ConnectionStatus>
@@ -839,14 +943,14 @@ const Sidebar = () => {
                 </ProfileActionButton>
               </ProfileActions>
             )}
-            
-            <FileInput 
-              ref={fileInputRef} 
-              type="file" 
-              accept="image/*" 
-              onChange={handleFileChange}
-            />
           </ProfileSection>
+          
+          <FileInput 
+            ref={fileInputRef} 
+            type="file" 
+            accept="image/*" 
+            onChange={handleFileChange}
+          />
           
           <ToggleButton theme={theme} onClick={toggleSidebar}>
             {sidebarCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
