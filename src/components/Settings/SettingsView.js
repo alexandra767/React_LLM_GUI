@@ -1487,18 +1487,49 @@ const SettingsView = () => {
                   alert('Please enter both Apple ID and app-specific password');
                   return;
                 }
+                
+                // Check if we're in a browser (not Electron)
+                const isElectron = !!(window.electron || (window.process && window.process.type));
+                
+                if (!isElectron) {
+                  // In browser, just save credentials and show info
+                  alert(
+                    '✅ Apple Calendar credentials saved!\n\n' +
+                    '⚠️ Note: Due to browser security restrictions, Apple Calendar cannot connect directly from the web version.\n\n' +
+                    '• Your credentials are saved and ready to use\n' +
+                    '• Type @calendar in chat to see demo events\n' +
+                    '• Full calendar access works in the Electron desktop app\n\n' +
+                    'Try it now: Type "@calendar" in any chat!'
+                  );
+                  // Still save the settings
+                  updateSetting('appleId', settings.appleId);
+                  updateSetting('appleAppPassword', settings.appleAppPassword);
+                  return;
+                }
+                
+                // In Electron, try actual connection
                 try {
                   await integrationService.connectAppleCalendar(settings.appleId, settings.appleAppPassword);
                   alert('Connected to Apple Calendar!');
                   // Force re-render to update status
                   setSettings(prev => ({ ...prev }));
                 } catch (err) {
-                  alert('Failed to connect: ' + err.message);
+                  if (err.message.includes('CORS')) {
+                    alert(
+                      '⚠️ Browser Security Restriction\n\n' +
+                      'Apple Calendar cannot be accessed directly from a web browser.\n\n' +
+                      'Your credentials are saved. You can:\n' +
+                      '• Use @calendar command to see demo events\n' +
+                      '• Use the Electron desktop app for full access'
+                    );
+                  } else {
+                    alert('Failed to connect: ' + err.message);
+                  }
                 }
               }}
               style={{ marginTop: '8px' }}
             >
-              {integrationService.isAppleAuthorized ? 'Reconnect' : 'Connect'} Apple Calendar
+              Save Credentials
             </Button>
           </div>
         </SettingItem>
@@ -1649,24 +1680,11 @@ const SettingsView = () => {
               };
               
               // Get system network info if available in Electron
-              if (window.electron) {
-                try {
-                  const { networkInterfaces } = require('os');
-                  const nets = networkInterfaces();
-                  const results = {};
-                  
-                  for (const name of Object.keys(nets)) {
-                    for (const net of nets[name]) {
-                      // Skip internal and non-IPv4 addresses
-                      if (net.family === 'IPv4' && !net.internal) {
-                        results[name] = net.address;
-                      }
-                    }
-                  }
-                  networkInfo.interfaces = results;
-                } catch (e) {
-                  console.log('Could not get network interfaces:', e);
-                }
+              // Note: We can't use Node.js modules directly in the renderer process
+              // This would need to be exposed through the preload script if needed
+              if (window.electron && false) { // Disabled for now
+                // This would need IPC to get network info from main process
+                networkInfo.interfaces = 'Available in Electron main process only';
               }
               
               alert(`Network Information:\n\n` +

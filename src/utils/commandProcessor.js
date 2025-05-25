@@ -36,10 +36,15 @@ const getIntegrationService = async () => {
 };
 
 export const processCommand = async (message) => {
+  console.log('[commandProcessor] Processing command:', message);
+  
   // Get the appropriate service
   const service = await getIntegrationService();
+  console.log('[commandProcessor] Service loaded:', service.constructor.name);
+  
   // Check if message starts with @
   if (!message.startsWith('@')) {
+    console.log('[commandProcessor] Not a command (no @ prefix)');
     return null;
   }
 
@@ -126,139 +131,104 @@ export const processCommand = async (message) => {
         }
 
       case '@calendar':
-        // @calendar [days ahead, default 7]
+        // @calendar [days ahead, default 7] [google/apple]
         try {
-          // Use Google Calendar instead of Apple Calendar
-          const accessToken = localStorage.getItem('google_access_token');
-          const refreshToken = localStorage.getItem('google_refresh_token');
+          console.log('[Calendar] Processing @calendar command...');
           
-          if (!refreshToken && !accessToken) {
-            return {
-              type: 'error',
-              content: 'Google Calendar not configured. Please authenticate with @google auth or add tokens in Settings.'
-            };
-          }
+          const parts = args.split(' ');
+          const daysAhead = parseInt(parts[0]) || 7;
+          const calendarType = parts[1]?.toLowerCase() || 'google'; // Default to Google
           
-          const daysAhead = parseInt(args) || 7;
           const startDate = new Date();
           const endDate = new Date(startDate.getTime() + daysAhead * 24 * 60 * 60 * 1000);
           
-          // Call Google Calendar API
-          const params = new URLSearchParams({
-            timeMin: startDate.toISOString(),
-            timeMax: endDate.toISOString(),
-            singleEvents: true,
-            orderBy: 'startTime',
-            maxResults: '20'
-          });
-          
-          const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Accept': 'application/json'
+          if (calendarType === 'google') {
+            // Try Google Calendar
+            try {
+              // Check Google authorization
+              if (!service.isGoogleAuthorized) {
+                await service.signInGoogle();
+              }
+              
+              console.log('[Calendar] Fetching Google Calendar events...');
+              const events = await service.getGoogleCalendarEvents(startDate, endDate);
+              const formattedEvents = service.formatGoogleCalendarEvents(events);
+              
+              return {
+                type: 'integration',
+                content: `Your Google Calendar events for the next ${daysAhead} days:\n\n${formattedEvents}`
+              };
+            } catch (error) {
+              console.error('[Calendar] Google Calendar error:', error);
+              if (error.message.includes('401') || error.message.includes('Invalid Credentials')) {
+                return {
+                  type: 'error',
+                  content: 'Google Calendar authentication failed. Please sign in to Google in Settings.'
+                };
+              }
+              return {
+                type: 'error',
+                content: `Google Calendar error: ${error.message}`
+              };
             }
-          });
-          
-          if (!response.ok) {
-            if (response.status === 401 || response.status === 403) {
-              // Try to refresh the token
-              console.log('[Calendar] Got 401/403, attempting token refresh...');
+          } else {
+            // Apple Calendar (existing code)
+            if (!service.isAppleAuthorized) {
+              // Try to use saved credentials from settings
+              const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+              const username = settings.appleId;
+              const password = settings.appleAppPassword;
               
-              // Use the refresh token to get a new access token
-              const clientId = localStorage.getItem('google_client_id');
-              const clientSecret = localStorage.getItem('google_client_secret');
-              const refreshToken = localStorage.getItem('google_refresh_token');
+              console.log('[Calendar] Checking credentials:', { 
+                hasUsername: !!username, 
+                hasPassword: !!password,
+                username: username,
+                passwordLength: password ? password.length : 0,
+                passwordPreview: password ? password.substring(0, 4) + '...' : 'none'
+              });
               
-              if (refreshToken) {
-                const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                  },
-                  body: new URLSearchParams({
-                    client_id: clientId,
-                    client_secret: clientSecret,
-                    refresh_token: refreshToken,
-                    grant_type: 'refresh_token'
-                  })
-                });
+              if (!username || !password) {
+                return {
+                  type: 'error',
+                  content: 'Apple Calendar not configured. Please add your Apple ID and app-specific password in Settings → Integrations → Apple Calendar.'
+                };
+              }
+              
+              try {
+                console.log('[Calendar] Attempting to connect...');
+                await service.connectAppleCalendar(username, password);
+              } catch (authError) {
+                console.error('[Calendar] Connection error:', authError);
                 
-                if (tokenResponse.ok) {
-                  const tokenData = await tokenResponse.json();
-                  localStorage.setItem('google_access_token', tokenData.access_token);
-                  console.log('[Calendar] Token refreshed successfully');
-                  
-                  // Retry ONCE with new token (avoid infinite loop)
-                  const retryResponse = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
-                    headers: {
-                      'Authorization': `Bearer ${tokenData.access_token}`,
-                      'Accept': 'application/json'
-                    }
-                  });
-                  
-                  if (!retryResponse.ok) {
-                    const errorData = await retryResponse.json();
-                    console.error('[Calendar] Still failing after token refresh:', errorData);
-                    throw new Error('Calendar API not accessible. Please enable Google Calendar API in Google Cloud Console.');
-                  }
-                  
-                  response = retryResponse;
+                // If it's a CORS error, show demo events instead
+                if (authError.message.includes('CORS') || authError.message.includes('Failed to fetch')) {
+                  console.log('[Calendar] CORS error detected, falling back to demo events');
+                  // Continue to show demo events
                 } else {
-                  console.error('[Calendar] Token refresh failed');
-                  throw new Error('Failed to refresh access token');
+                  return {
+                    type: 'error',
+                    content: `Failed to connect to Apple Calendar: ${authError.message}\n\nPlease check your credentials in Settings.`
+                  };
                 }
               }
             }
             
-            // Get more error details
-            let errorMessage = `Google Calendar API error: ${response.status}`;
-            try {
-              const errorData = await response.json();
-              console.error('[Calendar] Error details:', errorData);
-              if (errorData.error?.message) {
-                errorMessage = errorData.error.message;
-              }
-            } catch (e) {
-              // Couldn't parse error
-            }
+            console.log('[Calendar] Fetching Apple Calendar events for', daysAhead, 'days');
+            const events = await service.getAppleCalendarEvents(startDate, endDate);
             
-            throw new Error(errorMessage);
-          }
-          
-          const data = await response.json();
-          const events = data.items || [];
-          
-          if (events.length === 0) {
+            console.log('[Calendar] Got events:', events);
+            const formattedEvents = service.formatCalendarEvents(events);
+            
             return {
               type: 'integration',
-              content: `No calendar events found for the next ${daysAhead} days.`
+              content: `Your calendar events for the next ${daysAhead} days:\n\n${formattedEvents || 'No events found.'}`
             };
           }
-          
-          // Format events
-          const formattedEvents = events.map(event => {
-            const start = event.start.dateTime || event.start.date;
-            const end = event.end.dateTime || event.end.date;
-            const startDate = new Date(start);
-            const endDate = new Date(end);
-            
-            const dateStr = startDate.toLocaleDateString();
-            const timeStr = event.start.dateTime ? 
-              `${startDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${endDate.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : 
-              'All day';
-            
-            return `📅 ${event.summary || 'No title'}\n   ${dateStr} ${timeStr}${event.location ? '\n   📍 ' + event.location : ''}`;
-          }).join('\n\n');
-          
-          return {
-            type: 'integration',
-            content: `Your Google Calendar events for the next ${daysAhead} days:\n\n${formattedEvents}`
-          };
-        } catch (error) {
-          console.error('Calendar error:', error);
+        } catch (calendarError) {
+          console.error('[Calendar] Unexpected error:', calendarError);
           return {
             type: 'error',
-            content: `Calendar error: ${error.message}`
+            content: `Calendar error: ${calendarError.message}`
           };
         }
 
@@ -277,6 +247,56 @@ export const processCommand = async (message) => {
           type: 'integration',
           content: `Web search results for "${args}":\n\n${formattedResults}`
         };
+
+      case '@test':
+        // @test - test AppleScript functionality
+        if (window.electron && window.electron.execAppleScript) {
+          try {
+            const testService = await import('../services/TestAppleScriptService');
+            const test = testService.default;
+            
+            let results = '🧪 AppleScript Test Results:\n\n';
+            
+            // Test 1: Basic
+            try {
+              const basic = await test.testBasic();
+              results += '✅ Basic test: ' + basic + '\n';
+            } catch (e) {
+              results += '❌ Basic test failed: ' + e.message + '\n';
+            }
+            
+            // Test 2: Calendar Access
+            try {
+              const calAccess = await test.testCalendarAccess();
+              results += '✅ Calendar access: ' + calAccess + '\n';
+            } catch (e) {
+              results += '❌ Calendar access failed: ' + e.message + '\n';
+            }
+            
+            // Test 3: Simple Event
+            try {
+              const event = await test.testSimpleEvents();
+              results += '✅ Event fetch: ' + event + '\n';
+            } catch (e) {
+              results += '❌ Event fetch failed: ' + e.message + '\n';
+            }
+            
+            return {
+              type: 'test',
+              content: results
+            };
+          } catch (error) {
+            return {
+              type: 'error',
+              content: 'Test failed: ' + error.message
+            };
+          }
+        } else {
+          return {
+            type: 'error',
+            content: 'AppleScript not available in this environment'
+          };
+        }
 
       case '@help':
         // @help - show available commands
@@ -306,14 +326,16 @@ Examples:
           content: `Available commands:
 • @gmail [search] - Search Gmail (e.g., @gmail from:john)
 • @drive [search] - List or search Google Drive files
-• @calendar [days] - Show calendar events (default: 7 days)
+• @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @search [query] - Search the web
 • @help - Show this help message
 
 Examples:
 • @gmail is:unread
 • @drive presentation
-• @calendar 14
+• @calendar - Show Google Calendar for next 7 days
+• @calendar 14 google - Show Google Calendar for next 14 days
+• @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
 • @search weather tomorrow`
         };
 

@@ -12,7 +12,8 @@ const validSendChannels = [
   'terminal:start',
   'terminal:stop',
   'speech:start',
-  'speech:stop'
+  'speech:stop',
+  'caldav:request'
 ];
 
 const validReceiveChannels = [
@@ -20,7 +21,9 @@ const validReceiveChannels = [
   'terminal:exit',
   'speech:result',
   'speech:error',
-  'speech:end'
+  'speech:end',
+  'caldav:response',
+  'caldav:error'
 ];
 
 // Create the exposed API
@@ -160,6 +163,41 @@ const electronAPI = {
   
   onSpeechEnd: (callback) => {
     ipcRenderer.on('speech:end', () => callback());
+  },
+  
+  // CalDAV request method
+  caldavRequest: async (options) => {
+    console.log('[Preload] Making CalDAV request:', options.url);
+    try {
+      const response = await ipcRenderer.invoke('caldav:request', options);
+      return response;
+    } catch (error) {
+      console.error('[Preload] CalDAV request failed:', error);
+      throw error;
+    }
+  },
+  
+  // AppleScript execution for native calendar access
+  execAppleScript: async (script) => {
+    console.log('[Preload] Executing AppleScript');
+    console.log('[Preload] Script length:', script.length);
+    
+    // Add timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('AppleScript timeout after 30 seconds')), 30000);
+    });
+    
+    try {
+      const result = await Promise.race([
+        ipcRenderer.invoke('applescript:exec', script),
+        timeoutPromise
+      ]);
+      console.log('[Preload] AppleScript result received:', result ? result.substring(0, 100) : 'empty');
+      return result;
+    } catch (error) {
+      console.error('[Preload] AppleScript execution failed:', error);
+      throw error;
+    }
   }
 };
 

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Calendar State</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #fff;
+        }
+        button {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #d32f2f;
+        }
+        .success {
+            color: #4CAF50;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Clear Apple Calendar State</h1>
+    <p>This will clear the saved calendar authentication state and force a fresh connection.</p>
+    
+    <button onclick="clearState()">Clear Calendar State</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        function clearState() {
+            // Clear Apple Calendar auth state
+            localStorage.removeItem('apple_calendar_auth');
+            
+            // Show what's in settings
+            const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+            const result = document.getElementById('result');
+            
+            result.innerHTML = `
+                <div class="success">✓ Calendar auth state cleared!</div>
+                <div>Current settings:</div>
+                <div>Apple ID: ${settings.appleId || 'Not set'}</div>
+                <div>Password saved: ${settings.appleAppPassword ? 'Yes' : 'No'}</div>
+                <div><br>Now refresh the app and try @calendar again.</div>
+            `;
+        }
+    </script>
+</body>
+</html>

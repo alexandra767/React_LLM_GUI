@@ -907,10 +907,13 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
   
   const handleSubmit = (e) => {
     e.preventDefault();
+    console.log('[ChatInput] handleSubmit called with message:', message);
     
     if ((message.trim() || attachedFiles.length > 0) && !disabled) {
       // Prepare message with attachments
       let fullMessage = message.trim();
+      
+      console.log('[ChatInput] Sending message:', fullMessage);
       
       if (attachedFiles.length > 0) {
         fullMessage += '\n\n--- Attached Files ---\n';
@@ -926,6 +929,7 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
         });
       }
       
+      console.log('[ChatInput] Calling onSendMessage with:', fullMessage);
       onSendMessage(fullMessage, attachedFiles);
       setMessage('');
       setAttachedFiles([]);
@@ -934,6 +938,8 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
       setTimeout(() => {
         inputRef.current?.focus();
       }, 0);
+    } else {
+      console.log('[ChatInput] Message is empty or disabled:', { message, disabled });
     }
   };
   
@@ -1086,7 +1092,7 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
                     <path d="M19 10L12 18.5H19.5L23 12.5L19 10Z" fill="#EA4335"/>
                   </svg>
                   <IntegrationLabel>
-                    <span>Drive search</span>
+                    <span>Google Drive</span>
                     <span className="beta-badge">BETA</span>
                   </IntegrationLabel>
                 </IntegrationInfo>
@@ -1137,7 +1143,7 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
                     <text x="12" y="17" fill="white" fontSize="10" textAnchor="middle" fontWeight="bold">31</text>
                   </svg>
                   <IntegrationLabel>
-                    <span>Calendar search</span>
+                    <span>Google Calendar</span>
                     <span className="beta-badge">BETA</span>
                   </IntegrationLabel>
                 </IntegrationInfo>
