@@ -226,6 +226,13 @@ const Message = React.memo(({ message, onDelete }) => {
     ...message
   }), [message]);
   
+  // Debug image URL
+  React.useEffect(() => {
+    if (safeMessage.imageUrl) {
+      console.log('[Message] Message has imageUrl:', safeMessage.imageUrl, 'for message:', safeMessage.id);
+    }
+  }, [safeMessage.imageUrl, safeMessage.id]);
+  
   // Use streaming content hook to get live updates
   const { streamingContent, isStreamingMessage } = useStreamingContent(safeMessage.id);
   
@@ -378,6 +385,66 @@ const Message = React.memo(({ message, onDelete }) => {
       } catch (error) {
         console.error('Failed to speak message:', error);
         setIsSpeaking(false);
+      }
+    }
+  };
+  
+  const handleCopyImage = async (imageUrl) => {
+    try {
+      console.log('[Message] Copying image from URL:', imageUrl);
+      
+      // Fetch the image
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch image');
+      }
+      
+      const blob = await response.blob();
+      
+      // Check if we're in Electron
+      if (window.electron && window.electron.copyImageToClipboard) {
+        // Use Electron API to copy image
+        const buffer = await blob.arrayBuffer();
+        const result = await window.electron.copyImageToClipboard(buffer);
+        if (result) {
+          setCopyStatus(prev => ({ ...prev, image: true }));
+          setTimeout(() => {
+            setCopyStatus(prev => ({ ...prev, image: false }));
+          }, 2000);
+        } else {
+          throw new Error('Failed to copy image to clipboard');
+        }
+      } else if (navigator.clipboard && window.ClipboardItem) {
+        // Use web clipboard API
+        const item = new ClipboardItem({ [blob.type]: blob });
+        await navigator.clipboard.write([item]);
+        
+        setCopyStatus(prev => ({ ...prev, image: true }));
+        setTimeout(() => {
+          setCopyStatus(prev => ({ ...prev, image: false }));
+        }, 2000);
+      } else {
+        // Fallback: Copy the image URL instead
+        await copyToClipboard(imageUrl);
+        setCopyStatus(prev => ({ ...prev, image: true }));
+        setTimeout(() => {
+          setCopyStatus(prev => ({ ...prev, image: false }));
+        }, 2000);
+        console.log('[Message] Copied image URL as fallback');
+      }
+    } catch (error) {
+      console.error('[Message] Failed to copy image:', error);
+      // Try to copy the URL as a fallback
+      try {
+        await copyToClipboard(imageUrl);
+        setCopyStatus(prev => ({ ...prev, image: true }));
+        setTimeout(() => {
+          setCopyStatus(prev => ({ ...prev, image: false }));
+        }, 2000);
+        console.log('[Message] Copied image URL as fallback');
+      } catch (fallbackError) {
+        console.error('[Message] Failed to copy even URL:', fallbackError);
+        alert('Failed to copy image. Try right-clicking and selecting "Copy Image".');
       }
     }
   };
@@ -762,6 +829,107 @@ const Message = React.memo(({ message, onDelete }) => {
         <>
           {renderThinkingSection()}
           {renderMainContent()}
+          {/* Render image if present */}
+          {safeMessage.imageUrl && (
+            <Box sx={{ 
+              marginTop: 2, 
+              position: 'relative',
+              display: 'inline-block',
+              maxWidth: '512px',
+              '&:hover .image-copy-button': {
+                opacity: 1,
+                visibility: 'visible',
+              }
+            }}>
+              <img 
+                src={safeMessage.imageUrl} 
+                alt="Generated image"
+                style={{
+                  width: '100%',
+                  maxWidth: '512px',
+                  height: 'auto',
+                  display: 'block',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+                }}
+                onError={(e) => {
+                  console.error('[Message] Image failed to load:', {
+                    src: e.target.src,
+                    error: e.type,
+                    message: e.message
+                  });
+                  e.target.style.display = 'none';
+                  e.target.alt = 'Failed to load image';
+                }}
+                onLoad={(e) => {
+                  console.log('[Message] Image loaded successfully:', e.target.src);
+                }}
+              />
+              <Tooltip 
+                title={copyStatus.image ? 'Copied!' : 'Copy image'}
+                placement="left"
+                arrow
+              >
+                <IconButton 
+                  className="image-copy-button"
+                  size="small"
+                  aria-label="Copy image"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCopyImage(safeMessage.imageUrl);
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    right: '0.5rem',
+                    opacity: 0,
+                    visibility: 'hidden',
+                    transition: 'all 0.2s ease',
+                    color: '#ffffff',
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    backdropFilter: 'blur(4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    width: '32px',
+                    height: '32px',
+                    '&:hover, &:focus-visible': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                      transform: 'scale(1.05)',
+                      boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.2)',
+                      '& .MuiSvgIcon-root': {
+                        transform: 'scale(1.1)',
+                      }
+                    },
+                    '&:active': {
+                      transform: 'scale(0.95)',
+                    },
+                    '& .MuiSvgIcon-root': {
+                      fontSize: '1rem',
+                      transition: 'all 0.2s ease',
+                    }
+                  }}
+                >
+                  {copyStatus.image ? (
+                    <CheckIcon 
+                      fontSize="inherit" 
+                      sx={{ 
+                        color: '#4caf50',
+                        filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.8))',
+                        animation: `${pulse} 0.5s ease-in-out`,
+                      }} 
+                    />
+                  ) : (
+                    <CopyIcon 
+                      fontSize="inherit"
+                      sx={{
+                        color: '#fff',
+                        filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
+                      }}
+                    />
+                  )}
+                </IconButton>
+              </Tooltip>
+            </Box>
+          )}
         </>
       );
     } catch (error) {

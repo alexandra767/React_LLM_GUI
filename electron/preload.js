@@ -198,6 +198,166 @@ const electronAPI = {
       console.error('[Preload] AppleScript execution failed:', error);
       throw error;
     }
+  },
+  
+  // Copy image to clipboard
+  copyImageToClipboard: async (imageBuffer) => {
+    console.log('[Preload] Copying image to clipboard, buffer size:', imageBuffer.byteLength);
+    try {
+      const result = await ipcRenderer.invoke('clipboard:copyImage', imageBuffer);
+      return result;
+    } catch (error) {
+      console.error('[Preload] Failed to copy image to clipboard:', error);
+      throw error;
+    }
+  },
+  
+  // Ollama API
+  ollama: {
+    // List available models
+    listModels: async () => {
+      console.log('[Preload] Listing Ollama models');
+      return new Promise((resolve, reject) => {
+        exec('ollama list', (error, stdout, stderr) => {
+          if (error) {
+            console.error('[Preload] Failed to list models:', error);
+            reject(error);
+            return;
+          }
+          
+          // Parse the output to extract model names
+          const lines = stdout.split('\n').filter(line => line.trim());
+          const models = [];
+          
+          // Skip the header line
+          for (let i = 1; i < lines.length; i++) {
+            const parts = lines[i].split(/\s+/);
+            if (parts[0]) {
+              models.push({
+                name: parts[0],
+                size: parts[1] || '',
+                modified: parts.slice(2).join(' ') || ''
+              });
+            }
+          }
+          
+          resolve(models);
+        });
+      });
+    },
+    
+    // Generate response (non-streaming)
+    generate: async (model, prompt, options = {}) => {
+      console.log('[Preload] Generating with model:', model);
+      const args = ['run', model, prompt];
+      
+      return new Promise((resolve, reject) => {
+        exec(`ollama ${args.join(' ')}`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+          if (error) {
+            console.error('[Preload] Generation failed:', error);
+            reject(error);
+            return;
+          }
+          
+          resolve({ response: stdout.trim() });
+        });
+      });
+    },
+    
+    // Stream generate response
+    streamGenerate: (model, prompt, onData, onEnd, onError, options = {}) => {
+      console.log('[Preload] Stream generating with model:', model);
+      
+      const child = spawn('ollama', ['run', model], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      
+      let fullResponse = '';
+      
+      // Send the prompt
+      child.stdin.write(prompt + '\n');
+      child.stdin.end();
+      
+      // Handle stdout
+      child.stdout.on('data', (data) => {
+        const text = data.toString();
+        fullResponse += text;
+        if (onData) onData(text);
+      });
+      
+      // Handle stderr
+      child.stderr.on('data', (data) => {
+        console.error('[Preload] Ollama stderr:', data.toString());
+      });
+      
+      // Handle close
+      child.on('close', (code) => {
+        if (code === 0) {
+          if (onEnd) onEnd();
+        } else {
+          if (onError) onError(new Error(`Process exited with code ${code}`));
+        }
+      });
+      
+      // Handle error
+      child.on('error', (err) => {
+        console.error('[Preload] Ollama process error:', err);
+        if (onError) onError(err);
+      });
+      
+      // Return cleanup function
+      return () => {
+        child.kill();
+      };
+    },
+    
+    // Start terminal session
+    startTerminal: (model, onData, onEnd, onError) => {
+      console.log('[Preload] Starting Ollama terminal with model:', model);
+      
+      const child = spawn('ollama', ['run', model], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, FORCE_COLOR: '1' }
+      });
+      
+      // Handle stdout
+      child.stdout.on('data', (data) => {
+        if (onData) onData(data.toString());
+      });
+      
+      // Handle stderr
+      child.stderr.on('data', (data) => {
+        const stderr = data.toString();
+        console.error('[Preload] Terminal stderr:', stderr);
+        if (stderr.includes('could not find model')) {
+          if (onError) onError(new Error(`Model '${model}' not found`));
+        }
+      });
+      
+      // Handle close
+      child.on('close', (code) => {
+        console.log('[Preload] Terminal closed with code:', code);
+        if (onEnd) onEnd(code);
+      });
+      
+      // Handle error
+      child.on('error', (err) => {
+        console.error('[Preload] Terminal error:', err);
+        if (onError) onError(err);
+      });
+      
+      // Return control object
+      return {
+        write: (data) => {
+          if (child.stdin && !child.stdin.destroyed) {
+            child.stdin.write(data);
+          }
+        },
+        kill: () => {
+          child.kill();
+        }
+      };
+    }
   }
 };
 

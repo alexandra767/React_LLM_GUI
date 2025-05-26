@@ -1,0 +1,315 @@
+class ImageGenerationService {
+  constructor() {
+    this.baseUrl = 'http://localhost:8188';
+    this.clientId = 'sephia-' + Math.random().toString(36).substring(7);
+    this.ws = null;
+    this.isConnected = false;
+    this.pendingRequests = new Map();
+  }
+
+  async connect() {
+    if (this.isConnected) return true;
+
+    try {
+      console.log('[ImageGen] Testing ComfyUI connection...');
+      // Test if ComfyUI is running
+      const response = await fetch(`${this.baseUrl}/system_stats`);
+      console.log('[ImageGen] System stats response:', response.status);
+      if (!response.ok) throw new Error('ComfyUI not responding');
+
+      // Connect WebSocket for updates
+      return new Promise((resolve, reject) => {
+        this.ws = new WebSocket(`ws://localhost:8188/ws?clientId=${this.clientId}`);
+        
+        this.ws.onopen = () => {
+          console.log('Connected to ComfyUI WebSocket');
+          this.isConnected = true;
+          resolve(true);
+        };
+
+        this.ws.onerror = (error) => {
+          console.error('ComfyUI WebSocket error:', error);
+          this.isConnected = false;
+          reject(error);
+        };
+
+        this.ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            
+            // More detailed logging for executed messages
+            if (message.type === 'executed') {
+              console.log('[ImageGen] EXECUTED message:', {
+                node: message.data?.node,
+                hasOutput: !!message.data?.output,
+                outputKeys: message.data?.output ? Object.keys(message.data.output) : [],
+                images: message.data?.output?.images,
+                promptId: message.data?.prompt_id
+              });
+            }
+            
+            this.handleWebSocketMessage(message);
+          } catch (error) {
+            console.error('Error parsing WebSocket message:', error, 'Raw:', event.data);
+          }
+        };
+
+        this.ws.onclose = () => {
+          console.log('Disconnected from ComfyUI');
+          this.isConnected = false;
+        };
+
+        // Timeout connection attempt
+        setTimeout(() => {
+          if (!this.isConnected) {
+            reject(new Error('ComfyUI connection timeout'));
+          }
+        }, 5000);
+      });
+    } catch (error) {
+      console.error('[ImageGen] Failed to connect to ComfyUI:', error);
+      console.error('[ImageGen] Error details:', {
+        message: error.message,
+        stack: error.stack,
+        type: error.constructor.name
+      });
+      return false;
+    }
+  }
+
+  handleWebSocketMessage(message) {
+    console.log('[ImageGen] WebSocket message:', message);
+    const { type, data } = message;
+    
+    if (type === 'executing' && data?.prompt_id) {
+      const request = this.pendingRequests.get(data.prompt_id);
+      if (request) {
+        request.onProgress?.({ status: 'executing', node: data.node });
+      }
+    } else if (type === 'executed' && data?.prompt_id) {
+      // Log all executed messages to debug
+      console.log('[ImageGen] Executed message for node:', data.node, 'output:', data.output);
+      
+      // Check if this message has image output (can be any node that saves images)
+      if (data.output && data.output.images && Array.isArray(data.output.images)) {
+        const request = this.pendingRequests.get(data.prompt_id);
+        if (request && !request.resolved) {
+          console.log('[ImageGen] Found image output from node:', data.node, 'images:', data.output.images);
+          
+          const images = data.output.images.map(img => ({
+            filename: img.filename,
+            subfolder: img.subfolder || '',
+            type: img.type || 'output',
+            url: `${this.baseUrl}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`
+          }));
+          
+          console.log('[ImageGen] Resolving with images:', images);
+          request.resolved = true;
+          request.resolve(images);
+          this.pendingRequests.delete(data.prompt_id);
+        }
+      }
+    } else if (type === 'execution_complete' && data?.prompt_id) {
+      // Some versions send this when fully complete
+      const request = this.pendingRequests.get(data.prompt_id);
+      if (request && !request.resolved) {
+        console.log('[ImageGen] Execution complete but no images found');
+        request.reject(new Error('Generation completed but no images were produced'));
+        this.pendingRequests.delete(data.prompt_id);
+      }
+    } else if (type === 'execution_error' && data?.prompt_id) {
+      const request = this.pendingRequests.get(data.prompt_id);
+      if (request) {
+        console.error('[ImageGen] Execution error:', data);
+        request.reject(new Error(data.exception_message || data.error || 'Generation failed'));
+        this.pendingRequests.delete(data.prompt_id);
+      }
+    }
+  }
+
+  async generateImage(prompt, options = {}) {
+    console.log('[ImageGen] generateImage called with:', { prompt, options });
+    
+    // Ensure we're connected
+    if (!this.isConnected) {
+      console.log('[ImageGen] Not connected, attempting to connect...');
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Failed to connect to ComfyUI. Make sure it\'s running with: ./start-comfyui.sh');
+      }
+    }
+
+    const {
+      width = 512,
+      height = 512,
+      steps = 20,
+      cfg = 7,
+      sampler = 'euler',
+      scheduler = 'normal',
+      seed = Math.floor(Math.random() * 1000000),
+      model = 'sd15',  // Will need to be configured based on available models
+      onProgress = null
+    } = options;
+
+    // Create a simple workflow for text2img
+    const workflow = {
+      "3": {
+        "inputs": {
+          "seed": seed,
+          "steps": steps,
+          "cfg": cfg,
+          "sampler_name": sampler,
+          "scheduler": scheduler,
+          "denoise": 1,
+          "model": ["4", 0],
+          "positive": ["6", 0],
+          "negative": ["7", 0],
+          "latent_image": ["5", 0]
+        },
+        "class_type": "KSampler"
+      },
+      "4": {
+        "inputs": {
+          "ckpt_name": this.getModelName(model)
+        },
+        "class_type": "CheckpointLoaderSimple"
+      },
+      "5": {
+        "inputs": {
+          "width": width,
+          "height": height,
+          "batch_size": 1
+        },
+        "class_type": "EmptyLatentImage"
+      },
+      "6": {
+        "inputs": {
+          "text": prompt,
+          "clip": ["4", 1]
+        },
+        "class_type": "CLIPTextEncode"
+      },
+      "7": {
+        "inputs": {
+          "text": "",
+          "clip": ["4", 1]
+        },
+        "class_type": "CLIPTextEncode"
+      },
+      "8": {
+        "inputs": {
+          "samples": ["3", 0],
+          "vae": ["4", 2]
+        },
+        "class_type": "VAEDecode"
+      },
+      "9": {
+        "inputs": {
+          "filename_prefix": "Sephia",
+          "images": ["8", 0]
+        },
+        "class_type": "SaveImage"
+      }
+    };
+
+    // Submit the workflow
+    const promptId = await this.queuePrompt(workflow);
+
+    // Create promise to track completion
+    return new Promise((resolve, reject) => {
+      console.log('[ImageGen] Creating promise for promptId:', promptId);
+      this.pendingRequests.set(promptId, {
+        resolve,
+        reject,
+        onProgress,
+        resolved: false
+      });
+
+      // No fallback needed - WebSocket messages are working correctly
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        if (this.pendingRequests.has(promptId)) {
+          console.log('[ImageGen] Timeout reached for promptId:', promptId);
+          this.pendingRequests.delete(promptId);
+          reject(new Error('Image generation timeout'));
+        }
+      }, 300000);
+    });
+  }
+
+  async queuePrompt(workflow) {
+    const response = await fetch(`${this.baseUrl}/prompt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: workflow,
+        client_id: this.clientId
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to queue prompt');
+    }
+
+    const result = await response.json();
+    return result.prompt_id;
+  }
+
+  getModelName(modelKey) {
+    // Map friendly names to actual model filenames
+    // You'll need to update this based on what models you download
+    const modelMap = {
+      'sd15': 'v1-5-pruned-emaonly.ckpt',
+      'sd': 'v1-5-pruned-emaonly.ckpt', // alias
+      'default': 'v1-5-pruned-emaonly.ckpt', // default
+      'realistic': 'realisticVisionV51.safetensors',
+      'rv': 'realisticVisionV51.safetensors', // alias
+      'sdxl': 'sd_xl_base_1.0.safetensors',
+      'flux': 'flux1-dev.safetensors'
+    };
+
+    return modelMap[modelKey] || modelMap['default'];
+  }
+
+  async getAvailableModels() {
+    try {
+      const response = await fetch(`${this.baseUrl}/object_info/CheckpointLoaderSimple`);
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      return data.CheckpointLoaderSimple.input.required.ckpt_name[0] || [];
+    } catch (error) {
+      console.error('Failed to get available models:', error);
+      return [];
+    }
+  }
+
+  async checkStatus() {
+    try {
+      const response = await fetch(`${this.baseUrl}/system_stats`);
+      if (!response.ok) return { running: false };
+      
+      const stats = await response.json();
+      return {
+        running: true,
+        ...stats
+      };
+    } catch (error) {
+      return { running: false };
+    }
+  }
+
+  disconnect() {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.isConnected = false;
+    this.pendingRequests.clear();
+  }
+}
+
+export default new ImageGenerationService();

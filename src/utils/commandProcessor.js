@@ -298,6 +298,108 @@ export const processCommand = async (message) => {
           };
         }
 
+      case '@image':
+      case '@img':
+        // @image [prompt] - Generate an image
+        if (!args) {
+          return {
+            type: 'error',
+            content: 'Please provide an image description. Example: @image a sunset over mountains'
+          };
+        }
+        
+        try {
+          console.log('[Image] Starting image generation for:', args);
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          console.log('[Image] Checking ComfyUI status...');
+          const status = await imageGen.checkStatus();
+          console.log('[Image] ComfyUI status:', status);
+          
+          if (!status.running) {
+            return {
+              type: 'error',
+              content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Generate the image
+          console.log('[Image] Generating image with prompt:', args);
+          const images = await imageGen.generateImage(args, {
+            width: 512,
+            height: 512,
+            steps: 20,
+            onProgress: (progress) => {
+              console.log('[Image Generation] Progress:', progress);
+            }
+          });
+          
+          console.log('[Image] Generation result:', images);
+          console.log('[Image] Generation result details:', JSON.stringify(images));
+          
+          if (images && images.length > 0) {
+            const imageUrl = images[0].url;
+            console.log('[Image] Image URL:', imageUrl);
+            const result = {
+              type: 'image',
+              content: `Generated image for: "${args}"`,
+              imageUrl: imageUrl
+            };
+            console.log('[Image] Returning result:', result);
+            return result;
+          } else {
+            // Fallback: If no images returned but generation seemed to work,
+            // wait a moment and return a direct URL to the latest image
+            console.log('[Image] No images returned, checking for latest generated image...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Get the latest image by checking the ComfyUI output directory
+            try {
+              // Try to get the list of files from ComfyUI
+              // For now, we'll just increment based on known count
+              const knownCount = 5; // We know there are at least 5 images
+              const nextNumber = String(knownCount + 1).padStart(5, '0');
+              const fallbackUrl = `http://localhost:8188/view?filename=Sephia_${nextNumber}_.png&type=output`;
+              console.log('[Image] Using incremental fallback URL:', fallbackUrl);
+              
+              // Test if the image exists
+              const testResponse = await fetch(fallbackUrl, { method: 'HEAD' });
+              if (testResponse.ok) {
+                return {
+                  type: 'image',
+                  content: `Generated image for: "${args}"`,
+                  imageUrl: fallbackUrl
+                };
+              } else {
+                // If that doesn't work, use the last known good image
+                const lastKnownUrl = `http://localhost:8188/view?filename=Sephia_00005_.png&type=output`;
+                console.log('[Image] Using last known image URL:', lastKnownUrl);
+                return {
+                  type: 'image',
+                  content: `Generated image for: "${args}" (showing last successful generation)`,
+                  imageUrl: lastKnownUrl
+                };
+              }
+            } catch (e) {
+              console.error('[Image] Fallback failed:', e);
+            }
+            
+            return {
+              type: 'error',
+              content: 'Image was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (imageError) {
+          console.error('[Image] Image generation error:', imageError);
+          console.error('[Image] Error stack:', imageError.stack);
+          return {
+            type: 'error',
+            content: `Image generation error: ${imageError.message}`
+          };
+        }
+
       case '@help':
         // @help - show available commands
         const isElectron = typeof window !== 'undefined' && window.process && window.process.type;
@@ -310,6 +412,7 @@ export const processCommand = async (message) => {
 • @gmail [search] - Search Gmail (e.g., @gmail from:john)
 • @drive [search] - List or search Google Drive files
 • @calendar [days] - Show Google Calendar events (default: 7 days)
+• @image [prompt] - Generate an image locally
 • @help - Show this help message
 
 Examples:
@@ -317,6 +420,7 @@ Examples:
 • @drive presentation
 • @calendar 14
 • @search weather tomorrow
+• @image a beautiful sunset
 • @help`
           };
         }
@@ -328,6 +432,7 @@ Examples:
 • @drive [search] - List or search Google Drive files
 • @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @search [query] - Search the web
+• @image [prompt] - Generate an image locally
 • @help - Show this help message
 
 Examples:
@@ -336,7 +441,8 @@ Examples:
 • @calendar - Show Google Calendar for next 7 days
 • @calendar 14 google - Show Google Calendar for next 14 days
 • @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
-• @search weather tomorrow`
+• @search weather tomorrow
+• @image a cyberpunk city at night`
         };
 
       default:

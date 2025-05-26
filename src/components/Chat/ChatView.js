@@ -591,16 +591,19 @@ const ChatView = React.memo(({ projectId }) => {
             timestamp: new Date().toISOString()
           };
           
-          // Create system response
+          // Create system response with image support
           const systemMessage = {
             id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
             role: 'assistant',
             content: commandResult.content,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            // Add image URL if present
+            ...(commandResult.imageUrl && { imageUrl: commandResult.imageUrl })
           };
           
           console.log('[ChatView] User message:', userMessage);
           console.log('[ChatView] System message:', systemMessage);
+          console.log('[ChatView] Command result had imageUrl?', !!commandResult.imageUrl, commandResult.imageUrl);
           
           // Handle project context
           if (projectId && updateProject) {

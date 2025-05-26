@@ -1,11 +1,14 @@
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, clipboard, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const isDev = require('electron-is-dev');
 const electronLog = require('electron-log');
 const https = require('https');
+
+// Set app name for branding
+app.name = 'Sephia';
 
 // Enable features needed for Web Speech API
 app.commandLine.appendSwitch('enable-speech-dispatcher');
@@ -92,6 +95,7 @@ function createWindow() {
       height: 1000,
       minWidth: 1200,
       minHeight: 800,
+      title: 'Sephia',
       webPreferences: {
         nodeIntegration: false, // Disable nodeIntegration for security
         contextIsolation: true, // Enable context isolation for security
@@ -106,9 +110,27 @@ function createWindow() {
         webviewTag: true
       },
       title: 'Sephia',
-      icon: path.join(__dirname, '../public/favicon.ico')
+      icon: process.platform === 'darwin' ? path.join(__dirname, '../public/favicon.icns') : path.join(__dirname, '../public/favicon.ico')
     });
     console.log('BrowserWindow created successfully');
+    
+    // Modify CSP to allow localhost images and speech recognition
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss: http: https:; " +
+            "connect-src 'self' ws: wss: http: https: http://localhost:* *.google.com *.googleapis.com speech.googleapis.com; " +
+            "media-src 'self' blob: data: https:; " +
+            "img-src 'self' data: blob: http: https: http://localhost:*; " +
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+            "style-src 'self' 'unsafe-inline';"
+          ]
+        }
+      });
+    });
+    
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
@@ -120,21 +142,6 @@ function createWindow() {
     app.quit();
     return;
   }
-
-  // Set Content Security Policy to allow speech recognition
-  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss: http: https:; " +
-          "connect-src 'self' ws: wss: http: https: *.google.com *.googleapis.com speech.googleapis.com; " +
-          "media-src 'self' blob: data: https:; " +
-          "img-src 'self' data: blob: https:;"
-        ]
-      }
-    });
-  });
 
   // Load the index.html file
   console.log('Loading application...');
@@ -148,7 +155,7 @@ function createWindow() {
       .then(() => {
         console.log('Successfully loaded URL:', startUrl);
         // Open the DevTools in development mode
-        mainWindow.webContents.openDevTools({ mode: 'detach' });
+        // mainWindow.webContents.openDevTools({ mode: 'detach' });
       })
       .catch(err => {
         console.error('Failed to load URL:', err);
@@ -432,13 +439,59 @@ function setupAppleScriptHandlers() {
   });
 }
 
+// Clipboard Handler
+function setupClipboardHandlers() {
+  ipcMain.handle('clipboard:copyImage', async (event, imageBuffer) => {
+    try {
+      console.log('[Main] Copying image to clipboard, buffer size:', imageBuffer.byteLength);
+      
+      // Convert ArrayBuffer to Buffer
+      const buffer = Buffer.from(imageBuffer);
+      
+      // Create native image from buffer
+      const image = nativeImage.createFromBuffer(buffer);
+      
+      if (image.isEmpty()) {
+        throw new Error('Failed to create image from buffer');
+      }
+      
+      // Write image to clipboard
+      clipboard.writeImage(image);
+      
+      console.log('[Main] Image copied to clipboard successfully');
+      return true;
+    } catch (error) {
+      console.error('[Main] Failed to copy image to clipboard:', error);
+      return false;
+    }
+  });
+}
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
   console.log('App is ready, creating window...');
+  app.setName('Sephia');
+  
+  // Set dock icon on macOS
+  if (process.platform === 'darwin') {
+    try {
+      const iconPath = path.join(__dirname, '../public/favicon.icns');
+      if (fs.existsSync(iconPath)) {
+        // Only set icon if dock exists (not in test mode)
+        if (app.dock) {
+          app.dock.setIcon(iconPath);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to set dock icon:', err);
+    }
+  }
+  
   setupTerminalHandlers();
   setupSpeechHandlers();
   setupCalDAVHandlers();
   setupAppleScriptHandlers();
+  setupClipboardHandlers();
   createWindow();
 }).catch(err => {
   console.error('Failed to start app:', err);
