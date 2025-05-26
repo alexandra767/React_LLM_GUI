@@ -7,6 +7,7 @@ import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import TokenDisplay from './TokenDisplay';
 import BrainIcon from './BrainIcon';
+import BrainLightningIcon from './BrainLightningIcon';
 import llmService from '../../services/LLMService';
 import streamingManager from '../../services/StreamingManager';
 import { useStreamingProtection } from '../../hooks/useStreamingProtection';
@@ -51,7 +52,9 @@ const EmptyState = styled('div')({
 
 const StatusBar = styled('div')({
   background: 'linear-gradient(90deg, #7c3aed 0%, #a855f7 100%)',
-  padding: '8px 24px',
+  padding: '8px 0',
+  margin: '0 24px',
+  borderRadius: '8px 8px 0 0',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
@@ -134,6 +137,11 @@ const IconWrapper = styled('div')({
   border: '3px solid #FF643D',
   marginBottom: '16px',
   overflow: 'hidden',
+  '& img': {
+    width: '60px',
+    height: '60px',
+    objectFit: 'contain'
+  },
   '& svg': {
     width: '60px',
     height: '60px',
@@ -1632,8 +1640,8 @@ const ChatView = React.memo(({ projectId }) => {
     return count.toString();
   };
 
-  // Render empty state when no chat is selected or when in project with no messages
-  if ((!currentChat && !projectId) || (projectId && messages.length === 0)) {
+  // Render empty state when no chat is selected, when current chat has no messages, or when in project with no messages
+  if ((!currentChat && !projectId) || (currentChat && currentChat.messages && currentChat.messages.length === 0) || (projectId && messages.length === 0)) {
     const emptyTitle = projectId ? `Welcome to ${project?.title || 'Project'}` : 'Welcome to Sephia';
     const emptyText = projectId 
       ? 'Start a conversation in this project. All messages will be saved within this project context.'
@@ -1643,182 +1651,27 @@ const ChatView = React.memo(({ projectId }) => {
       <ChatContainer>
         <EmptyState theme={theme}>
           <IconWrapper theme={theme}>
-            <BrainIcon size={40} color="#FF643D" />
+            <BrainLightningIcon size={60} />
           </IconWrapper>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
             <EmptyStateTitle theme={theme}>{emptyTitle}</EmptyStateTitle>
             <EmptyStateDescription theme={theme}>{emptyText}</EmptyStateDescription>
-            <button
-              onClick={async () => {
-                console.log('=== TESTING STREAMING FLOW ===');
-                
-                // Test 1: Set up window variables
-                window.__isStreaming = true;
-                window.__streamingMessageId = 'test-msg-123';
-                window.__streamingContent = '';
-                console.log('Set up streaming state');
-                
-                // Test 2: Simulate content updates
-                const testContent = 'Hello, this is a test of the streaming system!';
-                for (let i = 0; i < testContent.length; i += 5) {
-                  window.__streamingContent = testContent.substring(0, i + 5);
-                  console.log('Updated content:', window.__streamingContent);
-                  await new Promise(resolve => setTimeout(resolve, 100));
-                }
-                
-                // Test 3: Complete streaming
-                window.__isStreaming = false;
-                console.log('Streaming complete');
-                window.__debugStreaming();
-              }}
-              style={{
-                marginTop: '20px',
-                padding: '10px 20px',
-                backgroundColor: '#FF643D',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Test Streaming Flow
-            </button>
-            
-            <button
-              onClick={async () => {
-                console.log('=== TESTING OLLAMA CONNECTION ===');
-                try {
-                  // Test simple streaming with SimpleStreamingService
-                  await simpleStreamingService.streamChat(
-                    'Say hello in one sentence',
-                    'deepseek-r1:8b-m4',
-                    (chunk, full) => {
-                      console.log('[Test] Got chunk:', chunk);
-                      console.log('[Test] Full content:', full);
-                    },
-                    (final) => {
-                      console.log('[Test] Complete! Final:', final);
-                      alert('Streaming test complete! Check console for output.');
-                    },
-                    (error) => {
-                      console.error('[Test] Error:', error);
-                      alert(`Error: ${error.message}`);
-                    }
-                  );
-                } catch (error) {
-                  console.error('Test failed:', error);
-                  alert(`Test failed: ${error.message}`);
-                }
-              }}
-              style={{
-                marginTop: '10px',
-                padding: '10px 20px',
-                backgroundColor: '#4CAF50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Test Ollama Connection
-            </button>
-            
-            <button
-              onClick={() => {
-                console.log('=== TESTING TERMINAL EXECUTION ===');
-                if (window.electron && window.electron.exec) {
-                  console.log('window.electron.exec exists!');
-                  window.electron.exec('echo "Hello from terminal"', {}, (error, stdout, stderr) => {
-                    if (error) {
-                      console.error('Terminal test error:', error);
-                      alert(`Terminal error: ${error.message}`);
-                    } else {
-                      console.log('Terminal test output:', stdout);
-                      alert(`Terminal output: ${stdout}`);
-                    }
-                  });
-                } else {
-                  console.error('window.electron.exec not found!');
-                  alert('Terminal execution not available. Check preload script.');
-                }
-              }}
-              style={{
-                marginTop: '10px',
-                padding: '10px 20px',
-                backgroundColor: '#FF9800',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Test Terminal Execution
-            </button>
-            
-            <button
-              onClick={() => {
-                console.log('=== TESTING SPAWN EXECUTION ===');
-                console.log('window.electron:', window.electron);
-                console.log('Available methods:', window.electron ? Object.keys(window.electron) : 'None');
-                
-                if (window.electron && window.electron.spawnStream) {
-                  console.log('window.electron.spawnStream exists!');
-                  try {
-                    let output = '';
-                    const child = window.electron.spawnStream('echo', ['Hello from spawnStream'], 
-                      // onData
-                      (data) => {
-                        output += data;
-                        console.log('SpawnStream stdout:', data);
-                      },
-                      // onError
-                      (error) => {
-                        console.error('SpawnStream error:', error);
-                        alert(`SpawnStream error: ${error}`);
-                      },
-                      // onClose
-                      (code) => {
-                        console.log('SpawnStream process closed with code:', code);
-                        alert(`SpawnStream output: ${output}`);
-                      }
-                    );
-                    
-                    if (child) {
-                      console.log('SpawnStream child created, PID:', child.pid);
-                    } else {
-                      console.error('SpawnStream returned null');
-                    }
-                  } catch (spawnError) {
-                    console.error('Failed to spawnStream:', spawnError);
-                    alert(`Failed to spawnStream: ${spawnError.message}`);
-                  }
-                } else {
-                  console.error('window.electron.spawnStream not found!');
-                  console.log('Available electron methods:', window.electron ? Object.keys(window.electron) : 'None');
-                  alert('SpawnStream not available. Check preload script.');
-                }
-              }}
-              style={{
-                marginTop: '10px',
-                padding: '10px 20px',
-                backgroundColor: '#4CAF50',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Test Spawn Execution
-            </button>
           </div>
         </EmptyState>
         
         <div style={{ marginTop: 'auto' }}>
           <StatusBar theme={theme}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              flex: 1,
+              justifyContent: 'center',
+              padding: '0 16px'
+            }}>
               <span>0s · 0 tokens</span>
             </div>
-            <ModelInfo theme={theme}>
+            <ModelInfo theme={theme} style={{ flex: 1, justifyContent: 'center', padding: '0 16px' }}>
               <Select
                 value={currentModel}
                 onChange={(e) => {
@@ -1864,10 +1717,17 @@ const ChatView = React.memo(({ projectId }) => {
       
       <div style={{ marginTop: 'auto' }}>
         <StatusBar theme={theme}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            flex: 1,
+            justifyContent: 'center',
+            padding: '0 16px'
+          }}>
             {isStreaming ? (
               <span>
-                ({Math.round(messageDuration)}s · {formatTokenCount(tokenCount.output || 0)} tokens · esc to interrupt)
+                {Math.round(messageDuration)}s · {formatTokenCount(tokenCount.output || 0)} tokens · esc to interrupt
               </span>
             ) : (
               <>
@@ -1876,22 +1736,8 @@ const ChatView = React.memo(({ projectId }) => {
                 <span>{formatTokenCount(tokenCount.output || 0)} tokens</span>
               </>
             )}
-            <button
-              onClick={() => window.testDirectStreaming && window.testDirectStreaming()}
-              style={{ 
-                padding: '4px 8px', 
-                fontSize: '11px',
-                background: '#FF643D',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Test Streaming
-            </button>
           </div>
-          <ModelInfo theme={theme}>
+          <ModelInfo theme={theme} style={{ flex: 1, justifyContent: 'center', padding: '0 16px' }}>
             <Select
               value={currentModel}
               onChange={(e) => {

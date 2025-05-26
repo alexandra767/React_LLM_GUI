@@ -8,6 +8,7 @@ import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ContentCopy as CopyIcon, Check as CheckIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Psychology as PsychologyIcon, VolumeUp as SpeakerIcon, Stop as StopIcon } from '@mui/icons-material';
 import { Tooltip, IconButton, Box, styled, keyframes, useTheme as useMuiTheme, Collapse, Chip } from '@mui/material';
 import BrainIcon from './BrainIcon';
+import BrainLightningIcon from './BrainLightningIcon';
 import parse from 'html-react-parser';
 import DOMPurify from 'dompurify';
 import copyToClipboard from '../../utils/clipboard';
@@ -105,7 +106,7 @@ const styles = {
     width: '32px',
     height: '32px',
     borderRadius: '50%',
-    backgroundColor: role === 'user' ? '#7c3aed' : '#FF643D',
+    backgroundColor: role === 'user' ? '#7c3aed' : '#252525',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -113,6 +114,11 @@ const styles = {
     overflow: 'hidden',
     color: 'white',
     order: role === 'user' ? 2 : 1,
+    '& img': {
+      width: '24px',
+      height: '24px',
+      objectFit: 'contain'
+    }
   }),
   avatarImage: {
     width: '100%',
@@ -770,7 +776,7 @@ const Message = React.memo(({ message, onDelete }) => {
       className="message-container">
       {!isUser && (
         <div style={getStyle(styles.avatar, safeMessage.role)}>
-          <BrainIcon size={20} color="#FFFFFF" />
+          <BrainLightningIcon size={24} />
         </div>
       )}
       

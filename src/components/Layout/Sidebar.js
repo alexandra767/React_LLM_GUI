@@ -3,6 +3,7 @@ import { styled } from '@mui/material/styles';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import BrainIcon from '../Chat/BrainIcon';
+import BrainLightningIcon from '../Chat/BrainLightningIcon';
 import { 
   Dialog, 
   DialogTitle, 
@@ -605,7 +606,7 @@ const Sidebar = () => {
       <SidebarWrapper>
         <SidebarContainer theme={theme} collapsed={sidebarCollapsed}>
           <LogoSection theme={theme}>
-            <BrainIcon size={36} color="#FF643D" />
+            <BrainLightningIcon size={36} />
             <LogoText theme={theme} collapsed={sidebarCollapsed}>Sephia</LogoText>
           </LogoSection>
           
