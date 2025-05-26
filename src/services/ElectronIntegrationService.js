@@ -3,12 +3,16 @@ import appleCalendarService from './AppleCalendarService';
 import macCalendarService from './MacCalendarService';
 import googleCalendarService from './GoogleCalendarService';
 import ElectronGoogleAuthDirect from './ElectronGoogleAuthDirect';
+import ElectronGoogleAuthDirectPatched from './ElectronGoogleAuthDirectPatched';
 import webSearchService from './WebSearchService';
+
+// Run migration to ensure backward compatibility
+import './MigrateGoogleTokens';
 
 class ElectronIntegrationService {
   constructor() {
     this.isAppleAuthorized = appleCalendarService.loadAuthState();
-    this.googleAuth = new ElectronGoogleAuthDirect();
+    this.googleAuth = new ElectronGoogleAuthDirectPatched();
     this.isGoogleAuthorized = this.googleAuth.isAuthenticated();
   }
 
@@ -33,6 +37,22 @@ class ElectronIntegrationService {
       return events;
     } catch (error) {
       console.error('[Integration] Failed to fetch Google Calendar events:', error);
+      
+      // If we get a 403, try to refresh the token
+      if (error.message && error.message.includes('403')) {
+        console.log('[Integration] Got 403 error, attempting to refresh token...');
+        try {
+          // Force token refresh
+          await this.googleAuth.refreshAccessToken(true); // Force refresh
+          const newAccessToken = await this.googleAuth.getValidAccessToken();
+          const events = await googleCalendarService.getEvents(newAccessToken, startDate, endDate);
+          return events;
+        } catch (refreshError) {
+          console.error('[Integration] Token refresh failed:', refreshError);
+          throw new Error('Google Calendar access denied. Please re-authenticate with Google.');
+        }
+      }
+      
       throw error;
     }
   }

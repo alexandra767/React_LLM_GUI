@@ -6,10 +6,14 @@ import StreamingTest from './components/StreamingTest';
 import './App.css';
 import { testDirectStreaming } from './utils/testDirectStreaming';
 import { exportAllData } from './utils/exportData';
+import { diagnoseGoogleAuth } from './utils/diagnoseGoogleAuth';
+import { testGoogleCalendarAPI } from './utils/testGoogleCalendarAPI';
 
 // Make test function available globally
 window.testDirectStreaming = testDirectStreaming;
 window.exportSephiaData = exportAllData;
+window.diagnoseGoogleAuth = diagnoseGoogleAuth;
+window.testGoogleCalendarAPI = testGoogleCalendarAPI;
 
 // Error boundary component
 class ErrorBoundary extends Component {
