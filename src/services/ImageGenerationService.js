@@ -429,7 +429,9 @@ class ImageGenerationService {
       'realistic': 'realisticVisionV51.safetensors',
       'rv': 'realisticVisionV51.safetensors', // alias
       'sdxl': 'sd_xl_base_1.0.safetensors',
-      'flux': 'flux1-dev.safetensors'
+      'flux': 'flux1-dev.safetensors',
+      'flux1': 'flux1-dev.safetensors',
+      'flux-dev': 'flux1-dev.safetensors'
     };
 
     return modelMap[modelKey] || modelMap['default'];
