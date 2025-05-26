@@ -130,6 +130,11 @@ class ImageGenerationService {
   async generateImage(prompt, options = {}) {
     console.log('[ImageGen] generateImage called with:', { prompt, options });
     
+    // Check if we have an input image for img2img
+    if (options.inputImage) {
+      return this.generateImageFromImage(prompt, options);
+    }
+    
     // Ensure we're connected
     if (!this.isConnected) {
       console.log('[ImageGen] Not connected, attempting to connect...');
@@ -236,6 +241,162 @@ class ImageGenerationService {
         }
       }, 300000);
     });
+  }
+
+  async generateImageFromImage(prompt, options = {}) {
+    console.log('[ImageGen] generateImageFromImage called with:', { prompt, options });
+    
+    // Ensure we're connected
+    if (!this.isConnected) {
+      console.log('[ImageGen] Not connected, attempting to connect...');
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Failed to connect to ComfyUI. Make sure it\'s running with: ./start-comfyui.sh');
+      }
+    }
+
+    const {
+      inputImage,
+      width = 512,
+      height = 512,
+      steps = 20,
+      cfg = 7,
+      sampler = 'euler',
+      scheduler = 'normal',
+      seed = Math.floor(Math.random() * 1000000),
+      model = 'sd15',
+      denoise = 0.75, // How much to change the image (0=no change, 1=complete change)
+      onProgress = null
+    } = options;
+
+    // First, upload the image to ComfyUI
+    const imageName = await this.uploadImage(inputImage);
+
+    // Create img2img workflow
+    const workflow = {
+      "3": {
+        "inputs": {
+          "seed": seed,
+          "steps": steps,
+          "cfg": cfg,
+          "sampler_name": sampler,
+          "scheduler": scheduler,
+          "denoise": denoise,
+          "model": ["4", 0],
+          "positive": ["6", 0],
+          "negative": ["7", 0],
+          "latent_image": ["10", 0]  // Changed to use encoded image
+        },
+        "class_type": "KSampler"
+      },
+      "4": {
+        "inputs": {
+          "ckpt_name": this.getModelName(model)
+        },
+        "class_type": "CheckpointLoaderSimple"
+      },
+      "6": {
+        "inputs": {
+          "text": prompt,
+          "clip": ["4", 1]
+        },
+        "class_type": "CLIPTextEncode"
+      },
+      "7": {
+        "inputs": {
+          "text": "",
+          "clip": ["4", 1]
+        },
+        "class_type": "CLIPTextEncode"
+      },
+      "8": {
+        "inputs": {
+          "samples": ["3", 0],
+          "vae": ["4", 2]
+        },
+        "class_type": "VAEDecode"
+      },
+      "9": {
+        "inputs": {
+          "filename_prefix": "Sephia_img2img",
+          "images": ["8", 0]
+        },
+        "class_type": "SaveImage"
+      },
+      "10": {
+        "inputs": {
+          "pixels": ["11", 0],
+          "vae": ["4", 2]
+        },
+        "class_type": "VAEEncode"
+      },
+      "11": {
+        "inputs": {
+          "image": imageName,
+          "upload": "image"
+        },
+        "class_type": "LoadImage"
+      }
+    };
+
+    // Submit the workflow
+    const promptId = await this.queuePrompt(workflow);
+
+    // Create promise to track completion
+    return new Promise((resolve, reject) => {
+      console.log('[ImageGen] Creating promise for img2img promptId:', promptId);
+      this.pendingRequests.set(promptId, {
+        resolve,
+        reject,
+        onProgress,
+        resolved: false
+      });
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        if (this.pendingRequests.has(promptId)) {
+          console.log('[ImageGen] Timeout reached for promptId:', promptId);
+          this.pendingRequests.delete(promptId);
+          reject(new Error('Image generation timeout'));
+        }
+      }, 300000);
+    });
+  }
+
+  async uploadImage(base64Image) {
+    console.log('[ImageGen] Uploading image to ComfyUI');
+    
+    // Convert base64 to blob
+    const base64Data = base64Image.split(',')[1];
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'image/png' });
+
+    // Create form data
+    const formData = new FormData();
+    formData.append('image', blob, 'input.png');
+    formData.append('type', 'input');
+    formData.append('overwrite', 'true');
+
+    // Upload
+    const response = await fetch(`${this.baseUrl}/upload/image`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to upload image');
+    }
+
+    const result = await response.json();
+    console.log('[ImageGen] Image uploaded:', result);
+    
+    // Return the filename for use in workflow
+    return result.name || 'input.png';
   }
 
   async queuePrompt(workflow) {

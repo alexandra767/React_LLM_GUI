@@ -244,6 +244,40 @@ const AttachmentChip = styled('div')({
   }
 });
 
+const ImagePreview = styled('div')({
+  position: 'relative',
+  display: 'inline-block',
+  marginRight: '8px',
+  marginBottom: '8px',
+  '& img': {
+    width: '80px',
+    height: '80px',
+    objectFit: 'cover',
+    borderRadius: '8px',
+    border: '2px solid rgba(168, 85, 247, 0.3)',
+  },
+  '& .remove-btn': {
+    position: 'absolute',
+    top: '-8px',
+    right: '-8px',
+    backgroundColor: '#ef4444',
+    color: 'white',
+    borderRadius: '50%',
+    width: '20px',
+    height: '20px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: 'bold',
+    border: '2px solid #1E1E1E',
+    '&:hover': {
+      backgroundColor: '#dc2626',
+    }
+  }
+});
+
 const IntegrationsDropdown = styled('div')(({ isOpen }) => ({
   position: 'absolute',
   bottom: 'calc(100% + 8px)',
@@ -971,18 +1005,35 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
     <>
       {attachedFiles.length > 0 && (
         <AttachmentsContainer>
-          {attachedFiles.map((file, index) => (
-            <AttachmentChip key={index}>
-              <span>📎 {file.name} ({formatFileSize(file.size)})</span>
-              <span 
-                className="remove-btn" 
-                onClick={() => removeAttachment(index)}
-                style={{ cursor: 'pointer' }}
-              >
-                ✕
-              </span>
-            </AttachmentChip>
-          ))}
+          {attachedFiles.map((file, index) => {
+            // Show image preview for image files
+            if (file.type.startsWith('image/') && file.content?.startsWith('data:image/')) {
+              return (
+                <ImagePreview key={index}>
+                  <img src={file.content} alt={file.name} />
+                  <span 
+                    className="remove-btn" 
+                    onClick={() => removeAttachment(index)}
+                  >
+                    ✕
+                  </span>
+                </ImagePreview>
+              );
+            }
+            // Show regular chip for non-image files
+            return (
+              <AttachmentChip key={index}>
+                <span>📎 {file.name} ({formatFileSize(file.size)})</span>
+                <span 
+                  className="remove-btn" 
+                  onClick={() => removeAttachment(index)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  ✕
+                </span>
+              </AttachmentChip>
+            );
+          })}
         </AttachmentsContainer>
       )}
       

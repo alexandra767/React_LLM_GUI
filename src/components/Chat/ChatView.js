@@ -550,9 +550,10 @@ const ChatView = React.memo(({ projectId }) => {
     return Math.ceil(text.length / 4);
   };
   
-  const handleSendMessage = async (messageText) => {
+  const handleSendMessage = async (messageText, attachments = []) => {
     console.log('[ChatView] ============ handleSendMessage START ============');
     console.log('[ChatView] handleSendMessage called with text:', messageText);
+    console.log('[ChatView] Attachments:', attachments?.length || 0);
     console.log('[ChatView] Message details:', {
       length: messageText?.length,
       trimmed: messageText?.trim(),
@@ -578,7 +579,7 @@ const ChatView = React.memo(({ projectId }) => {
       console.log('[ChatView] Detected @ command:', messageText);
       try {
         console.log('[ChatView] Calling processCommand...');
-        const commandResult = await processCommand(messageText.trim());
+        const commandResult = await processCommand(messageText.trim(), attachments);
         console.log('[ChatView] Command result:', commandResult);
         
         if (commandResult) {

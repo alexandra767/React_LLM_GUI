@@ -35,8 +35,9 @@ const getIntegrationService = async () => {
   }
 };
 
-export const processCommand = async (message) => {
+export const processCommand = async (message, attachments = []) => {
   console.log('[commandProcessor] Processing command:', message);
+  console.log('[commandProcessor] Attachments:', attachments?.length || 0);
   
   // Get the appropriate service
   const service = await getIntegrationService();
@@ -325,16 +326,27 @@ export const processCommand = async (message) => {
             };
           }
           
-          // Generate the image
-          console.log('[Image] Generating image with prompt:', args);
-          const images = await imageGen.generateImage(args, {
+          // Check if we have an attached image for img2img
+          const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
+          
+          const generationOptions = {
             width: 512,
             height: 512,
             steps: 20,
             onProgress: (progress) => {
               console.log('[Image Generation] Progress:', progress);
             }
-          });
+          };
+          
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            console.log('[Image] Using attached image for img2img generation');
+            generationOptions.inputImage = attachedImage.content;
+            generationOptions.denoise = 0.75; // Default denoise strength
+          }
+          
+          // Generate the image
+          console.log('[Image] Generating image with prompt:', args);
+          const images = await imageGen.generateImage(args, generationOptions);
           
           console.log('[Image] Generation result:', images);
           console.log('[Image] Generation result details:', JSON.stringify(images));
