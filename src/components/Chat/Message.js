@@ -133,7 +133,7 @@ const styles = {
   messageBubble: (role) => ({
     backgroundColor: role === 'user' ? '#7c3aed' : '#2A2A2A',
     borderRadius: role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
-    padding: role === 'user' ? '12px 18px' : '12px 48px 12px 18px', // Add right padding for assistant messages
+    padding: role === 'user' ? '12px 18px' : '12px 18px', // Same padding for both user and assistant messages
     wordBreak: 'break-word',
     position: 'relative',
     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
@@ -800,16 +800,163 @@ const Message = React.memo(({ message, onDelete }) => {
         }
         
         if (isHtml) {
-          // Sanitize and render HTML
-          const cleanHTML = DOMPurify.sanitize(answer, {
-            ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'img'],
-            ALLOWED_ATTR: ['href', 'src', 'alt', 'target', 'rel', 'style', 'class']
-          });
+          // Check if this is email content from @gmail command
+          const isEmailContent = answer.includes('From:') || answer.includes('Subject:') || answer.includes('Date:');
+          // Check if this is web search content
+          const isWebSearchContent = answer.includes('search results') || answer.includes('Search Results') || 
+                                    (answer.includes('Title:') && answer.includes('URL:')) ||
+                                    answer.includes('Web search for');
+          // Check if this is Google Drive content
+          const isDriveContent = answer.includes('Google Drive') || answer.includes('Drive files') || 
+                               answer.includes('File:') || answer.includes('Modified:') ||
+                               answer.includes('drive.google.com');
+          // Check if this is calendar content
+          const isCalendarContent = answer.includes('Calendar') || answer.includes('Event:') || 
+                                  answer.includes('Start:') || answer.includes('End:') ||
+                                  answer.includes('Location:') || answer.includes('Attendees:');
           
-          if (cleanHTML.trim()) {
-            return parse(cleanHTML);
+          if (isEmailContent) {
+            // Parse email content and format nicely
+            const emailEntries = answer.split(/(?=From:|Subject:|Date:)/).filter(entry => entry.trim());
+            
+            return (
+              <div style={{ color: '#FFFFFF' }}>
+                {emailEntries.map((email, index) => {
+                  const cleanEmail = DOMPurify.sanitize(email, {
+                    ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u'],
+                    ALLOWED_ATTR: []
+                  }).replace(/style="[^"]*"/g, '');
+                  
+                  return (
+                    <div 
+                      key={index}
+                      style={{
+                        backgroundColor: 'rgba(66, 133, 244, 0.1)', // Gmail blue tint
+                        border: '1px solid rgba(66, 133, 244, 0.2)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: index < emailEntries.length - 1 ? '12px' : '0',
+                        color: '#FFFFFF'
+                      }}
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: cleanEmail }} />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          } else if (isWebSearchContent) {
+            // Parse web search results
+            const searchEntries = answer.split(/(?=Title:|URL:|Source:)/).filter(entry => entry.trim());
+            
+            return (
+              <div style={{ color: '#FFFFFF' }}>
+                {searchEntries.map((result, index) => {
+                  const cleanResult = DOMPurify.sanitize(result, {
+                    ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u', 'a'],
+                    ALLOWED_ATTR: ['href', 'target', 'rel']
+                  }).replace(/style="[^"]*"/g, '');
+                  
+                  return (
+                    <div 
+                      key={index}
+                      style={{
+                        backgroundColor: 'rgba(52, 168, 83, 0.1)', // Google green tint
+                        border: '1px solid rgba(52, 168, 83, 0.2)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: index < searchEntries.length - 1 ? '12px' : '0',
+                        color: '#FFFFFF'
+                      }}
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: cleanResult }} />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          } else if (isDriveContent) {
+            // Parse Google Drive content
+            const driveEntries = answer.split(/(?=File:|Name:|Modified:|Created:)/).filter(entry => entry.trim());
+            
+            return (
+              <div style={{ color: '#FFFFFF' }}>
+                {driveEntries.map((file, index) => {
+                  const cleanFile = DOMPurify.sanitize(file, {
+                    ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u', 'a'],
+                    ALLOWED_ATTR: ['href', 'target', 'rel']
+                  }).replace(/style="[^"]*"/g, '');
+                  
+                  return (
+                    <div 
+                      key={index}
+                      style={{
+                        backgroundColor: 'rgba(255, 193, 7, 0.1)', // Google Drive yellow tint
+                        border: '1px solid rgba(255, 193, 7, 0.2)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: index < driveEntries.length - 1 ? '12px' : '0',
+                        color: '#FFFFFF'
+                      }}
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: cleanFile }} />
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          } else if (isCalendarContent) {
+            // Parse calendar events
+            const calendarEntries = answer.split(/(?=Event:|Title:|Start:|End:)/).filter(entry => entry.trim());
+            
+            return (
+              <div style={{ color: '#FFFFFF' }}>
+                {calendarEntries.map((event, index) => {
+                  const cleanEvent = DOMPurify.sanitize(event, {
+                    ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u'],
+                    ALLOWED_ATTR: []
+                  }).replace(/style="[^"]*"/g, '');
+                  
+                  return (
+                    <div 
+                      key={index}
+                      style={{
+                        backgroundColor: 'rgba(234, 67, 53, 0.1)', // Google Calendar red tint
+                        border: '1px solid rgba(234, 67, 53, 0.2)',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: index < calendarEntries.length - 1 ? '12px' : '0',
+                        color: '#FFFFFF'
+                      }}
+                    >
+                      <div dangerouslySetInnerHTML={{ __html: cleanEvent }} />
+                    </div>
+                  );
+                })}
+              </div>
+            );
           } else {
-            return <p>Unable to display content</p>;
+            // Regular HTML content
+            const cleanHTML = DOMPurify.sanitize(answer, {
+              ALLOWED_TAGS: ['div', 'span', 'p', 'br', 'strong', 'em', 'u', 'code', 'pre', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'img'],
+              ALLOWED_ATTR: ['href', 'src', 'alt', 'target', 'rel']
+            });
+            
+            if (cleanHTML.trim()) {
+              return (
+                <div 
+                  style={{
+                    color: '#FFFFFF',
+                    backgroundColor: 'transparent'
+                  }}
+                  dangerouslySetInnerHTML={{
+                    __html: cleanHTML.replace(/style="[^"]*"/g, '').replace(/background[^;]*;?/gi, '')
+                  }}
+                />
+              );
+            } else {
+              return <p>Unable to display content</p>;
+            }
           }
         } else {
           // Render as Markdown
@@ -958,8 +1105,8 @@ const Message = React.memo(({ message, onDelete }) => {
       onMouseLeave={(e) => {
         const actions = e.currentTarget.querySelector('.message-actions');
         if (actions) {
-          actions.style.opacity = '1'; // Keep visible for better UX
-          actions.style.visibility = 'visible';
+          actions.style.opacity = '0'; // Hide when not hovering
+          actions.style.visibility = 'hidden';
         }
       }}
     >
@@ -998,8 +1145,8 @@ const Message = React.memo(({ message, onDelete }) => {
               padding: '4px',
               boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
               backdropFilter: 'blur(8px)',
-              opacity: 1, // Always visible
-              visibility: 'visible', // Always visible
+              opacity: 0, // Hide by default
+              visibility: 'hidden', // Hide by default
               transition: 'all 0.2s ease',
             }} className="message-actions">
               <Box sx={{ display: 'flex', gap: '4px' }}>
