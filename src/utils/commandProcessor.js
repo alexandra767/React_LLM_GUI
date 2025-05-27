@@ -304,7 +304,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         if (!args) {
           return {
             type: 'error',
-            content: 'Please provide an image description. Example: @flux a sunset over mountains'
+            content: 'Please provide an image description.\nExamples:\n  @flux a sunset over mountains (uses 12 steps)\n  @flux:20 a detailed portrait (uses 20 steps)\n  @flux:30 complex scene with many details (uses 30 steps)'
           };
         }
         
@@ -328,18 +328,27 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           // Check if we have an attached image for img2img
           const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
           
+          // Parse steps from command if specified (e.g., @flux:20 prompt)
+          let steps = 12; // Default
+          let actualArgs = args;
+          const stepsMatch = args.match(/^:(\d+)\s+(.+)/);
+          if (stepsMatch) {
+            steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
+            actualArgs = stepsMatch[2];
+          }
+          
           const generationOptions = {
             width: 768,
             height: 768,
-            steps: 12, // Better quality for photorealism
+            steps: steps,
             model: 'flux-dev', // Use the new Flux model
             onProgress: (progress) => {
               console.log('[Flux Generation] Progress:', progress);
               if (setImageGenerationProgress) {
                 setImageGenerationProgress({
                   currentStep: progress.currentStep || 0,
-                  totalSteps: 12,
-                  message: 'Generating with Flux.1 Dev...',
+                  totalSteps: steps,
+                  message: `Generating with Flux.1 Dev (${steps} steps)...`,
                   estimatedTime: progress.estimatedTime || null
                 });
               }
@@ -356,15 +365,19 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           if (setImageGenerationProgress) {
             setImageGenerationProgress({
               currentStep: 0,
-              totalSteps: 12,
-              message: 'Starting Flux generation...',
-              estimatedTime: '~35-40 minutes'
+              totalSteps: steps,
+              message: `Starting Flux generation (${steps} steps)...`,
+              estimatedTime: steps <= 10 ? '~30 minutes' : `~${Math.round(steps * 3)} minutes`
             });
           }
 
+          // Enhance prompt with quality modifiers
+          const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, professional lighting, sharp focus, 8k resolution';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
           // Generate the image
-          console.log('[Flux] Generating image with prompt:', args);
-          const images = await imageGen.generateImage(args, generationOptions);
+          console.log('[Flux] Generating image with enhanced prompt:', enhancedPrompt);
+          const images = await imageGen.generateImage(enhancedPrompt, generationOptions);
           
           console.log('[Flux] Generation result:', images);
           
