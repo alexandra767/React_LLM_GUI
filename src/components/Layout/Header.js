@@ -1,11 +1,19 @@
 import React from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
+import { useApp } from '../../context/AppContext';
+import ProgressBar from '../Chat/ProgressBar';
 
 const HeaderContainer = styled('header')({
-  height: '50px',
   backgroundColor: '#1E1E1E',
   borderBottom: '1px solid #333333',
+  display: 'flex',
+  flexDirection: 'column',
+  position: 'relative'
+});
+
+const HeaderContent = styled('div')({
+  height: '50px',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -69,6 +77,7 @@ const ModelDropdown = styled('select')({
 
 const Header = ({ selectedModel, onModelChange, models = [] }) => {
   const theme = useTheme();
+  const { imageGenerationProgress } = useApp();
   
   // Debug logging
   console.log('Header - models:', models);
@@ -82,26 +91,38 @@ const Header = ({ selectedModel, onModelChange, models = [] }) => {
   
   return (
     <HeaderContainer>
-      <HeaderTitle>Sephia</HeaderTitle>
+      <HeaderContent>
+        <HeaderTitle>Sephia</HeaderTitle>
+        
+        <ModelSelector>
+          <span>Model</span>
+          <ModelDropdown
+            value={selectedModel || ''}
+            onChange={(e) => {
+              console.log('Header - Model selected:', e.target.value);
+              onModelChange(e);
+            }}
+          >
+            {/* Add a default option if no model is selected */}
+            {!selectedModel && <option value="">Select a model</option>}
+            {models.map((model) => (
+              <option key={model.id || model.name} value={model.id || model.name} disabled={model.disabled}>
+                {model.name} {model.size ? ` (${model.size})` : ''}
+              </option>
+            ))}
+          </ModelDropdown>
+        </ModelSelector>
+      </HeaderContent>
       
-      <ModelSelector>
-        <span>Model</span>
-        <ModelDropdown
-          value={selectedModel || ''}
-          onChange={(e) => {
-            console.log('Header - Model selected:', e.target.value);
-            onModelChange(e);
-          }}
-        >
-          {/* Add a default option if no model is selected */}
-          {!selectedModel && <option value="">Select a model</option>}
-          {models.map((model) => (
-            <option key={model.id || model.name} value={model.id || model.name} disabled={model.disabled}>
-              {model.name} {model.size ? ` (${model.size})` : ''}
-            </option>
-          ))}
-        </ModelDropdown>
-      </ModelSelector>
+      {/* Image Generation Progress Bar */}
+      {imageGenerationProgress && (
+        <div style={{ padding: '0 24px 8px' }}>
+          <ProgressBar 
+            progress={imageGenerationProgress} 
+            isVisible={true} 
+          />
+        </div>
+      )}
     </HeaderContainer>
   );
 };

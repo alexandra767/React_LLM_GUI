@@ -358,15 +358,18 @@ class ImageGenerationService {
 
       // No fallback needed - WebSocket messages are working correctly
 
-      // Timeout after 60 minutes for Flux, 5 minutes for other models
-      const timeoutMs = workflow["4"]?.class_type === "UNETLoader" ? 3600000 : 300000;
-      setTimeout(() => {
-        if (this.pendingRequests.has(promptId)) {
-          console.log('[ImageGen] Timeout reached for promptId:', promptId);
-          this.pendingRequests.delete(promptId);
-          reject(new Error('Image generation timeout'));
-        }
-      }, timeoutMs);
+      // No timeout for Flux models - they can take 30-60+ minutes
+      // Keep a reasonable timeout for other models
+      if (workflow["4"]?.class_type !== "UNETLoader") {
+        const timeoutMs = 300000; // 5 minutes for non-Flux models
+        setTimeout(() => {
+          if (this.pendingRequests.has(promptId)) {
+            console.log('[ImageGen] Timeout reached for promptId:', promptId);
+            this.pendingRequests.delete(promptId);
+            reject(new Error('Image generation timeout'));
+          }
+        }, timeoutMs);
+      }
     });
   }
 
@@ -480,15 +483,18 @@ class ImageGenerationService {
         totalSteps: steps
       });
 
-      // Timeout after 60 minutes for Flux, 5 minutes for other models
-      const timeoutMs = workflow["4"]?.class_type === "UNETLoader" ? 3600000 : 300000;
-      setTimeout(() => {
-        if (this.pendingRequests.has(promptId)) {
-          console.log('[ImageGen] Timeout reached for promptId:', promptId);
-          this.pendingRequests.delete(promptId);
-          reject(new Error('Image generation timeout'));
-        }
-      }, timeoutMs);
+      // No timeout for img2img - can take a long time
+      // Keep a reasonable timeout for non-Flux models
+      if (workflow["4"]?.class_type !== "CheckpointLoaderSimple" || !this.getModelName(model).includes('flux')) {
+        const timeoutMs = 300000; // 5 minutes for non-Flux models
+        setTimeout(() => {
+          if (this.pendingRequests.has(promptId)) {
+            console.log('[ImageGen] Timeout reached for promptId:', promptId);
+            this.pendingRequests.delete(promptId);
+            reject(new Error('Image generation timeout'));
+          }
+        }, timeoutMs);
+      }
     });
   }
 

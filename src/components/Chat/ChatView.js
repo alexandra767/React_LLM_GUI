@@ -8,7 +8,6 @@ import ChatInput from './ChatInput';
 import TokenDisplay from './TokenDisplay';
 import BrainIcon from './BrainIcon';
 import BrainLightningIcon from './BrainLightningIcon';
-import ProgressBar from './ProgressBar';
 import llmService from '../../services/LLMService';
 import streamingManager from '../../services/StreamingManager';
 import { useStreamingProtection } from '../../hooks/useStreamingProtection';
@@ -1724,13 +1723,6 @@ const ChatView = React.memo(({ projectId }) => {
         />
       </div>
       
-      {/* Image Generation Progress Bar */}
-      {imageGenerationProgress && (
-        <ProgressBar 
-          progress={imageGenerationProgress} 
-          isVisible={true} 
-        />
-      )}
       
       <div style={{ marginTop: 'auto' }}>
         <StatusBar theme={theme}>
