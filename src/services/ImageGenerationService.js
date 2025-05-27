@@ -129,6 +129,7 @@ class ImageGenerationService {
 
   async generateImage(prompt, options = {}) {
     console.log('[ImageGen] generateImage called with:', { prompt, options });
+    console.log('[ImageGen] Using steps:', options.steps, 'for model:', options.model);
     
     // Check if we have an input image for img2img
     if (options.inputImage) {
@@ -316,14 +317,15 @@ class ImageGenerationService {
 
       // No fallback needed - WebSocket messages are working correctly
 
-      // Timeout after 5 minutes
+      // Timeout after 60 minutes for Flux, 5 minutes for other models
+      const timeoutMs = workflow["4"]?.class_type === "UNETLoader" ? 3600000 : 300000;
       setTimeout(() => {
         if (this.pendingRequests.has(promptId)) {
           console.log('[ImageGen] Timeout reached for promptId:', promptId);
           this.pendingRequests.delete(promptId);
           reject(new Error('Image generation timeout'));
         }
-      }, 300000);
+      }, timeoutMs);
     });
   }
 
@@ -436,14 +438,15 @@ class ImageGenerationService {
         resolved: false
       });
 
-      // Timeout after 5 minutes
+      // Timeout after 60 minutes for Flux, 5 minutes for other models
+      const timeoutMs = workflow["4"]?.class_type === "UNETLoader" ? 3600000 : 300000;
       setTimeout(() => {
         if (this.pendingRequests.has(promptId)) {
           console.log('[ImageGen] Timeout reached for promptId:', promptId);
           this.pendingRequests.delete(promptId);
           reject(new Error('Image generation timeout'));
         }
-      }, 300000);
+      }, timeoutMs);
     });
   }
 

@@ -329,9 +329,9 @@ export const processCommand = async (message, attachments = []) => {
           const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
           
           const generationOptions = {
-            width: 512,
-            height: 512,
-            steps: 20,
+            width: 768,
+            height: 768,
+            steps: 12, // Better quality for photorealism
             model: 'flux-dev', // Use the new Flux model
             onProgress: (progress) => {
               console.log('[Flux Generation] Progress:', progress);
