@@ -87,10 +87,36 @@ class ImageGenerationService {
     if (type === 'executing' && data?.prompt_id) {
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
-        request.onProgress?.({ status: 'executing', node: data.node });
+        // Track execution state and estimate progress
+        if (!request.executionState) {
+          request.executionState = { startTime: Date.now(), nodesSeen: new Set() };
+        }
+        
+        request.executionState.nodesSeen.add(data.node);
+        const nodeCount = request.executionState.nodesSeen.size;
+        
+        // Estimate progress based on nodes executed (rough approximation)
+        // For Flux: typically 8-12 major nodes, with KSampler being the main one
+        if (data.node === '3') { // KSampler node - this is where the main generation happens
+          // Start showing meaningful progress when KSampler starts
+          request.onProgress?.({ 
+            currentStep: 1, 
+            totalSteps: request.totalSteps || 12,
+            message: 'Generating with Flux.1 Dev...',
+            status: 'sampling'
+          });
+        } else {
+          request.onProgress?.({ 
+            currentStep: Math.min(nodeCount, (request.totalSteps || 12) - 1), 
+            totalSteps: request.totalSteps || 12,
+            message: 'Processing...',
+            status: 'executing', 
+            node: data.node 
+          });
+        }
       }
     } else if (type === 'progress' && data?.prompt_id) {
-      // Handle progress updates from ComfyUI
+      // Handle progress updates from ComfyUI (if they exist)
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
         const { value, max } = data;
@@ -326,7 +352,8 @@ class ImageGenerationService {
         resolve,
         reject,
         onProgress,
-        resolved: false
+        resolved: false,
+        totalSteps: steps
       });
 
       // No fallback needed - WebSocket messages are working correctly
@@ -449,7 +476,8 @@ class ImageGenerationService {
         resolve,
         reject,
         onProgress,
-        resolved: false
+        resolved: false,
+        totalSteps: steps
       });
 
       // Timeout after 60 minutes for Flux, 5 minutes for other models
