@@ -299,6 +299,79 @@ export const processCommand = async (message, attachments = []) => {
           };
         }
 
+      case '@flux':
+        // @flux [prompt] - Generate an image with Flux model
+        if (!args) {
+          return {
+            type: 'error',
+            content: 'Please provide an image description. Example: @flux a sunset over mountains'
+          };
+        }
+        
+        try {
+          console.log('[Flux] Starting Flux image generation for:', args);
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          console.log('[Flux] Checking ComfyUI status...');
+          const status = await imageGen.checkStatus();
+          console.log('[Flux] ComfyUI status:', status);
+          
+          if (!status.running) {
+            return {
+              type: 'error',
+              content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Check if we have an attached image for img2img
+          const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
+          
+          const generationOptions = {
+            width: 512,
+            height: 512,
+            steps: 20,
+            model: 'flux-dev', // Use the new Flux model
+            onProgress: (progress) => {
+              console.log('[Flux Generation] Progress:', progress);
+            }
+          };
+          
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            console.log('[Flux] Using attached image for img2img generation');
+            generationOptions.inputImage = attachedImage.content;
+            generationOptions.denoise = 0.75; // Default denoise strength
+          }
+          
+          // Generate the image
+          console.log('[Flux] Generating image with prompt:', args);
+          const images = await imageGen.generateImage(args, generationOptions);
+          
+          console.log('[Flux] Generation result:', images);
+          
+          if (images && images.length > 0) {
+            const imageUrl = images[0].url;
+            console.log('[Flux] Image URL:', imageUrl);
+            return {
+              type: 'image',
+              content: `Generated image with Flux for: "${args}"`,
+              imageUrl: imageUrl
+            };
+          } else {
+            return {
+              type: 'error',
+              content: 'Flux image was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (fluxError) {
+          console.error('[Flux] Image generation error:', fluxError);
+          return {
+            type: 'error',
+            content: `Flux image generation error: ${fluxError.message}`
+          };
+        }
+
       case '@image':
       case '@img':
         // @image [prompt] - Generate an image
@@ -425,6 +498,7 @@ export const processCommand = async (message, attachments = []) => {
 • @drive [search] - List or search Google Drive files
 • @calendar [days] - Show Google Calendar events (default: 7 days)
 • @image [prompt] - Generate an image locally
+• @flux [prompt] - Generate an image with Flux model
 • @help - Show this help message
 
 Examples:
@@ -433,6 +507,7 @@ Examples:
 • @calendar 14
 • @search weather tomorrow
 • @image a beautiful sunset
+• @flux a cyberpunk city at night
 • @help`
           };
         }
@@ -445,6 +520,7 @@ Examples:
 • @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @search [query] - Search the web
 • @image [prompt] - Generate an image locally
+• @flux [prompt] - Generate an image with Flux model
 • @help - Show this help message
 
 Examples:
@@ -454,7 +530,8 @@ Examples:
 • @calendar 14 google - Show Google Calendar for next 14 days
 • @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
 • @search weather tomorrow
-• @image a cyberpunk city at night`
+• @image a cyberpunk city at night
+• @flux a futuristic landscape`
         };
 
       default:

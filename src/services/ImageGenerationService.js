@@ -157,65 +157,149 @@ class ImageGenerationService {
     } = options;
 
     // Create a simple workflow for text2img
-    const workflow = {
-      "3": {
-        "inputs": {
-          "seed": seed,
-          "steps": steps,
-          "cfg": cfg,
-          "sampler_name": sampler,
-          "scheduler": scheduler,
-          "denoise": 1,
-          "model": ["4", 0],
-          "positive": ["6", 0],
-          "negative": ["7", 0],
-          "latent_image": ["5", 0]
+    // Check if this is a Flux model and use appropriate workflow
+    const isFluxModel = model.includes('flux');
+    
+    let workflow;
+    
+    if (isFluxModel) {
+      // Flux-specific workflow with separate model and CLIP loaders
+      workflow = {
+        "3": {
+          "inputs": {
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler,
+            "scheduler": scheduler,
+            "denoise": 1,
+            "model": ["4", 0],
+            "positive": ["6", 0],
+            "negative": ["7", 0],
+            "latent_image": ["5", 0]
+          },
+          "class_type": "KSampler"
         },
-        "class_type": "KSampler"
-      },
-      "4": {
-        "inputs": {
-          "ckpt_name": this.getModelName(model)
+        "4": {
+          "inputs": {
+            "unet_name": this.getModelName(model),
+            "weight_dtype": "default"
+          },
+          "class_type": "UNETLoader"
         },
-        "class_type": "CheckpointLoaderSimple"
-      },
-      "5": {
-        "inputs": {
-          "width": width,
-          "height": height,
-          "batch_size": 1
+        "5": {
+          "inputs": {
+            "width": width,
+            "height": height,
+            "batch_size": 1
+          },
+          "class_type": "EmptyLatentImage"
         },
-        "class_type": "EmptyLatentImage"
-      },
-      "6": {
-        "inputs": {
-          "text": prompt,
-          "clip": ["4", 1]
+        "6": {
+          "inputs": {
+            "text": prompt,
+            "clip": ["10", 0]
+          },
+          "class_type": "CLIPTextEncode"
         },
-        "class_type": "CLIPTextEncode"
-      },
-      "7": {
-        "inputs": {
-          "text": "",
-          "clip": ["4", 1]
+        "7": {
+          "inputs": {
+            "text": "",
+            "clip": ["10", 0]
+          },
+          "class_type": "CLIPTextEncode"
         },
-        "class_type": "CLIPTextEncode"
-      },
-      "8": {
-        "inputs": {
-          "samples": ["3", 0],
-          "vae": ["4", 2]
+        "8": {
+          "inputs": {
+            "samples": ["3", 0],
+            "vae": ["11", 0]
+          },
+          "class_type": "VAEDecode"
         },
-        "class_type": "VAEDecode"
-      },
-      "9": {
-        "inputs": {
-          "filename_prefix": "Sephia",
-          "images": ["8", 0]
+        "9": {
+          "inputs": {
+            "filename_prefix": "Sephia",
+            "images": ["8", 0]
+          },
+          "class_type": "SaveImage"
         },
-        "class_type": "SaveImage"
-      }
-    };
+        "10": {
+          "inputs": {
+            "clip_name1": "clip_l.safetensors",
+            "clip_name2": "t5xxl_fp16.safetensors",
+            "type": "flux"
+          },
+          "class_type": "DualCLIPLoader"
+        },
+        "11": {
+          "inputs": {
+            "vae_name": "ae.safetensors"
+          },
+          "class_type": "VAELoader"
+        }
+      };
+    } else {
+      // Standard workflow for non-Flux models
+      workflow = {
+        "3": {
+          "inputs": {
+            "seed": seed,
+            "steps": steps,
+            "cfg": cfg,
+            "sampler_name": sampler,
+            "scheduler": scheduler,
+            "denoise": 1,
+            "model": ["4", 0],
+            "positive": ["6", 0],
+            "negative": ["7", 0],
+            "latent_image": ["5", 0]
+          },
+          "class_type": "KSampler"
+        },
+        "4": {
+          "inputs": {
+            "ckpt_name": this.getModelName(model)
+          },
+          "class_type": "CheckpointLoaderSimple"
+        },
+        "5": {
+          "inputs": {
+            "width": width,
+            "height": height,
+            "batch_size": 1
+          },
+          "class_type": "EmptyLatentImage"
+        },
+        "6": {
+          "inputs": {
+            "text": prompt,
+            "clip": ["4", 1]
+          },
+          "class_type": "CLIPTextEncode"
+        },
+        "7": {
+          "inputs": {
+            "text": "",
+            "clip": ["4", 1]
+          },
+          "class_type": "CLIPTextEncode"
+        },
+        "8": {
+          "inputs": {
+            "samples": ["3", 0],
+            "vae": ["4", 2]
+          },
+          "class_type": "VAEDecode"
+        },
+        "9": {
+          "inputs": {
+            "filename_prefix": "Sephia",
+            "images": ["8", 0]
+          },
+          "class_type": "SaveImage"
+        }
+      };
+    }
 
     // Submit the workflow
     const promptId = await this.queuePrompt(workflow);
@@ -431,7 +515,7 @@ class ImageGenerationService {
       'sdxl': 'sd_xl_base_1.0.safetensors',
       'flux': 'flux1-dev.safetensors',
       'flux1': 'flux1-dev.safetensors',
-      'flux-dev': 'flux1-dev.safetensors'
+      'flux-dev': 'flux1-dev.safetensors' // New Flux model for @flux command
     };
 
     return modelMap[modelKey] || modelMap['default'];
