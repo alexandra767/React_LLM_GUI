@@ -51,8 +51,15 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 
   // Parse command and arguments
   const parts = message.split(' ');
-  const command = parts[0].toLowerCase();
-  const args = parts.slice(1).join(' ');
+  let command = parts[0].toLowerCase();
+  let args = parts.slice(1).join(' ');
+  
+  // Handle @flux:STEPS syntax
+  if (command.startsWith('@flux:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @flux
+    args = colonParts[1] + ' ' + args; // :20 prompt becomes "20 prompt"
+  }
 
   try {
     switch (command) {
@@ -331,7 +338,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           // Parse steps from command if specified (e.g., @flux:20 prompt)
           let steps = 12; // Default
           let actualArgs = args;
-          const stepsMatch = args.match(/^:(\d+)\s+(.+)/);
+          const stepsMatch = args.match(/^(\d+)\s+(.+)/);
           if (stepsMatch) {
             steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
             actualArgs = stepsMatch[2];
@@ -371,8 +378,8 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             });
           }
 
-          // Enhance prompt with quality modifiers
-          const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, professional lighting, sharp focus, 8k resolution';
+          // Enhance prompt with quality modifiers (disabled for now to fix blur)
+          const qualityEnhancers = ''; // Temporarily disabled
           const enhancedPrompt = actualArgs + qualityEnhancers;
           
           // Generate the image
@@ -545,7 +552,8 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @drive [search] - List or search Google Drive files
 • @calendar [days] - Show Google Calendar events (default: 7 days)
 • @image [prompt] - Generate an image locally
-• @flux [prompt] - Generate an image with Flux model
+• @flux [prompt] - Generate an image with Flux model (12 steps)
+• @flux:STEPS [prompt] - Generate with custom steps (1-50)
 • @help - Show this help message
 
 Examples:
@@ -554,7 +562,9 @@ Examples:
 • @calendar 14
 • @search weather tomorrow
 • @image a beautiful sunset
-• @flux a cyberpunk city at night
+• @flux a cyberpunk city at night (uses 12 steps)
+• @flux:20 a detailed portrait (uses 20 steps)
+• @flux:30 complex scene with many details (uses 30 steps)
 • @help`
           };
         }
@@ -567,7 +577,8 @@ Examples:
 • @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @search [query] - Search the web
 • @image [prompt] - Generate an image locally
-• @flux [prompt] - Generate an image with Flux model
+• @flux [prompt] - Generate an image with Flux model (12 steps)
+• @flux:STEPS [prompt] - Generate with custom steps (1-50)
 • @help - Show this help message
 
 Examples:
@@ -578,7 +589,9 @@ Examples:
 • @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
 • @search weather tomorrow
 • @image a cyberpunk city at night
-• @flux a futuristic landscape`
+• @flux a futuristic landscape (uses 12 steps)
+• @flux:20 a detailed portrait (uses 20 steps)
+• @flux:30 complex scene with many details (uses 30 steps)`
         };
 
       default:
