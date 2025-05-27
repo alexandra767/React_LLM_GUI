@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test ComfyUI Connection</title>
+</head>
+<body>
+    <h1>ComfyUI Test</h1>
+    <button onclick="testConnection()">Test ComfyUI</button>
+    <button onclick="testNoise()">Generate Noise Pattern</button>
+    <div id="result"></div>
+    <img id="image" style="max-width: 512px; margin-top: 20px; display: none;">
+
+    <script>
+    async function testConnection() {
+        try {
+            const response = await fetch('http://localhost:8188/system_stats');
+            const data = await response.json();
+            document.getElementById('result').innerHTML = `
+                <h3>✅ ComfyUI is running!</h3>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+        } catch (error) {
+            document.getElementById('result').innerHTML = `
+                <h3>❌ ComfyUI not running</h3>
+                <p>Start it with: ./start-comfyui.sh</p>
+            `;
+        }
+    }
+
+    async function testNoise() {
+        const workflow = {
+            "1": {
+                "inputs": {
+                    "width": 512,
+                    "height": 512,
+                    "batch_size": 1
+                },
+                "class_type": "EmptyLatentImage"
+            },
+            "2": {
+                "inputs": {
+                    "noise_seed": Math.floor(Math.random() * 1000000),
+                    "steps": 1,
+                    "cfg": 1,
+                    "sampler_name": "euler",
+                    "scheduler": "normal",
+                    "denoise": 1,
+                    "model": null,
+                    "positive": null,
+                    "negative": null,
+                    "latent_image": ["1", 0]
+                },
+                "class_type": "KSamplerAdvanced"
+            }
+        };
+
+        try {
+            const response = await fetch('http://localhost:8188/prompt', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: workflow })
+            });
+            
+            const data = await response.json();
+            if (data.error) {
+                document.getElementById('result').innerHTML = `
+                    <h3>Need to download a model first</h3>
+                    <p>The Stable Diffusion model is still downloading...</p>
+                `;
+            } else {
+                document.getElementById('result').innerHTML = `
+                    <h3>Workflow queued!</h3>
+                    <p>ID: ${data.prompt_id}</p>
+                `;
+            }
+        } catch (error) {
+            document.getElementById('result').innerHTML = `
+                <h3>Error: ${error.message}</h3>
+            `;
+        }
+    }
+    </script>
+</body>
+</html>

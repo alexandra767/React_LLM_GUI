@@ -35,7 +35,7 @@ const getIntegrationService = async () => {
   }
 };
 
-export const processCommand = async (message, attachments = []) => {
+export const processCommand = async (message, attachments = [], { setImageGenerationProgress } = {}) => {
   console.log('[commandProcessor] Processing command:', message);
   console.log('[commandProcessor] Attachments:', attachments?.length || 0);
   
@@ -335,6 +335,14 @@ export const processCommand = async (message, attachments = []) => {
             model: 'flux-dev', // Use the new Flux model
             onProgress: (progress) => {
               console.log('[Flux Generation] Progress:', progress);
+              if (setImageGenerationProgress) {
+                setImageGenerationProgress({
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: 12,
+                  message: 'Generating with Flux.1 Dev...',
+                  estimatedTime: progress.estimatedTime || null
+                });
+              }
             }
           };
           
@@ -344,6 +352,16 @@ export const processCommand = async (message, attachments = []) => {
             generationOptions.denoise = 0.75; // Default denoise strength
           }
           
+          // Set initial progress
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress({
+              currentStep: 0,
+              totalSteps: 12,
+              message: 'Starting Flux generation...',
+              estimatedTime: '~35-40 minutes'
+            });
+          }
+
           // Generate the image
           console.log('[Flux] Generating image with prompt:', args);
           const images = await imageGen.generateImage(args, generationOptions);
@@ -351,6 +369,11 @@ export const processCommand = async (message, attachments = []) => {
           console.log('[Flux] Generation result:', images);
           
           if (images && images.length > 0) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
             const imageUrl = images[0].url;
             console.log('[Flux] Image URL:', imageUrl);
             return {
@@ -359,6 +382,11 @@ export const processCommand = async (message, attachments = []) => {
               imageUrl: imageUrl
             };
           } else {
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
             return {
               type: 'error',
               content: 'Flux image was generated but could not be displayed. Check the output folder.'
@@ -366,6 +394,12 @@ export const processCommand = async (message, attachments = []) => {
           }
         } catch (fluxError) {
           console.error('[Flux] Image generation error:', fluxError);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
           return {
             type: 'error',
             content: `Flux image generation error: ${fluxError.message}`

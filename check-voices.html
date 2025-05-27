@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Quality Test</title>
+</head>
+<body>
+    <h1>Available Voices</h1>
+    <div id="voices"></div>
+    <br>
+    <button onclick="testVoice()">Test Best Voice</button>
+    <br><br>
+    <textarea id="testText" placeholder="Enter text to test voices">Hello, this is a test of the voice quality. How natural does this sound to you?</textarea>
+
+    <script>
+        let voices = [];
+        let bestVoice = null;
+
+        function loadVoices() {
+            voices = speechSynthesis.getVoices();
+            console.log('All available voices:', voices);
+            
+            const voicesDiv = document.getElementById('voices');
+            voicesDiv.innerHTML = '';
+            
+            // Group voices by quality
+            const enhancedVoices = voices.filter(v => 
+                v.name.includes('Enhanced') || 
+                v.name.includes('Premium') || 
+                v.name.includes('Samantha') ||
+                v.name.includes('Alex') ||
+                v.name.includes('Ava')
+            );
+            
+            const regularVoices = voices.filter(v => 
+                !enhancedVoices.includes(v) && v.lang.startsWith('en')
+            );
+            
+            // Find the best voice
+            bestVoice = 
+                voices.find(v => v.name.toLowerCase().includes('samantha')) ||
+                voices.find(v => v.name.toLowerCase().includes('alex') && v.name.includes('Enhanced')) ||
+                voices.find(v => v.name.toLowerCase().includes('ava') && v.name.includes('Enhanced')) ||
+                voices.find(v => v.name.includes('Enhanced') && v.lang.startsWith('en')) ||
+                voices.find(v => v.name.includes('Premium') && v.lang.startsWith('en')) ||
+                voices.find(v => v.lang.startsWith('en') && v.localService);
+            
+            console.log('Best voice selected:', bestVoice);
+            
+            voicesDiv.innerHTML = `
+                <h3>Enhanced/Premium Voices (${enhancedVoices.length})</h3>
+                ${enhancedVoices.map(v => `
+                    <div style="margin: 5px 0; padding: 10px; border: 1px solid #ccc; ${v === bestVoice ? 'background: lightgreen;' : ''}">
+                        <strong>${v.name}</strong> (${v.lang}) 
+                        ${v.localService ? '[Local]' : '[Remote]'}
+                        ${v === bestVoice ? ' <strong>[SELECTED]</strong>' : ''}
+                        <button onclick="testSpecificVoice('${v.name}')">Test</button>
+                    </div>
+                `).join('')}
+                
+                <h3>Regular Voices (${regularVoices.length})</h3>
+                ${regularVoices.slice(0, 10).map(v => `
+                    <div style="margin: 5px 0; padding: 10px; border: 1px solid #eee;">
+                        <strong>${v.name}</strong> (${v.lang}) 
+                        ${v.localService ? '[Local]' : '[Remote]'}
+                        <button onclick="testSpecificVoice('${v.name}')">Test</button>
+                    </div>
+                `).join('')}
+            `;
+        }
+        
+        function testVoice() {
+            if (!bestVoice) {
+                alert('No voice selected');
+                return;
+            }
+            
+            const text = document.getElementById('testText').value || 'Hello, this is a test of the enhanced voice quality. How natural does this sound to you?';
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.voice = bestVoice;
+            utterance.rate = 0.9; // Slightly slower for more natural sound
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+            
+            speechSynthesis.speak(utterance);
+        }
+        
+        function testSpecificVoice(voiceName) {
+            const voice = voices.find(v => v.name === voiceName);
+            if (!voice) return;
+            
+            const text = 'Testing voice: ' + voiceName;
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.voice = voice;
+            utterance.rate = 0.9;
+            
+            speechSynthesis.speak(utterance);
+        }
+        
+        // Load voices
+        loadVoices();
+        if (speechSynthesis.onvoiceschanged !== undefined) {
+            speechSynthesis.onvoiceschanged = loadVoices;
+        }
+        setTimeout(loadVoices, 100);
+        setTimeout(loadVoices, 500);
+    </script>
+</body>
+</html>

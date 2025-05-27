@@ -8,6 +8,7 @@ import ChatInput from './ChatInput';
 import TokenDisplay from './TokenDisplay';
 import BrainIcon from './BrainIcon';
 import BrainLightningIcon from './BrainLightningIcon';
+import ProgressBar from './ProgressBar';
 import llmService from '../../services/LLMService';
 import streamingManager from '../../services/StreamingManager';
 import { useStreamingProtection } from '../../hooks/useStreamingProtection';
@@ -272,7 +273,9 @@ const ChatView = React.memo(({ projectId }) => {
     updateProject,
     resetTokenCount,
     processPendingProjectUpdates,
-    generateChatDescription
+    generateChatDescription,
+    imageGenerationProgress,
+    setImageGenerationProgress
   } = useApp();
   
   // Force component refresh with version stamp
@@ -579,7 +582,9 @@ const ChatView = React.memo(({ projectId }) => {
       console.log('[ChatView] Detected @ command:', messageText);
       try {
         console.log('[ChatView] Calling processCommand...');
-        const commandResult = await processCommand(messageText.trim(), attachments);
+        const commandResult = await processCommand(messageText.trim(), attachments, { 
+          setImageGenerationProgress 
+        });
         console.log('[ChatView] Command result:', commandResult);
         
         if (commandResult) {
@@ -1718,6 +1723,14 @@ const ChatView = React.memo(({ projectId }) => {
           onDeleteMessage={handleDeleteMessage}
         />
       </div>
+      
+      {/* Image Generation Progress Bar */}
+      {imageGenerationProgress && (
+        <ProgressBar 
+          progress={imageGenerationProgress} 
+          isVisible={true} 
+        />
+      )}
       
       <div style={{ marginTop: 'auto' }}>
         <StatusBar theme={theme}>

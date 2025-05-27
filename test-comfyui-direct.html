@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Direct ComfyUI Test</title>
+</head>
+<body>
+    <h1>Direct ComfyUI Test</h1>
+    <button onclick="testDirect()">Test Direct API Call</button>
+    <div id="result"></div>
+    
+    <script>
+        async function testDirect() {
+            try {
+                // Test system info
+                const sysResponse = await fetch('http://localhost:8188/api/system_info');
+                console.log('System info status:', sysResponse.status);
+                
+                if (sysResponse.ok) {
+                    const sysData = await sysResponse.json();
+                    console.log('System info:', sysData);
+                    document.getElementById('result').innerHTML = '<pre>' + JSON.stringify(sysData, null, 2) + '</pre>';
+                    
+                    // Now test models
+                    const modelsResponse = await fetch('http://localhost:8188/object_info/CheckpointLoaderSimple');
+                    if (modelsResponse.ok) {
+                        const modelsData = await modelsResponse.json();
+                        console.log('Available models:', modelsData.CheckpointLoaderSimple.input.required.ckpt_name[0]);
+                        document.getElementById('result').innerHTML += '<br><br>Models: <pre>' + 
+                            JSON.stringify(modelsData.CheckpointLoaderSimple.input.required.ckpt_name[0], null, 2) + '</pre>';
+                    }
+                } else {
+                    document.getElementById('result').innerHTML = 'Failed to connect: ' + sysResponse.status;
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = 'Error: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

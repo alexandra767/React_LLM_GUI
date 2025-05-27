@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Image Flow</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px; }
+        #log { background: #f0f0f0; padding: 10px; margin: 20px 0; }
+        img { max-width: 512px; margin: 10px 0; display: block; }
+    </style>
+</head>
+<body>
+    <h1>Test Image Generation Flow</h1>
+    
+    <button onclick="testDirectImage()">Test Direct Image URL</button>
+    <button onclick="testImageService()">Test Image Service</button>
+    <button onclick="testCommandProcessor()">Test Command Processor</button>
+    
+    <div id="log"></div>
+    <div id="images"></div>
+    
+    <script type="module">
+        window.log = function(msg) {
+            document.getElementById('log').innerHTML += msg + '<br>';
+            console.log(msg);
+        }
+        
+        window.testDirectImage = function() {
+            // Test if we can load images directly from ComfyUI
+            const img = document.createElement('img');
+            img.src = 'http://localhost:8188/view?filename=Sephia_00003_.png&type=output';
+            img.onload = () => log('✅ Direct image loaded successfully');
+            img.onerror = () => log('❌ Failed to load direct image');
+            document.getElementById('images').appendChild(img);
+        }
+        
+        window.testImageService = async function() {
+            try {
+                log('Testing ImageGenerationService...');
+                const { default: imageService } = await import('./src/services/ImageGenerationService.js');
+                
+                // Check connection
+                const status = await imageService.checkStatus();
+                log('ComfyUI status: ' + JSON.stringify(status));
+                
+                // Generate image
+                const images = await imageService.generateImage('test from service', {
+                    width: 512,
+                    height: 512,
+                    steps: 10
+                });
+                
+                log('Generated images: ' + JSON.stringify(images));
+                
+                if (images && images.length > 0) {
+                    const img = document.createElement('img');
+                    img.src = images[0].url;
+                    document.getElementById('images').appendChild(img);
+                }
+            } catch (error) {
+                log('❌ Service error: ' + error.message);
+            }
+        }
+        
+        window.testCommandProcessor = async function() {
+            try {
+                log('Testing command processor...');
+                const { processCommand } = await import('./src/utils/commandProcessor.js');
+                
+                const result = await processCommand('@image test from command processor');
+                log('Command result: ' + JSON.stringify(result));
+                
+                if (result && result.imageUrl) {
+                    const img = document.createElement('img');
+                    img.src = result.imageUrl;
+                    img.onload = () => log('✅ Command processor image loaded');
+                    img.onerror = () => log('❌ Command processor image failed to load');
+                    document.getElementById('images').appendChild(img);
+                }
+            } catch (error) {
+                log('❌ Command processor error: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

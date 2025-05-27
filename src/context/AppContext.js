@@ -88,6 +88,7 @@ export const AppProvider = ({ children }) => {
   const [profile, setProfile] = useState(loadProfile);
   const [tokenCount, setTokenCount] = useState({ input: 0, output: 0, total: 0 });
   const [messageDuration, setMessageDuration] = useState(0);
+  const [imageGenerationProgress, setImageGenerationProgress] = useState(null);
   
   // Function declarations next
   const updateTokenCount = (newCount) => {
@@ -884,6 +885,7 @@ export const AppProvider = ({ children }) => {
     profile,
     tokenCount,
     messageDuration,
+    imageGenerationProgress,
     
     // State setters
     setCurrentModel,
@@ -897,6 +899,7 @@ export const AppProvider = ({ children }) => {
     setProfile,
     setTokenCount: updateTokenCount,
     setMessageTime,
+    setImageGenerationProgress,
     
     // Methods
     handleChatSelect,
