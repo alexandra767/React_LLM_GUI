@@ -37,6 +37,9 @@ class ImageGenerationService {
           try {
             const message = JSON.parse(event.data);
             
+            // Debug all message types to see what ComfyUI sends
+            console.log('[ImageGen] WS Message Type:', message.type, 'Data keys:', Object.keys(message.data || {}));
+            
             // More detailed logging for executed messages
             if (message.type === 'executed') {
               console.log('[ImageGen] EXECUTED message:', {
@@ -85,6 +88,17 @@ class ImageGenerationService {
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
         request.onProgress?.({ status: 'executing', node: data.node });
+      }
+    } else if (type === 'progress' && data?.prompt_id) {
+      // Handle progress updates from ComfyUI
+      const request = this.pendingRequests.get(data.prompt_id);
+      if (request) {
+        const { value, max } = data;
+        request.onProgress?.({ 
+          currentStep: value || 0, 
+          totalSteps: max || 1,
+          percentage: max > 0 ? (value / max) * 100 : 0
+        });
       }
     } else if (type === 'executed' && data?.prompt_id) {
       // Log all executed messages to debug
