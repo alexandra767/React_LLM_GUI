@@ -153,6 +153,30 @@ const electronAPI = {
     ipcRenderer.send('speech:stop');
   },
   
+  // Native speech recognition using AppleScript
+  startNativeSpeech: async () => {
+    console.log('[Preload] Starting native speech recognition');
+    try {
+      const result = await ipcRenderer.invoke('speech:startNative');
+      return result;
+    } catch (error) {
+      console.error('[Preload] Native speech failed:', error);
+      throw error;
+    }
+  },
+  
+  // Built-in speech recognition
+  startBuiltinSpeech: async () => {
+    console.log('[Preload] Starting built-in speech recognition');
+    try {
+      const result = await ipcRenderer.invoke('speech:startBuiltin');
+      return result;
+    } catch (error) {
+      console.error('[Preload] Built-in speech failed:', error);
+      throw error;
+    }
+  },
+  
   onSpeechResult: (callback) => {
     ipcRenderer.on('speech:result', (event, data) => callback(data));
   },

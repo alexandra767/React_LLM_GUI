@@ -116,13 +116,34 @@ class VoiceService {
 
   // Speech-to-Text Methods
   async startListening(callbacks = {}) {
+    console.log('[VoiceService] startListening called');
+    console.log('[VoiceService] Recognition object exists:', !!this.recognition);
+    console.log('[VoiceService] Environment check:', {
+      isElectron: !!(window.electron || (window.process && window.process.type)),
+      hasSpeechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
+      userAgent: navigator.userAgent.substring(0, 100)
+    });
+    
     if (!this.recognition) {
-      callbacks.onError?.('Speech recognition not supported');
-      return Promise.reject('Speech recognition not supported');
+      const errorMsg = 'Speech recognition not supported or failed to initialize';
+      console.error('[VoiceService]', errorMsg);
+      callbacks.onError?.(errorMsg);
+      return Promise.reject(errorMsg);
     }
 
     if (this.isListening) {
+      console.log('[VoiceService] Already listening');
       return Promise.resolve();
+    }
+
+    // Test network connectivity
+    try {
+      console.log('[VoiceService] Testing network connectivity...');
+      await this.testNetworkAccess();
+      console.log('[VoiceService] Network test passed');
+    } catch (networkError) {
+      console.error('[VoiceService] Network test failed:', networkError);
+      // Continue anyway as this might be a false negative
     }
 
     // First ensure we have microphone permission and the correct device
@@ -193,10 +214,25 @@ class VoiceService {
 
       this.recognition.onerror = (event) => {
         console.error('[VoiceService] Speech recognition error:', event.error, event);
+        console.error('[VoiceService] Error details:', {
+          error: event.error,
+          message: event.message,
+          type: event.type,
+          timestamp: new Date().toISOString()
+        });
+        
         this.isListening = false;
         const errorMessage = this.getErrorMessage(event.error);
-        callbacks.onError?.(errorMessage);
-        reject(errorMessage);
+        
+        // For network errors in Electron, suggest alternative
+        if (event.error === 'network' && window.electron) {
+          const electronError = 'Network error in Electron. Try using macOS dictation instead: Press Fn+Fn to start dictating, then click the microphone button again.';
+          callbacks.onError?.(electronError);
+          reject(new Error(electronError));
+        } else {
+          callbacks.onError?.(errorMessage);
+          reject(new Error(errorMessage));
+        }
       };
 
       this.recognition.onend = () => {

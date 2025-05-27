@@ -940,8 +940,29 @@ const Message = React.memo(({ message, onDelete }) => {
 
   return (
     <div 
-      style={getStyle(styles.container, safeMessage.role)}
-      className="message-container">
+      style={{
+        ...getStyle(styles.container, safeMessage.role),
+        '&:hover .message-actions': {
+          opacity: 1,
+          visibility: 'visible'
+        }
+      }}
+      className="message-container"
+      onMouseEnter={(e) => {
+        const actions = e.currentTarget.querySelector('.message-actions');
+        if (actions) {
+          actions.style.opacity = '1';
+          actions.style.visibility = 'visible';
+        }
+      }}
+      onMouseLeave={(e) => {
+        const actions = e.currentTarget.querySelector('.message-actions');
+        if (actions) {
+          actions.style.opacity = '1'; // Keep visible for better UX
+          actions.style.visibility = 'visible';
+        }
+      }}
+    >
       {!isUser && (
         <div style={getStyle(styles.avatar, safeMessage.role)}>
           <BrainLightningIcon size={24} />
@@ -966,16 +987,20 @@ const Message = React.memo(({ message, onDelete }) => {
             </div>
           </div>
           
-          {/* Show action buttons for assistant messages */}
+          {/* Show action buttons for assistant messages - always visible */}
           {!isUser && (
             <div style={{
-              ...getStyle(styles.messageActions),
               position: 'absolute',
               top: '8px',
               right: '8px',
-              backgroundColor: 'transparent',
-              boxShadow: 'none',
-              padding: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              borderRadius: '6px',
+              padding: '4px',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+              backdropFilter: 'blur(8px)',
+              opacity: 1, // Always visible
+              visibility: 'visible', // Always visible
+              transition: 'all 0.2s ease',
             }} className="message-actions">
               <Box sx={{ display: 'flex', gap: '4px' }}>
                 <Tooltip title={isSpeaking ? 'Stop speaking' : 'Read aloud'} arrow>
@@ -983,11 +1008,11 @@ const Message = React.memo(({ message, onDelete }) => {
                     size="small" 
                     onClick={handleSpeakMessage}
                     sx={{
-                      color: isSpeaking ? '#ef4444' : 'rgba(255, 255, 255, 0.6)',
-                      backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.05)',
+                      color: isSpeaking ? '#ef4444' : 'rgba(255, 255, 255, 0.8)',
+                      backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.1)',
                       '&:hover': {
-                        color: isSpeaking ? '#dc2626' : 'rgba(255, 255, 255, 0.9)',
-                        backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.15)',
+                        color: isSpeaking ? '#dc2626' : 'rgba(255, 255, 255, 1)',
+                        backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.2)',
                       },
                     }}
                   >

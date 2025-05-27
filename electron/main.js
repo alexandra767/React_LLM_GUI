@@ -14,6 +14,9 @@ app.name = 'Sephia';
 app.commandLine.appendSwitch('enable-speech-dispatcher');
 app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
 app.commandLine.appendSwitch('enable-web-speech');
+app.commandLine.appendSwitch('disable-web-security');
+app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
+app.commandLine.appendSwitch('allow-running-insecure-content');
 
 // Terminal process management
 let terminalProcess = null;
@@ -202,23 +205,69 @@ function createWindow() {
 
 // Speech Recognition IPC Handlers
 function setupSpeechHandlers() {
+  const { exec } = require('child_process');
   let speechProcess = null;
   
-  ipcMain.on('speech:start', (event) => {
-    console.log('[Main] Starting speech recognition');
+  // Handle speech recognition requests
+  ipcMain.handle('speech:startNative', async (event) => {
+    console.log('[Main] Starting native speech recognition');
     
-    // Use say command to simulate dictation input
-    // This is a workaround since we can't directly access macOS dictation API
-    // The user will need to manually trigger dictation with Fn+Fn
-    if (mainWindow) {
-      // Send a message to show instructions
-      mainWindow.webContents.send('speech:result', {
-        transcript: '',
-        isFinal: false,
-        isInstruction: true,
-        message: 'Press Fn+Fn to start dictating'
+    return new Promise((resolve, reject) => {
+      // Use AppleScript to trigger dictation and capture the result
+      const script = `
+        tell application "System Events"
+          -- Try to start dictation
+          key code 179 -- This is the dictation key
+        end tell
+        
+        -- Wait a moment then get the clipboard or active text
+        delay 0.5
+        
+        -- Get the currently selected text or clipboard
+        try
+          return the clipboard
+        on error
+          return ""
+        end try
+      `;
+      
+      exec(`osascript -e '${script.replace(/'/g, "'\"'\"'")}'`, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[Main] Speech recognition error:', error);
+          reject(error);
+          return;
+        }
+        
+        const result = stdout.trim();
+        console.log('[Main] Speech recognition result:', result);
+        resolve(result);
       });
-    }
+    });
+  });
+  
+  // Alternative: Use built-in speech recognition
+  ipcMain.handle('speech:startBuiltin', async (event) => {
+    console.log('[Main] Starting built-in speech recognition');
+    
+    return new Promise((resolve, reject) => {
+      // Try using the built-in speech recognition with AppleScript
+      const script = `
+        tell application "SpeechRecognitionServer"
+          listen for "hello world" with timeout 10
+        end tell
+      `;
+      
+      exec(`osascript -e '${script}'`, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[Main] Built-in speech error:', error);
+          // Fallback to simple approach
+          resolve('');
+          return;
+        }
+        
+        resolve(stdout.trim());
+      });
+    });
   });
   
   ipcMain.on('speech:stop', (event) => {

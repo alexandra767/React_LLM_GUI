@@ -40,11 +40,18 @@ class OfflineVoiceService {
         
         // Show user instructions
         const originalPlaceholder = chatInput.placeholder;
-        chatInput.placeholder = 'Press Fn key twice to start macOS dictation...';
+        chatInput.placeholder = '🎤 Voice mode: Type your message or try Control+Control for dictation...';
         
-        // Add visual indicator
-        chatInput.style.borderColor = '#ef4444';
-        chatInput.style.boxShadow = '0 0 0 2px rgba(239, 68, 68, 0.2)';
+        // Add visual indicator for voice mode
+        chatInput.style.borderColor = '#10b981';
+        chatInput.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+        
+        // Enable the input for manual typing
+        chatInput.disabled = false;
+        chatInput.readOnly = false;
+        
+        // Add visual feedback that this is voice/typing mode
+        chatInput.style.backgroundColor = 'rgba(16, 185, 129, 0.05)';
         
         callbacks.onStart?.();
         
@@ -80,6 +87,7 @@ class OfflineVoiceService {
           chatInput.placeholder = originalPlaceholder;
           chatInput.style.borderColor = '';
           chatInput.style.boxShadow = '';
+          chatInput.style.backgroundColor = '';
         };
         
         resolve();
