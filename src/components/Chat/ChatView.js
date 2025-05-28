@@ -1718,14 +1718,7 @@ const ChatView = React.memo(({ projectId }) => {
   // Render chat interface when a chat is selected or in project context
   return (
     <ChatContainer>
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <MessageList 
-          messages={messages}
-          onDeleteMessage={handleDeleteMessage}
-        />
-      </div>
-      
-      {/* Image Generation Progress */}
+      {/* Image Generation Progress at Top */}
       {imageGenerationProgress && (
         <ProgressBar 
           progress={imageGenerationProgress}
@@ -1734,6 +1727,13 @@ const ChatView = React.memo(({ projectId }) => {
           onCancel={cancelImageGeneration}
         />
       )}
+      
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <MessageList 
+          messages={messages}
+          onDeleteMessage={handleDeleteMessage}
+        />
+      </div>
       
       <div style={{ marginTop: 'auto' }}>
         <StatusBar theme={theme}>
