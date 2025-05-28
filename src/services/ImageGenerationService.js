@@ -656,11 +656,31 @@ class ImageGenerationService {
   async cancelGeneration() {
     console.log('[ImageGen] 🛑 Cancelling image generation...');
     
-    // First, interrupt the generation on the server
+    // First, try soft interrupt
     try {
       await this.interruptGeneration();
+      console.log('[ImageGen] ✅ Soft interrupt sent');
     } catch (err) {
-      console.warn('[ImageGen] Failed to interrupt server generation:', err);
+      console.warn('[ImageGen] Soft interrupt failed:', err);
+    }
+    
+    // If in Electron, also do hard kill of ComfyUI process
+    if (window.electron) {
+      try {
+        console.log('[ImageGen] 🔥 Performing hard kill of ComfyUI process...');
+        
+        // Kill ComfyUI processes
+        await window.electron.ipcRenderer.invoke('system:killProcess', 'comfyui');
+        await window.electron.ipcRenderer.invoke('system:killProcess', 'ComfyUI');
+        await window.electron.ipcRenderer.invoke('system:killProcess', 'python.*main.py');
+        
+        // Kill process on port 8188
+        await window.electron.ipcRenderer.invoke('system:killPort', 8188);
+        
+        console.log('[ImageGen] ✅ Hard kill completed');
+      } catch (err) {
+        console.warn('[ImageGen] Hard kill failed:', err);
+      }
     }
     
     // Mark all pending requests as cancelled

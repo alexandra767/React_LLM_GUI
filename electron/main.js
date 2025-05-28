@@ -459,6 +459,47 @@ function setupAppleScriptHandlers() {
   });
 }
 
+// System Process Handler
+function setupSystemHandlers() {
+  const { exec } = require('child_process');
+  
+  // Kill process by name pattern
+  ipcMain.handle('system:killProcess', async (event, processPattern) => {
+    console.log('[Main] Killing processes matching:', processPattern);
+    
+    return new Promise((resolve, reject) => {
+      const command = `pkill -f "${processPattern}" 2>/dev/null || true`;
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[Main] Kill process error:', error);
+          resolve(false);
+          return;
+        }
+        console.log('[Main] Kill process result:', stdout || 'No output');
+        resolve(true);
+      });
+    });
+  });
+  
+  // Kill process by port
+  ipcMain.handle('system:killPort', async (event, port) => {
+    console.log('[Main] Killing process on port:', port);
+    
+    return new Promise((resolve, reject) => {
+      const command = `lsof -ti:${port} | xargs kill -9 2>/dev/null || true`;
+      exec(command, (error, stdout, stderr) => {
+        if (error) {
+          console.error('[Main] Kill port error:', error);
+          resolve(false);
+          return;
+        }
+        console.log('[Main] Kill port result:', stdout || 'No output');
+        resolve(true);
+      });
+    });
+  });
+}
+
 // Clipboard Handler
 function setupClipboardHandlers() {
   ipcMain.handle('clipboard:copyImage', async (event, imageBuffer) => {
@@ -546,6 +587,7 @@ app.whenReady().then(() => {
   setupSpeechHandlers();
   setupCalDAVHandlers();
   setupAppleScriptHandlers();
+  setupSystemHandlers();
   setupClipboardHandlers();
   createWindow();
 }).catch(err => {
