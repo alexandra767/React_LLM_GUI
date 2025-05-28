@@ -5,6 +5,10 @@ class ImageGenerationService {
     this.ws = null;
     this.isConnected = false;
     this.pendingRequests = new Map();
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.heartbeatInterval = null;
+    this.isGenerating = false;
   }
 
   async connect() {
@@ -24,6 +28,8 @@ class ImageGenerationService {
         this.ws.onopen = () => {
           console.log('Connected to ComfyUI WebSocket');
           this.isConnected = true;
+          this.reconnectAttempts = 0;
+          this.startHeartbeat();
           resolve(true);
         };
 
@@ -57,9 +63,16 @@ class ImageGenerationService {
           }
         };
 
-        this.ws.onclose = () => {
-          console.log('Disconnected from ComfyUI');
+        this.ws.onclose = (event) => {
+          console.log('Disconnected from ComfyUI. Code:', event.code, 'Reason:', event.reason);
           this.isConnected = false;
+          this.stopHeartbeat();
+          
+          // If this is an unexpected closure during generation, try to reconnect
+          if (event.code !== 1000 && this.pendingRequests.size > 0) {
+            console.log('[ImageGen] Unexpected disconnect during generation, attempting reconnect...');
+            setTimeout(() => this.attemptReconnect(), 1000);
+          }
         };
 
         // Timeout connection attempt
@@ -78,6 +91,54 @@ class ImageGenerationService {
       });
       return false;
     }
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    // Send ping every 30 seconds to keep connection alive during long generations
+    this.heartbeatInterval = setInterval(() => {
+      if (this.isConnected && this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 30000);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+  }
+
+  async attemptReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('[ImageGen] Max reconnection attempts reached');
+      // Fail all pending requests
+      this.pendingRequests.forEach(request => {
+        if (request.reject) {
+          request.reject(new Error('Connection lost and max reconnection attempts reached'));
+        }
+      });
+      this.pendingRequests.clear();
+      return false;
+    }
+
+    this.reconnectAttempts++;
+    console.log(`[ImageGen] Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+    
+    try {
+      const connected = await this.connect();
+      if (connected) {
+        console.log('[ImageGen] Successfully reconnected');
+        return true;
+      }
+    } catch (error) {
+      console.error('[ImageGen] Reconnection failed:', error);
+    }
+    
+    // Try again after delay
+    setTimeout(() => this.attemptReconnect(), 2000 * this.reconnectAttempts);
+    return false;
   }
 
   handleWebSocketMessage(message) {
@@ -139,7 +200,7 @@ class ImageGenerationService {
       // Check if this message has image output (can be any node that saves images)
       if (data.output && data.output.images && Array.isArray(data.output.images)) {
         const request = this.pendingRequests.get(data.prompt_id);
-        if (request && !request.resolved) {
+        if (request && !request.resolved && !request.cancelled) {
           console.log('[ImageGen] Found image output from node:', data.node, 'images:', data.output.images);
           
           // Show completion progress before resolving
@@ -164,6 +225,7 @@ class ImageGenerationService {
           setTimeout(() => {
             request.resolve(images);
             this.pendingRequests.delete(data.prompt_id);
+            this.isGenerating = false;
           }, 500);
         }
       }
@@ -216,12 +278,13 @@ class ImageGenerationService {
     } = options;
 
     // Create a simple workflow for text2img
-    // Check if this is a Flux model and use appropriate workflow
-    const isFluxModel = model.includes('flux');
+    // Since only Flux models are available, always use Flux workflow
+    console.log('[ImageGen] Using Flux workflow for model:', model);
     
     let workflow;
     
-    if (isFluxModel) {
+    // Always use Flux workflow since no checkpoint models are available
+    {
       // Flux-specific workflow with separate model and CLIP loaders
       workflow = {
         "3": {
@@ -297,67 +360,6 @@ class ImageGenerationService {
           "class_type": "VAELoader"
         }
       };
-    } else {
-      // Standard workflow for non-Flux models
-      workflow = {
-        "3": {
-          "inputs": {
-            "seed": seed,
-            "steps": steps,
-            "cfg": cfg,
-            "sampler_name": sampler,
-            "scheduler": scheduler,
-            "denoise": 1,
-            "model": ["4", 0],
-            "positive": ["6", 0],
-            "negative": ["7", 0],
-            "latent_image": ["5", 0]
-          },
-          "class_type": "KSampler"
-        },
-        "4": {
-          "inputs": {
-            "ckpt_name": this.getModelName(model)
-          },
-          "class_type": "CheckpointLoaderSimple"
-        },
-        "5": {
-          "inputs": {
-            "width": width,
-            "height": height,
-            "batch_size": 1
-          },
-          "class_type": "EmptyLatentImage"
-        },
-        "6": {
-          "inputs": {
-            "text": prompt,
-            "clip": ["4", 1]
-          },
-          "class_type": "CLIPTextEncode"
-        },
-        "7": {
-          "inputs": {
-            "text": "",
-            "clip": ["4", 1]
-          },
-          "class_type": "CLIPTextEncode"
-        },
-        "8": {
-          "inputs": {
-            "samples": ["3", 0],
-            "vae": ["4", 2]
-          },
-          "class_type": "VAEDecode"
-        },
-        "9": {
-          "inputs": {
-            "filename_prefix": "Sephia",
-            "images": ["8", 0]
-          },
-          "class_type": "SaveImage"
-        }
-      };
     }
 
     // Submit the workflow
@@ -366,12 +368,14 @@ class ImageGenerationService {
     // Create promise to track completion
     return new Promise((resolve, reject) => {
       console.log('[ImageGen] Creating promise for promptId:', promptId);
+      this.isGenerating = true;
       this.pendingRequests.set(promptId, {
         resolve,
         reject,
         onProgress,
         resolved: false,
-        totalSteps: steps
+        totalSteps: steps,
+        cancelled: false
       });
 
       // No fallback needed - WebSocket messages are working correctly
@@ -384,6 +388,7 @@ class ImageGenerationService {
         if (this.pendingRequests.has(promptId)) {
           console.log(`[ImageGen] Timeout reached for promptId: ${promptId} (${isFluxModel ? 'Flux' : 'Standard'} model)`);
           this.pendingRequests.delete(promptId);
+          this.isGenerating = false;
           reject(new Error(`Image generation timeout after ${timeoutMs / 60000} minutes`));
         }
       }, timeoutMs);
@@ -419,7 +424,7 @@ class ImageGenerationService {
     // First, upload the image to ComfyUI
     const imageName = await this.uploadImage(inputImage);
 
-    // Create img2img workflow
+    // Create img2img workflow using Flux
     const workflow = {
       "3": {
         "inputs": {
@@ -438,28 +443,37 @@ class ImageGenerationService {
       },
       "4": {
         "inputs": {
-          "ckpt_name": this.getModelName(model)
+          "unet_name": this.getModelName(model),
+          "weight_dtype": "default"
         },
-        "class_type": "CheckpointLoaderSimple"
+        "class_type": "UNETLoader"
+      },
+      "5": {
+        "inputs": {
+          "clip_name1": "clip_l.safetensors",
+          "clip_name2": "t5xxl_fp16.safetensors",
+          "type": "flux"
+        },
+        "class_type": "DualCLIPLoader"
       },
       "6": {
         "inputs": {
           "text": prompt,
-          "clip": ["4", 1]
+          "clip": ["5", 0]
         },
         "class_type": "CLIPTextEncode"
       },
       "7": {
         "inputs": {
           "text": "",
-          "clip": ["4", 1]
+          "clip": ["5", 0]
         },
         "class_type": "CLIPTextEncode"
       },
       "8": {
         "inputs": {
           "samples": ["3", 0],
-          "vae": ["4", 2]
+          "vae": ["12", 0]
         },
         "class_type": "VAEDecode"
       },
@@ -473,7 +487,7 @@ class ImageGenerationService {
       "10": {
         "inputs": {
           "pixels": ["11", 0],
-          "vae": ["4", 2]
+          "vae": ["12", 0]
         },
         "class_type": "VAEEncode"
       },
@@ -483,6 +497,12 @@ class ImageGenerationService {
           "upload": "image"
         },
         "class_type": "LoadImage"
+      },
+      "12": {
+        "inputs": {
+          "vae_name": "ae.safetensors"
+        },
+        "class_type": "VAELoader"
       }
     };
 
@@ -552,41 +572,57 @@ class ImageGenerationService {
   }
 
   async queuePrompt(workflow) {
+    console.log('[ImageGen] Submitting workflow:', JSON.stringify(workflow, null, 2));
+    
+    const payload = {
+      prompt: workflow,
+      client_id: this.clientId
+    };
+    
+    console.log('[ImageGen] Payload:', JSON.stringify(payload, null, 2));
+    
     const response = await fetch(`${this.baseUrl}/prompt`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        prompt: workflow,
-        client_id: this.clientId
-      })
+      body: JSON.stringify(payload)
     });
 
+    console.log('[ImageGen] Response status:', response.status, response.statusText);
+
     if (!response.ok) {
-      throw new Error('Failed to queue prompt');
+      const errorText = await response.text();
+      console.error('[ImageGen] Queue prompt failed:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: errorText
+      });
+      throw new Error(`Failed to queue prompt: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
     const result = await response.json();
+    console.log('[ImageGen] Queue result:', result);
     return result.prompt_id;
   }
 
   getModelName(modelKey) {
     // Map friendly names to actual model filenames
-    // You'll need to update this based on what models you download
+    console.log('[ImageGen] Getting model name for key:', modelKey);
+    // Since only Flux models are available, map everything to Flux
     const modelMap = {
-      'sd15': 'v1-5-pruned-emaonly.ckpt',
-      'sd': 'v1-5-pruned-emaonly.ckpt', // alias
-      'default': 'v1-5-pruned-emaonly.ckpt', // default
-      'realistic': 'realisticVisionV51.safetensors',
-      'rv': 'realisticVisionV51.safetensors', // alias
-      'sdxl': 'sd_xl_base_1.0.safetensors',
+      'sd15': 'flux1-dev.safetensors', // Fallback to Flux since no SD1.5 available
+      'sd': 'flux1-dev.safetensors', // alias
+      'default': 'flux1-dev.safetensors', // default to Flux
+      'realistic': 'flux1-dev.safetensors', // Fallback to Flux
+      'rv': 'flux1-dev.safetensors', // alias
+      'sdxl': 'flux1-dev.safetensors', // Fallback to Flux
       'flux': 'flux1-dev.safetensors',
       'flux1': 'flux1-dev.safetensors',
       'flux-dev': 'flux1-dev.safetensors' // New Flux model for @flux command
     };
 
-    return modelMap[modelKey] || modelMap['default'];
+    return modelMap[modelKey] || 'flux1-dev.safetensors';
   }
 
   async getAvailableModels() {
@@ -617,13 +653,62 @@ class ImageGenerationService {
     }
   }
 
+  async cancelGeneration() {
+    console.log('[ImageGen] 🛑 Cancelling image generation...');
+    
+    // Mark all pending requests as cancelled
+    this.pendingRequests.forEach((request, promptId) => {
+      if (!request.resolved) {
+        request.cancelled = true;
+        console.log('[ImageGen] Cancelling prompt:', promptId);
+        
+        // Try to interrupt the generation on the server
+        this.interruptGeneration().catch(err => 
+          console.warn('[ImageGen] Failed to interrupt server generation:', err)
+        );
+        
+        // Reject the promise
+        if (request.reject) {
+          request.reject(new Error('Image generation cancelled by user'));
+        }
+      }
+    });
+    
+    // Clear all pending requests
+    this.pendingRequests.clear();
+    this.isGenerating = false;
+    
+    return true;
+  }
+
+  async interruptGeneration() {
+    try {
+      const response = await fetch(`${this.baseUrl}/interrupt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      if (response.ok) {
+        console.log('[ImageGen] ✅ Server generation interrupted');
+      } else {
+        console.warn('[ImageGen] ⚠️ Failed to interrupt server generation:', response.status);
+      }
+    } catch (error) {
+      console.error('[ImageGen] ❌ Error interrupting generation:', error);
+      throw error;
+    }
+  }
+
   disconnect() {
+    this.stopHeartbeat();
     if (this.ws) {
-      this.ws.close();
+      this.ws.close(1000, 'Client disconnect');
       this.ws = null;
     }
     this.isConnected = false;
     this.pendingRequests.clear();
+    this.reconnectAttempts = 0;
+    this.isGenerating = false;
   }
 }
 

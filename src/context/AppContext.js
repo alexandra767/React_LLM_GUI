@@ -90,6 +90,21 @@ export const AppProvider = ({ children }) => {
   const [messageDuration, setMessageDuration] = useState(0);
   const [imageGenerationProgress, setImageGenerationProgress] = useState(null);
   
+  // Image generation cancel function
+  const cancelImageGeneration = async () => {
+    console.log('[AppContext] Cancelling image generation...');
+    try {
+      const imageService = await import('../services/ImageGenerationService');
+      const result = await imageService.default.cancelGeneration();
+      setImageGenerationProgress(null);
+      return result;
+    } catch (error) {
+      console.error('[AppContext] Error cancelling image generation:', error);
+      setImageGenerationProgress(null);
+      return false;
+    }
+  };
+  
   // Function declarations next
   const updateTokenCount = (newCount) => {
     if (typeof newCount === 'function') {
@@ -900,6 +915,7 @@ export const AppProvider = ({ children }) => {
     setTokenCount: updateTokenCount,
     setMessageTime,
     setImageGenerationProgress,
+    cancelImageGeneration,
     
     // Methods
     handleChatSelect,

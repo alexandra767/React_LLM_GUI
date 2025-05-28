@@ -1,7 +1,7 @@
 import React from 'react';
 import './ProgressBar.css';
 
-const ProgressBar = ({ progress, isVisible = true }) => {
+const ProgressBar = ({ progress, isVisible = true, onCancel = null, showCancel = false }) => {
   if (!isVisible || !progress) return null;
 
   const { 
@@ -18,9 +18,20 @@ const ProgressBar = ({ progress, isVisible = true }) => {
     <div className="progress-bar-container">
       <div className="progress-info">
         <span className="progress-message">{message}</span>
-        <span className="progress-stats">
-          {currentStep}/{totalSteps} steps ({Math.round(progressPercentage)}%)
-        </span>
+        <div className="progress-stats-container">
+          <span className="progress-stats">
+            {currentStep}/{totalSteps} steps ({Math.round(progressPercentage)}%)
+          </span>
+          {showCancel && onCancel && (
+            <button 
+              className="progress-cancel-btn"
+              onClick={onCancel}
+              title="Stop image generation"
+            >
+              ⏹
+            </button>
+          )}
+        </div>
       </div>
       
       <div className="progress-bar-track">

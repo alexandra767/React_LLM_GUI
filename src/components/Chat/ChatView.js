@@ -6,6 +6,7 @@ import { useApp } from '../../context/AppContext';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import TokenDisplay from './TokenDisplay';
+import ProgressBar from './ProgressBar';
 import BrainIcon from './BrainIcon';
 import BrainLightningIcon from './BrainLightningIcon';
 import llmService from '../../services/LLMService';
@@ -274,7 +275,8 @@ const ChatView = React.memo(({ projectId }) => {
     processPendingProjectUpdates,
     generateChatDescription,
     imageGenerationProgress,
-    setImageGenerationProgress
+    setImageGenerationProgress,
+    cancelImageGeneration
   } = useApp();
   
   // Force component refresh with version stamp
@@ -1723,6 +1725,15 @@ const ChatView = React.memo(({ projectId }) => {
         />
       </div>
       
+      {/* Image Generation Progress */}
+      {imageGenerationProgress && (
+        <ProgressBar 
+          progress={imageGenerationProgress}
+          isVisible={true}
+          showCancel={true}
+          onCancel={cancelImageGeneration}
+        />
+      )}
       
       <div style={{ marginTop: 'auto' }}>
         <StatusBar theme={theme}>

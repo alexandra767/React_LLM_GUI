@@ -20,9 +20,41 @@
   font-weight: 500;
 }
 
+.progress-stats-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .progress-stats {
   color: var(--text-secondary, #cccccc);
   font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+}
+
+.progress-cancel-btn {
+  background: rgba(255, 59, 48, 0.1);
+  border: 1px solid rgba(255, 59, 48, 0.3);
+  border-radius: 4px;
+  color: #ff3b30;
+  font-size: 14px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+}
+
+.progress-cancel-btn:hover {
+  background: rgba(255, 59, 48, 0.2);
+  border-color: rgba(255, 59, 48, 0.5);
+  transform: scale(1.05);
+}
+
+.progress-cancel-btn:active {
+  transform: scale(0.95);
 }
 
 .progress-bar-track {
