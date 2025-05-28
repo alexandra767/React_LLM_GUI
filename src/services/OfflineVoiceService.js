@@ -40,18 +40,22 @@ class OfflineVoiceService {
         
         // Show user instructions
         const originalPlaceholder = chatInput.placeholder;
-        chatInput.placeholder = '🎤 Voice mode: Type your message or try Control+Control for dictation...';
-        
-        // Add visual indicator for voice mode
-        chatInput.style.borderColor = '#10b981';
-        chatInput.style.boxShadow = '0 0 0 2px rgba(16, 185, 129, 0.2)';
+        chatInput.placeholder = 'Type your message...';
         
         // Enable the input for manual typing
+        console.log('[OfflineVoice] Current input state:', {
+          disabled: chatInput.disabled,
+          readOnly: chatInput.readOnly,
+          value: chatInput.value
+        });
+        
         chatInput.disabled = false;
         chatInput.readOnly = false;
         
-        // Add visual feedback that this is voice/typing mode
-        chatInput.style.backgroundColor = 'rgba(16, 185, 129, 0.05)';
+        console.log('[OfflineVoice] After enabling:', {
+          disabled: chatInput.disabled,
+          readOnly: chatInput.readOnly
+        });
         
         callbacks.onStart?.();
         
@@ -69,11 +73,9 @@ class OfflineVoiceService {
               isFinal: false
             });
             
-            // Reset visual indicators when text appears
+            // Keep placeholder simple
             if (currentValue.length > 0) {
               chatInput.placeholder = originalPlaceholder;
-              chatInput.style.borderColor = '';
-              chatInput.style.boxShadow = '';
             }
           }
         }, 100);
@@ -85,9 +87,6 @@ class OfflineVoiceService {
             this.monitorInterval = null;
           }
           chatInput.placeholder = originalPlaceholder;
-          chatInput.style.borderColor = '';
-          chatInput.style.boxShadow = '';
-          chatInput.style.backgroundColor = '';
         };
         
         resolve();

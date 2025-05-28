@@ -378,8 +378,8 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             });
           }
 
-          // Enhance prompt with quality modifiers (disabled for now to fix blur)
-          const qualityEnhancers = ''; // Temporarily disabled
+          // Enhance prompt with quality modifiers
+          const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, 8k resolution, masterpiece, best quality, extremely detailed, sharp focus, professional photography, cinematic lighting, photorealistic';
           const enhancedPrompt = actualArgs + qualityEnhancers;
           
           // Generate the image

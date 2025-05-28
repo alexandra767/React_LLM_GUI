@@ -100,16 +100,18 @@ class ImageGenerationService {
         if (data.node === '3') { // KSampler node - this is where the main generation happens
           // Start showing meaningful progress when KSampler starts
           request.onProgress?.({ 
-            currentStep: 1, 
+            currentStep: Math.max(6, nodeCount), // Don't go below step 6 for KSampler
             totalSteps: request.totalSteps || 12,
             message: 'Generating with Flux.1 Dev...',
             status: 'sampling'
           });
         } else {
+          // Ensure progress never stops - increment from current step
+          const currentStep = Math.min(nodeCount + 2, (request.totalSteps || 12) - 1);
           request.onProgress?.({ 
-            currentStep: Math.min(nodeCount, (request.totalSteps || 12) - 1), 
+            currentStep: currentStep, 
             totalSteps: request.totalSteps || 12,
-            message: 'Processing...',
+            message: nodeCount < 6 ? 'Loading models...' : 'Processing...',
             status: 'executing', 
             node: data.node 
           });
@@ -120,10 +122,14 @@ class ImageGenerationService {
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
         const { value, max } = data;
+        // Ensure progress continues from where it left off
+        const currentStep = Math.max(6, value || 0); // Don't go below step 6
         request.onProgress?.({ 
-          currentStep: value || 0, 
-          totalSteps: max || 1,
-          percentage: max > 0 ? (value / max) * 100 : 0
+          currentStep: currentStep, 
+          totalSteps: max || request.totalSteps || 12,
+          percentage: max > 0 ? (currentStep / max) * 100 : ((currentStep / (request.totalSteps || 12)) * 100),
+          message: 'Sampling...',
+          status: 'progress'
         });
       }
     } else if (type === 'executed' && data?.prompt_id) {
@@ -136,6 +142,14 @@ class ImageGenerationService {
         if (request && !request.resolved) {
           console.log('[ImageGen] Found image output from node:', data.node, 'images:', data.output.images);
           
+          // Show completion progress before resolving
+          request.onProgress?.({ 
+            currentStep: request.totalSteps || 12, 
+            totalSteps: request.totalSteps || 12,
+            message: 'Image generated successfully!',
+            status: 'complete'
+          });
+          
           const images = data.output.images.map(img => ({
             filename: img.filename,
             subfolder: img.subfolder || '',
@@ -145,8 +159,12 @@ class ImageGenerationService {
           
           console.log('[ImageGen] Resolving with images:', images);
           request.resolved = true;
-          request.resolve(images);
-          this.pendingRequests.delete(data.prompt_id);
+          
+          // Add a small delay to show completion message
+          setTimeout(() => {
+            request.resolve(images);
+            this.pendingRequests.delete(data.prompt_id);
+          }, 500);
         }
       }
     } else if (type === 'execution_complete' && data?.prompt_id) {
@@ -358,18 +376,17 @@ class ImageGenerationService {
 
       // No fallback needed - WebSocket messages are working correctly
 
-      // No timeout for Flux models - they can take 30-60+ minutes
-      // Keep a reasonable timeout for other models
-      if (workflow["4"]?.class_type !== "UNETLoader") {
-        const timeoutMs = 300000; // 5 minutes for non-Flux models
-        setTimeout(() => {
-          if (this.pendingRequests.has(promptId)) {
-            console.log('[ImageGen] Timeout reached for promptId:', promptId);
-            this.pendingRequests.delete(promptId);
-            reject(new Error('Image generation timeout'));
-          }
-        }, timeoutMs);
-      }
+      // Set timeout based on model type
+      const isFluxModel = workflow["4"]?.class_type === "UNETLoader";
+      const timeoutMs = isFluxModel ? 7200000 : 300000; // 2 hours for Flux, 5 minutes for others
+      
+      setTimeout(() => {
+        if (this.pendingRequests.has(promptId)) {
+          console.log(`[ImageGen] Timeout reached for promptId: ${promptId} (${isFluxModel ? 'Flux' : 'Standard'} model)`);
+          this.pendingRequests.delete(promptId);
+          reject(new Error(`Image generation timeout after ${timeoutMs / 60000} minutes`));
+        }
+      }, timeoutMs);
     });
   }
 

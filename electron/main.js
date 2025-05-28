@@ -210,39 +210,10 @@ function setupSpeechHandlers() {
   
   // Handle speech recognition requests
   ipcMain.handle('speech:startNative', async (event) => {
-    console.log('[Main] Starting native speech recognition');
-    
-    return new Promise((resolve, reject) => {
-      // Use AppleScript to trigger dictation and capture the result
-      const script = `
-        tell application "System Events"
-          -- Try to start dictation
-          key code 179 -- This is the dictation key
-        end tell
-        
-        -- Wait a moment then get the clipboard or active text
-        delay 0.5
-        
-        -- Get the currently selected text or clipboard
-        try
-          return the clipboard
-        on error
-          return ""
-        end try
-      `;
-      
-      exec(`osascript -e '${script.replace(/'/g, "'\"'\"'")}'`, (error, stdout, stderr) => {
-        if (error) {
-          console.error('[Main] Speech recognition error:', error);
-          reject(error);
-          return;
-        }
-        
-        const result = stdout.trim();
-        console.log('[Main] Speech recognition result:', result);
-        resolve(result);
-      });
-    });
+    console.log('[Main] Native speech recognition requested - returning empty to indicate manual dictation needed');
+    // Don't read from clipboard - just return empty string
+    // The UI will show instructions for manual dictation
+    return Promise.resolve('');
   });
   
   // Alternative: Use built-in speech recognition

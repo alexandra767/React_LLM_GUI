@@ -136,14 +136,18 @@ class VoiceService {
       return Promise.resolve();
     }
 
-    // Test network connectivity
-    try {
-      console.log('[VoiceService] Testing network connectivity...');
-      await this.testNetworkAccess();
-      console.log('[VoiceService] Network test passed');
-    } catch (networkError) {
-      console.error('[VoiceService] Network test failed:', networkError);
-      // Continue anyway as this might be a false negative
+    // Test network connectivity (skip in Electron as it may fail due to CSP)
+    if (!window.electron) {
+      try {
+        console.log('[VoiceService] Testing network connectivity...');
+        await this.testNetworkAccess();
+        console.log('[VoiceService] Network test passed');
+      } catch (networkError) {
+        console.error('[VoiceService] Network test failed:', networkError);
+        // Continue anyway as this might be a false negative
+      }
+    } else {
+      console.log('[VoiceService] Skipping network test in Electron');
     }
 
     // First ensure we have microphone permission and the correct device
@@ -182,16 +186,35 @@ class VoiceService {
 
       this.recognition.onresult = (event) => {
         console.log('[VoiceService] Got result event:', event);
+        console.log('[VoiceService] Results length:', event.results.length);
+        
+        if (event.results.length === 0) {
+          console.warn('[VoiceService] No results in event');
+          return;
+        }
+        
         const last = event.results.length - 1;
-        const transcript = event.results[last][0].transcript;
-        const isFinal = event.results[last].isFinal;
+        const result = event.results[last];
+        
+        if (!result || result.length === 0) {
+          console.warn('[VoiceService] Empty result at index', last);
+          return;
+        }
+        
+        const transcript = result[0].transcript;
+        const isFinal = result.isFinal;
 
-        console.log('[VoiceService] Speech result:', { transcript, isFinal });
+        console.log('[VoiceService] Speech result:', { 
+          transcript, 
+          isFinal,
+          confidence: result[0].confidence,
+          alternatives: result.length
+        });
 
         callbacks.onResult?.({
           transcript,
           isFinal,
-          confidence: event.results[last][0].confidence
+          confidence: result[0].confidence
         });
       };
       
@@ -205,11 +228,15 @@ class VoiceService {
       };
       
       this.recognition.onspeechstart = () => {
-        console.log('[VoiceService] Speech detected');
+        console.log('[VoiceService] Speech detected - recognition should start processing');
       };
       
       this.recognition.onspeechend = () => {
-        console.log('[VoiceService] Speech ended');
+        console.log('[VoiceService] Speech ended - waiting for results');
+      };
+      
+      this.recognition.onaudioend = () => {
+        console.log('[VoiceService] Audio capture ended');
       };
 
       this.recognition.onerror = (event) => {
@@ -224,11 +251,14 @@ class VoiceService {
         this.isListening = false;
         const errorMessage = this.getErrorMessage(event.error);
         
-        // For network errors in Electron, suggest alternative
+        // For network errors in Electron, trigger automatic offline mode
         if (event.error === 'network' && window.electron) {
-          const electronError = 'Network error in Electron. Try using macOS dictation instead: Press Fn+Fn to start dictating, then click the microphone button again.';
-          callbacks.onError?.(electronError);
-          reject(new Error(electronError));
+          console.log('[VoiceService] Network error in Electron - triggering automatic offline mode');
+          this.isListening = false;
+          
+          // Pass a specific network error that ChatInput can handle
+          callbacks.onError?.('network');
+          reject(new Error('network'));
         } else {
           callbacks.onError?.(errorMessage);
           reject(new Error(errorMessage));
@@ -254,7 +284,14 @@ class VoiceService {
       } catch (error) {
         console.error('[VoiceService] Failed to start recognition:', error);
         this.isListening = false;
-        callbacks.onError?.('Failed to start speech recognition: ' + error.message);
+        
+        // In Electron, if speech recognition fails, provide a clear workaround
+        if (window.electron) {
+          const electronWorkaround = 'Speech recognition is blocked in Electron.\n\nWorkaround:\n1. Go to Settings → Voice\n2. Set Speech Recognition Provider to "offline"\n3. Click mic button again\n\nThis will enable typing mode where you can type or paste your message.';
+          callbacks.onError?.(electronWorkaround);
+        } else {
+          callbacks.onError?.('Failed to start speech recognition: ' + error.message);
+        }
         reject(error);
       }
     });
@@ -407,7 +444,7 @@ class VoiceService {
       'no-speech': 'No speech was detected. Please try again.',
       'audio-capture': 'No microphone was found. Please check your microphone.',
       'not-allowed': 'Microphone permission was denied. Please allow microphone access.',
-      'network': 'Network error: Speech recognition requires internet access. The app may be blocked from accessing Google\'s speech servers. Please check your firewall/network settings.',
+      'network': 'network',
       'aborted': 'Speech recognition was aborted.',
       'language-not-supported': 'Language not supported.',
       'service-not-allowed': 'Speech recognition service not allowed. The app may need network permissions.',

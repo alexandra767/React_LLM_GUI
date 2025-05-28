@@ -25,35 +25,26 @@ class NativeSpeechService {
       callbacks.onStart?.();
       console.log('[NativeSpeech] Attempting to trigger dictation...');
       
-      // Show instructions to user
+      // Show clear instructions for macOS dictation
       if (callbacks.onResult) {
         callbacks.onResult({
-          transcript: '🎤 Speak now... (Dictation should start automatically)',
+          transcript: '📝 To use macOS dictation:\n1. Press Fn+Fn (or your dictation shortcut)\n2. Speak your message\n3. Click "Done" when finished\n4. Your text will appear in the input field',
           isFinal: false
         });
       }
       
-      // Try to start native speech recognition
+      // Don't try to capture anything - just return empty
+      // The user will use macOS dictation manually
       const result = await window.electron.startNativeSpeech();
       
       console.log('[NativeSpeech] Native speech result:', result);
       
-      if (result && result.trim()) {
-        // We got a result from native speech
-        if (callbacks.onResult) {
-          callbacks.onResult({
-            transcript: result.trim(),
-            isFinal: true
-          });
-        }
-      } else {
-        // No result - show fallback instructions
-        if (callbacks.onResult) {
-          callbacks.onResult({
-            transcript: 'Press Control+Control or use Edit menu → Start Dictation',
-            isFinal: false
-          });
-        }
+      // Always show the instructions since we can't capture dictation directly
+      if (callbacks.onResult) {
+        callbacks.onResult({
+          transcript: '💡 Tip: After dictating, your text will appear in the input field automatically',
+          isFinal: true
+        });
       }
       
       this.isListening = false;
@@ -64,11 +55,13 @@ class NativeSpeechService {
       this.isListening = false;
       
       // Provide helpful error message
-      const errorMsg = `Speech recognition failed. Try manually: 
-1. Press Control+Control to start dictation
-2. Or use Edit menu → Start Dictation
-3. Speak your message
-4. Press Control+Control again to stop`;
+      const errorMsg = `macOS Dictation Guide:
+1. Press Fn+Fn (or your custom shortcut) to start dictation
+2. Speak your message clearly
+3. Click "Done" or press Fn+Fn again to stop
+4. The text will appear in the input field
+
+Note: Make sure dictation is enabled in System Settings → Keyboard → Dictation`;
       
       callbacks.onError?.(errorMsg);
     }

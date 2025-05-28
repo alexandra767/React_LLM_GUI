@@ -12,6 +12,22 @@ echo ""
 echo "   Starting..."
 echo ""
 
+# Start ComfyUI in background if not running
+if ! curl -s http://localhost:8188/system_stats > /dev/null 2>&1; then
+    echo "   Starting ComfyUI for image generation..."
+    nohup ./start-comfyui.sh > /tmp/comfyui.log 2>&1 &
+    echo "   Waiting for ComfyUI to start..."
+    # Wait up to 30 seconds for ComfyUI to be ready
+    for i in {1..30}; do
+        if curl -s http://localhost:8188/system_stats > /dev/null 2>&1; then
+            echo "   ✅ ComfyUI is ready!"
+            break
+        fi
+        sleep 1
+        echo "   Waiting... ($i/30)"
+    done
+fi
+
 # Check if packaged app exists
 if [ -d "dist/mac-arm64/Sephia.app" ]; then
     echo "   Launching packaged app..."
