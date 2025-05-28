@@ -1,3 +1,5 @@
+import BarkVoiceService from './BarkVoiceService';
+
 class VoiceService {
   constructor() {
     console.log('[VoiceService] Initializing...');
@@ -471,8 +473,7 @@ class VoiceService {
   }
 }
 
-// Import Bark voice service
-import BarkVoiceService from './BarkVoiceService';
+// Import moved to top
 
 // Enhanced Voice Service Factory
 class VoiceServiceFactory {

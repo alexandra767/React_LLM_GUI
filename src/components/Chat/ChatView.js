@@ -1659,6 +1659,36 @@ const ChatView = React.memo(({ projectId }) => {
     
     return (
       <ChatContainer>
+        {/* Image Generation Progress at Top - Also show in empty state */}
+        {(() => {
+          console.log('[ChatView] Empty state progress bar condition check:', { 
+            hasProgress: !!imageGenerationProgress, 
+            progress: imageGenerationProgress,
+            progressType: typeof imageGenerationProgress,
+            progressKeys: imageGenerationProgress ? Object.keys(imageGenerationProgress) : null
+          });
+          
+          if (imageGenerationProgress) {
+            console.log('[ChatView] Rendering ProgressBar in empty state with props:', {
+              progress: imageGenerationProgress,
+              isVisible: true,
+              showCancel: true,
+              onCancel: !!cancelImageGeneration
+            });
+            return (
+              <ProgressBar 
+                progress={imageGenerationProgress}
+                isVisible={true}
+                showCancel={true}
+                onCancel={cancelImageGeneration}
+              />
+            );
+          } else {
+            console.log('[ChatView] Not rendering ProgressBar in empty state - no progress data');
+            return null;
+          }
+        })()}
+        
         <EmptyState theme={theme}>
           <IconWrapper theme={theme}>
             <BrainLightningIcon size={60} />
@@ -1719,14 +1749,34 @@ const ChatView = React.memo(({ projectId }) => {
   return (
     <ChatContainer>
       {/* Image Generation Progress at Top */}
-      {imageGenerationProgress && (
-        <ProgressBar 
-          progress={imageGenerationProgress}
-          isVisible={true}
-          showCancel={true}
-          onCancel={cancelImageGeneration}
-        />
-      )}
+      {(() => {
+        console.log('[ChatView] Progress bar condition check:', { 
+          hasProgress: !!imageGenerationProgress, 
+          progress: imageGenerationProgress,
+          progressType: typeof imageGenerationProgress,
+          progressKeys: imageGenerationProgress ? Object.keys(imageGenerationProgress) : null
+        });
+        
+        if (imageGenerationProgress) {
+          console.log('[ChatView] Rendering ProgressBar with props:', {
+            progress: imageGenerationProgress,
+            isVisible: true,
+            showCancel: true,
+            onCancel: !!cancelImageGeneration
+          });
+          return (
+            <ProgressBar 
+              progress={imageGenerationProgress}
+              isVisible={true}
+              showCancel={true}
+              onCancel={cancelImageGeneration}
+            />
+          );
+        } else {
+          console.log('[ChatView] Not rendering ProgressBar - no progress data');
+          return null;
+        }
+      })()}
       
       <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <MessageList 

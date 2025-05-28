@@ -2,7 +2,19 @@ import React from 'react';
 import './ProgressBar.css';
 
 const ProgressBar = ({ progress, isVisible = true, onCancel = null, showCancel = false }) => {
-  if (!isVisible || !progress) return null;
+  console.log('[ProgressBar] Render called:', { 
+    progress, 
+    progressType: typeof progress,
+    progressKeys: progress ? Object.keys(progress) : null,
+    isVisible, 
+    showCancel, 
+    hasOnCancel: !!onCancel 
+  });
+  
+  if (!isVisible || !progress) {
+    console.log('[ProgressBar] Not rendering - isVisible:', isVisible, 'progress:', !!progress);
+    return null;
+  }
 
   const { 
     currentStep = 0, 

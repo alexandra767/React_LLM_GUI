@@ -90,6 +90,27 @@ export const AppProvider = ({ children }) => {
   const [messageDuration, setMessageDuration] = useState(0);
   const [imageGenerationProgress, setImageGenerationProgress] = useState(null);
   
+  // Debug image generation progress
+  useEffect(() => {
+    console.log('[AppContext] Image generation progress changed:', {
+      progress: imageGenerationProgress,
+      type: typeof imageGenerationProgress,
+      keys: imageGenerationProgress ? Object.keys(imageGenerationProgress) : null,
+      stackTrace: new Error().stack
+    });
+  }, [imageGenerationProgress]);
+  
+  // Wrapper for setImageGenerationProgress with debugging
+  const setImageGenerationProgressWithDebug = (progress) => {
+    console.log('[AppContext] setImageGenerationProgress called with:', {
+      progress,
+      type: typeof progress,
+      keys: progress ? Object.keys(progress) : null,
+      stackTrace: new Error().stack
+    });
+    setImageGenerationProgress(progress);
+  };
+  
   // Image generation cancel function
   const cancelImageGeneration = async () => {
     console.log('[AppContext] Cancelling image generation...');
@@ -914,7 +935,7 @@ export const AppProvider = ({ children }) => {
     setProfile,
     setTokenCount: updateTokenCount,
     setMessageTime,
-    setImageGenerationProgress,
+    setImageGenerationProgress: setImageGenerationProgressWithDebug,
     cancelImageGeneration,
     
     // Methods

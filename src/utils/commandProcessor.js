@@ -338,10 +338,14 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           // Parse steps from command if specified (e.g., @flux:20 prompt)
           let steps = 12; // Default
           let actualArgs = args;
+          console.log('[Flux] Parsing args:', args);
           const stepsMatch = args.match(/^(\d+)\s+(.+)/);
           if (stepsMatch) {
             steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
             actualArgs = stepsMatch[2];
+            console.log('[Flux] Parsed steps:', steps, 'actualArgs:', actualArgs);
+          } else {
+            console.log('[Flux] No steps match found, using default steps:', steps);
           }
           
           const generationOptions = {
@@ -350,14 +354,26 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             steps: steps,
             model: 'flux-dev', // Use the new Flux model
             onProgress: (progress) => {
-              console.log('[Flux Generation] Progress:', progress);
+              console.log('[Flux Generation] Progress callback fired:', progress);
+              console.log('[Flux Generation] setImageGenerationProgress available:', !!setImageGenerationProgress);
+              console.log('[Flux Generation] setImageGenerationProgress type:', typeof setImageGenerationProgress);
               if (setImageGenerationProgress) {
-                setImageGenerationProgress({
+                const progressData = {
                   currentStep: progress.currentStep || 0,
                   totalSteps: steps,
                   message: `Generating with Flux.1 Dev (${steps} steps)...`,
                   estimatedTime: progress.estimatedTime || null
-                });
+                };
+                console.log('[Flux Generation] Setting progress:', progressData);
+                console.log('[Flux Generation] About to call setImageGenerationProgress');
+                try {
+                  setImageGenerationProgress(progressData);
+                  console.log('[Flux Generation] setImageGenerationProgress called successfully');
+                } catch (error) {
+                  console.error('[Flux Generation] Error calling setImageGenerationProgress:', error);
+                }
+              } else {
+                console.warn('[Flux Generation] setImageGenerationProgress not available');
               }
             }
           };
@@ -369,13 +385,23 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           }
           
           // Set initial progress
+          console.log('[Flux] About to set initial progress, setImageGenerationProgress available:', !!setImageGenerationProgress);
           if (setImageGenerationProgress) {
-            setImageGenerationProgress({
+            const initialProgress = {
               currentStep: 0,
               totalSteps: steps,
               message: `Starting Flux generation (${steps} steps)...`,
               estimatedTime: steps <= 10 ? '~30 minutes' : `~${Math.round(steps * 3)} minutes`
-            });
+            };
+            console.log('[Flux] Setting initial progress:', initialProgress);
+            try {
+              setImageGenerationProgress(initialProgress);
+              console.log('[Flux] Initial progress set successfully');
+            } catch (error) {
+              console.error('[Flux] Error setting initial progress:', error);
+            }
+          } else {
+            console.warn('[Flux] setImageGenerationProgress not available for initial progress');
           }
 
           // Enhance prompt with quality modifiers
@@ -462,6 +488,19 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             steps: 20,
             onProgress: (progress) => {
               console.log('[Image Generation] Progress:', progress);
+              console.log('[Image Generation] setImageGenerationProgress available:', !!setImageGenerationProgress);
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: 20,
+                  message: attachedImage ? 
+                    `Processing image-to-image (${20} steps)...` : 
+                    `Generating image (${20} steps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                console.log('[Image Generation] Setting progress:', progressData);
+                setImageGenerationProgress(progressData);
+              }
             }
           };
           
@@ -469,6 +508,26 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             console.log('[Image] Using attached image for img2img generation');
             generationOptions.inputImage = attachedImage.content;
             generationOptions.denoise = 0.75; // Default denoise strength
+            
+            // Set initial progress for img2img
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress({
+                currentStep: 0,
+                totalSteps: 20,
+                message: 'Starting image-to-image generation...',
+                estimatedTime: '~2 minutes'
+              });
+            }
+          } else {
+            // Set initial progress for text-to-image
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress({
+                currentStep: 0,
+                totalSteps: 20,
+                message: 'Starting image generation...',
+                estimatedTime: '~2 minutes'
+              });
+            }
           }
           
           // Generate the image
@@ -479,6 +538,11 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           console.log('[Image] Generation result details:', JSON.stringify(images));
           
           if (images && images.length > 0) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
             const imageUrl = images[0].url;
             console.log('[Image] Image URL:', imageUrl);
             const result = {
@@ -525,6 +589,11 @@ export const processCommand = async (message, attachments = [], { setImageGenera
               console.error('[Image] Fallback failed:', e);
             }
             
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
             return {
               type: 'error',
               content: 'Image was generated but could not be displayed. Check the output folder.'
@@ -533,6 +602,12 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         } catch (imageError) {
           console.error('[Image] Image generation error:', imageError);
           console.error('[Image] Error stack:', imageError.stack);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
           return {
             type: 'error',
             content: `Image generation error: ${imageError.message}`
