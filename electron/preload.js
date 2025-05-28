@@ -67,6 +67,32 @@ const electronAPI = {
     console.log('[Preload] Executing command:', command);
     return exec(command, options, callback);
   },
+
+  // Process spawning for services
+  spawn: (command, options = {}) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const args = options.shell ? ['-c', command] : command.split(' ');
+        const cmd = options.shell ? '/bin/bash' : args.shift();
+        
+        console.log('[Preload] Spawning service:', cmd, args);
+        
+        const process = spawn(cmd, args, {
+          detached: true,
+          stdio: 'ignore', // Don't pipe stdio for background services
+          ...options
+        });
+
+        // Don't wait for the process, just return success
+        resolve({
+          pid: process.pid,
+          kill: () => process.kill()
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
   
   // Spawn terminal processes for streaming with IPC
   spawnStream: (command, args, onData, onError, onClose) => {
@@ -232,6 +258,18 @@ const electronAPI = {
       return result;
     } catch (error) {
       console.error('[Preload] Failed to copy image to clipboard:', error);
+      throw error;
+    }
+  },
+
+  // Save image with dialog
+  saveImageDialog: async (imageBuffer, defaultName = 'sephia-image.png') => {
+    console.log('[Preload] Saving image with dialog, buffer size:', imageBuffer.byteLength);
+    try {
+      const result = await ipcRenderer.invoke('dialog:saveImage', imageBuffer, defaultName);
+      return result;
+    } catch (error) {
+      console.error('[Preload] Failed to save image:', error);
       throw error;
     }
   },

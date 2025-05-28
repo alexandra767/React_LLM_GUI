@@ -485,6 +485,41 @@ function setupClipboardHandlers() {
       return false;
     }
   });
+
+  // Save image dialog handler
+  ipcMain.handle('dialog:saveImage', async (event, imageBuffer, defaultName) => {
+    try {
+      console.log('[Main] Saving image with dialog, buffer size:', imageBuffer.byteLength);
+      
+      // Convert ArrayBuffer to Buffer
+      const buffer = Buffer.from(imageBuffer);
+      
+      // Show save dialog
+      const result = await dialog.showSaveDialog(mainWindow, {
+        title: 'Save Image',
+        defaultPath: defaultName,
+        filters: [
+          { name: 'PNG Images', extensions: ['png'] },
+          { name: 'JPEG Images', extensions: ['jpg', 'jpeg'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+      
+      if (result.canceled) {
+        console.log('[Main] User cancelled save dialog');
+        return false;
+      }
+      
+      // Write file to selected path
+      fs.writeFileSync(result.filePath, buffer);
+      
+      console.log('[Main] Image saved successfully to:', result.filePath);
+      return true;
+    } catch (error) {
+      console.error('[Main] Failed to save image:', error);
+      return false;
+    }
+  });
 }
 
 // This method will be called when Electron has finished initialization

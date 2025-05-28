@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ContentCopy as CopyIcon, Check as CheckIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Psychology as PsychologyIcon, VolumeUp as SpeakerIcon, Stop as StopIcon } from '@mui/icons-material';
+import { ContentCopy as CopyIcon, Check as CheckIcon, Delete as DeleteIcon, ExpandMore as ExpandMoreIcon, Psychology as PsychologyIcon, VolumeUp as SpeakerIcon, Stop as StopIcon, Download as DownloadIcon } from '@mui/icons-material';
 import { Tooltip, IconButton, Box, styled, keyframes, useTheme as useMuiTheme, Collapse, Chip } from '@mui/material';
 import BrainIcon from './BrainIcon';
 import BrainLightningIcon from './BrainLightningIcon';
@@ -214,6 +214,7 @@ const Message = React.memo(({ message, onDelete }) => {
   const muiTheme = useMuiTheme();
   const { profile } = useApp();
   const [copyStatus, setCopyStatus] = useState({});
+  const [downloadStatus, setDownloadStatus] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   
@@ -317,23 +318,29 @@ const Message = React.memo(({ message, onDelete }) => {
     // Check if voice is enabled
     const savedSettings = localStorage.getItem('sephia_voice_settings');
     let voiceEnabled = true;
+    let ttsProvider = 'browser';
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
         voiceEnabled = parsed.voiceEnabled !== false;
+        ttsProvider = parsed.ttsProvider || 'browser';
       } catch (e) {
         console.error('Failed to load voice settings:', e);
       }
     }
     
     if (!voiceEnabled) {
-      alert('Voice features are disabled. Enable them in Settings.');
+      alert('Voice features are disabled. Enable them in Settings → Voice.');
       return;
     }
     
     if (isSpeaking) {
       // Stop speaking
-      voiceService.stopSpeaking();
+      try {
+        await voiceService.stop();
+      } catch (error) {
+        console.error('Error stopping speech:', error);
+      }
       setIsSpeaking(false);
     } else {
       // Start speaking
@@ -368,18 +375,37 @@ const Message = React.memo(({ message, onDelete }) => {
         
         setIsSpeaking(true);
         
+        console.log('[Message] 🎤 Starting speech with provider:', voiceService.currentProvider);
+        console.log('[Message] Text to speak:', textToSpeak.substring(0, 100) + '...');
+        
         await voiceService.speak(textToSpeak, {
           onStart: () => {
-            console.log('Started speaking');
+            console.log('[Message] ✅ Started speaking');
+            if (ttsProvider === 'bark') {
+              console.log('[Message] 🐕 Using Bark AI voice');
+            } else {
+              console.log('[Message] 🔊 Using browser voice');
+            }
           },
           onEnd: () => {
             setIsSpeaking(false);
-            console.log('Finished speaking');
+            console.log('[Message] ✅ Finished speaking');
           },
           onError: (error) => {
-            console.error('Speech error:', error);
+            console.error('[Message] ❌ Speech error:', error);
             setIsSpeaking(false);
-            alert('Text-to-speech error: ' + error);
+            
+            // More helpful error messages
+            let errorMessage = 'Text-to-speech error: ';
+            if (error.message && error.message.includes('models not loaded')) {
+              errorMessage = 'Bark AI models are still loading. Try again in a few minutes, or switch to Browser TTS in Settings.';
+            } else if (error.message && error.message.includes('server not running')) {
+              errorMessage = 'Bark AI server is not running. Voice will use browser TTS instead.';
+            } else {
+              errorMessage += error.message || 'Unknown error occurred';
+            }
+            
+            alert(errorMessage);
           }
         });
       } catch (error) {
@@ -446,6 +472,61 @@ const Message = React.memo(({ message, onDelete }) => {
         console.error('[Message] Failed to copy even URL:', fallbackError);
         alert('Failed to copy image. Try right-clicking and selecting "Copy Image".');
       }
+    }
+  };
+
+  const handleDownloadImage = async (imageUrl) => {
+    try {
+      console.log('[Message] Downloading image from URL:', imageUrl);
+      setDownloadStatus(true);
+      
+      // Fetch the image
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch image');
+      }
+      
+      const blob = await response.blob();
+      
+      // Check if we're in Electron environment
+      if (window.electron && window.electron.saveImageDialog) {
+        // Use Electron's save dialog
+        const buffer = await blob.arrayBuffer();
+        const result = await window.electron.saveImageDialog(buffer, 'sephia-image.png');
+        if (result) {
+          console.log('[Message] Image saved successfully via Electron');
+        } else {
+          console.log('[Message] User cancelled save dialog');
+        }
+      } else {
+        // Use browser download
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        link.download = `sephia-image-${timestamp}.png`;
+        
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up
+        window.URL.revokeObjectURL(url);
+        console.log('[Message] Image downloaded via browser');
+      }
+      
+      // Reset download status after delay
+      setTimeout(() => {
+        setDownloadStatus(false);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('[Message] Failed to download image:', error);
+      alert('Failed to download image. Please try again.');
+      setDownloadStatus(false);
     }
   };
   
@@ -983,7 +1064,7 @@ const Message = React.memo(({ message, onDelete }) => {
               position: 'relative',
               display: 'inline-block',
               maxWidth: '512px',
-              '&:hover .image-copy-button': {
+              '&:hover .image-action-button': {
                 opacity: 1,
                 visibility: 'visible',
               }
@@ -1012,13 +1093,14 @@ const Message = React.memo(({ message, onDelete }) => {
                   console.log('[Message] Image loaded successfully:', e.target.src);
                 }}
               />
+              {/* Copy Button */}
               <Tooltip 
                 title={copyStatus.image ? 'Copied!' : 'Copy image'}
                 placement="left"
                 arrow
               >
                 <IconButton 
-                  className="image-copy-button"
+                  className="image-action-button"
                   size="small"
                   aria-label="Copy image"
                   onClick={(e) => {
@@ -1028,7 +1110,7 @@ const Message = React.memo(({ message, onDelete }) => {
                   sx={{
                     position: 'absolute',
                     top: '0.5rem',
-                    right: '0.5rem',
+                    right: '3rem',
                     opacity: 0,
                     visibility: 'hidden',
                     transition: 'all 0.2s ease',
@@ -1066,6 +1148,71 @@ const Message = React.memo(({ message, onDelete }) => {
                     />
                   ) : (
                     <CopyIcon 
+                      fontSize="inherit"
+                      sx={{
+                        color: '#fff',
+                        filter: 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.3))'
+                      }}
+                    />
+                  )}
+                </IconButton>
+              </Tooltip>
+              
+              {/* Download Button */}
+              <Tooltip 
+                title={downloadStatus ? 'Downloaded!' : 'Download image'}
+                placement="left"
+                arrow
+              >
+                <IconButton 
+                  className="image-action-button"
+                  size="small"
+                  aria-label="Download image"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDownloadImage(safeMessage.imageUrl);
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: '0.5rem',
+                    right: '0.5rem',
+                    opacity: 0,
+                    visibility: 'hidden',
+                    transition: 'all 0.2s ease',
+                    color: '#ffffff',
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                    backdropFilter: 'blur(4px)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    width: '32px',
+                    height: '32px',
+                    '&:hover, &:focus-visible': {
+                      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                      transform: 'scale(1.05)',
+                      boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.2)',
+                      '& .MuiSvgIcon-root': {
+                        transform: 'scale(1.1)',
+                      }
+                    },
+                    '&:active': {
+                      transform: 'scale(0.95)',
+                    },
+                    '& .MuiSvgIcon-root': {
+                      fontSize: '1rem',
+                      transition: 'all 0.2s ease',
+                    }
+                  }}
+                >
+                  {downloadStatus ? (
+                    <CheckIcon 
+                      fontSize="inherit" 
+                      sx={{ 
+                        color: '#4caf50',
+                        filter: 'drop-shadow(0 0 4px rgba(76, 175, 80, 0.8))',
+                        animation: `${pulse} 0.5s ease-in-out`,
+                      }} 
+                    />
+                  ) : (
+                    <DownloadIcon 
                       fontSize="inherit"
                       sx={{
                         color: '#fff',
