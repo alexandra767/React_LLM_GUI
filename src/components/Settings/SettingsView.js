@@ -459,7 +459,7 @@ const SettingsView = () => {
     // Load available voices
     const loadVoices = () => {
       const voices = voiceService.getVoices();
-      setAvailableVoices(voices);
+      setAvailableVoices(Array.isArray(voices) ? voices : []);
       
       // Set default voice if not already set
       if (!voiceSettings.selectedVoice && voices.length > 0) {
@@ -865,12 +865,12 @@ const SettingsView = () => {
                     <option value="">Default Voice</option>
                     
                     {/* Group voices by quality/type */}
-                    {availableVoices.filter(v => 
+                    {(availableVoices || []).filter(v => 
                       v.name.toLowerCase().includes('samantha') || 
                       v.name.toLowerCase().includes('siri')
                     ).length > 0 && (
                       <optgroup label="Premium Voices (Siri-like)">
-                        {availableVoices
+                        {(availableVoices || [])
                           .filter(v => 
                             v.name.toLowerCase().includes('samantha') || 
                             v.name.toLowerCase().includes('siri')
@@ -883,14 +883,14 @@ const SettingsView = () => {
                       </optgroup>
                     )}
                     
-                    {availableVoices.filter(v => 
+                    {(availableVoices || []).filter(v => 
                       v.name.includes('Premium') || 
                       v.name.includes('Enhanced') ||
                       v.name.toLowerCase().includes('alex') ||
                       v.name.toLowerCase().includes('ava')
                     ).length > 0 && (
                       <optgroup label="Enhanced Voices">
-                        {availableVoices
+                        {(availableVoices || [])
                           .filter(v => 
                             (v.name.includes('Premium') || 
                              v.name.includes('Enhanced') ||
@@ -908,7 +908,7 @@ const SettingsView = () => {
                     )}
                     
                     <optgroup label="All Voices">
-                      {availableVoices
+                      {(availableVoices || [])
                         .filter(v => 
                           !v.name.toLowerCase().includes('samantha') &&
                           !v.name.toLowerCase().includes('siri') &&
@@ -1024,7 +1024,7 @@ const SettingsView = () => {
                   <SettingLabel>
                     <Label>Refresh Voices</Label>
                     <Description2>
-                      Reload available system voices. Current count: {availableVoices.length}
+                      Reload available system voices. Current count: {(availableVoices || []).length}
                     </Description2>
                   </SettingLabel>
                   <Button 
@@ -1078,6 +1078,7 @@ const SettingsView = () => {
                     disabled={!voiceSettings.voiceEnabled}
                   >
                     <option value="browser">Browser Speech API (Google)</option>
+                    <option value="bark">Bark AI TTS (High Quality)</option>
                     <option value="azure">Azure Speech Services</option>
                     <option value="openai">OpenAI Whisper API</option>
                     <option value="vosk">Vosk (Offline Speech Recognition)</option>
@@ -1117,6 +1118,66 @@ const SettingsView = () => {
                         placeholder="eastus"
                         disabled={!voiceSettings.voiceEnabled}
                       />
+                    </SettingItem>
+                  </>
+                )}
+                
+                {voiceSettings.speechProvider === 'bark' && (
+                  <>
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Bark Voice Selection</Label>
+                        <Description2>
+                          Choose from high-quality AI-generated voices (requires Bark TTS server)
+                        </Description2>
+                      </SettingLabel>
+                      <Select 
+                        value={voiceSettings.barkVoice || 'v2/en_speaker_1'} 
+                        onChange={(e) => updateVoiceSetting('barkVoice', e.target.value)}
+                        disabled={!voiceSettings.voiceEnabled}
+                      >
+                        <optgroup label="Female Voices">
+                          <option value="v2/en_speaker_1">Sarah (Female, Professional)</option>
+                          <option value="v2/en_speaker_3">Emma (Female, Warm)</option>
+                          <option value="v2/en_speaker_9">Lisa (Female, Clear)</option>
+                        </optgroup>
+                        <optgroup label="Male Voices">
+                          <option value="v2/en_speaker_0">David (Male, Deep)</option>
+                          <option value="v2/en_speaker_2">Michael (Male, Professional)</option>
+                          <option value="v2/en_speaker_4">James (Male, Friendly)</option>
+                        </optgroup>
+                        <optgroup label="Character Voices">
+                          <option value="v2/en_speaker_6">Alex (Narrator)</option>
+                          <option value="v2/en_speaker_7">Sam (Casual)</option>
+                          <option value="v2/en_speaker_8">Jordan (Energetic)</option>
+                        </optgroup>
+                      </Select>
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Bark Server Status</Label>
+                        <Description2>
+                          Check if Bark TTS server is running on localhost:8189
+                        </Description2>
+                      </SettingLabel>
+                      <Button 
+                        onClick={async () => {
+                          try {
+                            const response = await fetch('http://localhost:8189/status');
+                            if (response.ok) {
+                              alert('✅ Bark TTS server is running and ready!');
+                            } else {
+                              alert('⚠️ Bark TTS server responded but may have issues');
+                            }
+                          } catch (error) {
+                            alert('❌ Bark TTS server is not running. Start it from the terminal.');
+                          }
+                        }}
+                        disabled={!voiceSettings.voiceEnabled}
+                      >
+                        Check Bark Server
+                      </Button>
                     </SettingItem>
                   </>
                 )}

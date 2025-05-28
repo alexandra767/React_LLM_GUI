@@ -33,7 +33,7 @@ fi
 
 # Start React in background
 echo "Starting React server..."
-npm start &
+BROWSER=none npm start &
 REACT_PID=$!
 
 # Wait for React to be ready

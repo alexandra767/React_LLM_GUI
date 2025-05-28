@@ -656,16 +656,18 @@ class ImageGenerationService {
   async cancelGeneration() {
     console.log('[ImageGen] 🛑 Cancelling image generation...');
     
+    // First, interrupt the generation on the server
+    try {
+      await this.interruptGeneration();
+    } catch (err) {
+      console.warn('[ImageGen] Failed to interrupt server generation:', err);
+    }
+    
     // Mark all pending requests as cancelled
     this.pendingRequests.forEach((request, promptId) => {
       if (!request.resolved) {
         request.cancelled = true;
         console.log('[ImageGen] Cancelling prompt:', promptId);
-        
-        // Try to interrupt the generation on the server
-        this.interruptGeneration().catch(err => 
-          console.warn('[ImageGen] Failed to interrupt server generation:', err)
-        );
         
         // Reject the promise
         if (request.reject) {

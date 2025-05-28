@@ -114,15 +114,6 @@ const Header = ({ selectedModel, onModelChange, models = [] }) => {
         </ModelSelector>
       </HeaderContent>
       
-      {/* Image Generation Progress Bar */}
-      {imageGenerationProgress && (
-        <div style={{ padding: '0 24px 8px' }}>
-          <ProgressBar 
-            progress={imageGenerationProgress} 
-            isVisible={true} 
-          />
-        </div>
-      )}
     </HeaderContainer>
   );
 };
