@@ -471,7 +471,204 @@ class VoiceService {
   }
 }
 
+// Import Bark voice service
+import BarkVoiceService from './BarkVoiceService';
+
+// Enhanced Voice Service Factory
+class VoiceServiceFactory {
+  constructor() {
+    this.browserVoice = new VoiceService();
+    this.barkVoice = new BarkVoiceService();
+    this.currentProvider = 'browser'; // 'browser' or 'bark'
+    
+    console.log('[VoiceServiceFactory] Initialized with providers:', {
+      browser: !!this.browserVoice,
+      bark: !!this.barkVoice
+    });
+  }
+
+  // Get the active voice service
+  getActiveService() {
+    return this.currentProvider === 'bark' ? this.barkVoice : this.browserVoice;
+  }
+
+  // Switch provider
+  setProvider(provider) {
+    if (provider === 'bark' || provider === 'browser') {
+      this.currentProvider = provider;
+      console.log('[VoiceServiceFactory] Switched to provider:', provider);
+      return true;
+    }
+    console.warn('[VoiceServiceFactory] Invalid provider:', provider);
+    return false;
+  }
+
+  // Get available providers
+  async getProviders() {
+    const providers = [
+      {
+        id: 'browser',
+        name: 'Browser TTS',
+        type: 'Browser API',
+        available: true,
+        voices: this.browserVoice.getVoices().length
+      }
+    ];
+
+    // Check if Bark is available
+    try {
+      const barkStatus = await this.barkVoice.checkServerStatus();
+      providers.push({
+        id: 'bark',
+        name: 'Bark AI TTS',
+        type: 'AI Voice Synthesis',
+        available: barkStatus.status === 'running',
+        voices: this.barkVoice.voices.length,
+        quality: 'High',
+        local: true
+      });
+    } catch (error) {
+      providers.push({
+        id: 'bark',
+        name: 'Bark AI TTS',
+        type: 'AI Voice Synthesis',
+        available: false,
+        error: 'Server not running',
+        voices: 0
+      });
+    }
+
+    return providers;
+  }
+
+  // Unified speak method
+  async speak(text, options = {}) {
+    const service = this.getActiveService();
+    
+    if (this.currentProvider === 'bark') {
+      return await service.speak(text, options);
+    } else {
+      return await service.speak(text, options);
+    }
+  }
+
+  // Unified voice methods
+  async getVoices() {
+    const service = this.getActiveService();
+    return await service.getVoices();
+  }
+
+  setVoice(voice) {
+    const service = this.getActiveService();
+    if (this.currentProvider === 'bark') {
+      return service.setVoice(voice);
+    } else {
+      service.setVoice(voice);
+      return true;
+    }
+  }
+
+  // Stop/pause/resume methods
+  async stop() {
+    const service = this.getActiveService();
+    if (this.currentProvider === 'bark') {
+      return await service.stop();
+    } else {
+      service.stopSpeaking();
+    }
+  }
+
+  async pause() {
+    const service = this.getActiveService();
+    if (this.currentProvider === 'bark') {
+      return await service.pause();
+    } else {
+      service.pauseSpeaking();
+    }
+  }
+
+  async resume() {
+    const service = this.getActiveService();
+    if (this.currentProvider === 'bark') {
+      return await service.resume();
+    } else {
+      service.resumeSpeaking();
+    }
+  }
+
+  // Speech recognition (only browser for now)
+  async startListening(callbacks = {}) {
+    return await this.browserVoice.startListening(callbacks);
+  }
+
+  stopListening() {
+    this.browserVoice.stopListening();
+  }
+
+  // Test methods
+  async testProvider(provider) {
+    if (provider === 'bark') {
+      return await this.barkVoice.test();
+    } else {
+      // Simple browser test
+      try {
+        await this.browserVoice.speak('Testing browser voice.', { 
+          onEnd: () => console.log('Browser voice test completed') 
+        });
+        return { success: true, message: 'Browser TTS is working!' };
+      } catch (error) {
+        return { success: false, message: `Browser test failed: ${error.message}` };
+      }
+    }
+  }
+
+  // Get service info
+  getInfo() {
+    const active = this.getActiveService();
+    
+    if (this.currentProvider === 'bark') {
+      return active.getInfo();
+    } else {
+      return {
+        name: 'Browser TTS',
+        type: 'Browser API',
+        quality: 'Standard',
+        local: true,
+        voices: this.browserVoice.getVoices().length,
+        features: [
+          'Built-in browser voices',
+          'No setup required',
+          'Works offline',
+          'Multiple languages'
+        ],
+        status: 'Available'
+      };
+    }
+  }
+
+  // Delegate other methods to browser service (for compatibility)
+  isSupported() {
+    return this.browserVoice.isSupported();
+  }
+
+  setSpeechRate(rate) {
+    this.browserVoice.setSpeechRate(rate);
+  }
+
+  setSpeechPitch(pitch) {
+    this.browserVoice.setSpeechPitch(pitch);
+  }
+
+  setSpeechVolume(volume) {
+    this.browserVoice.setSpeechVolume(volume);
+  }
+
+  setRecognitionLanguage(lang) {
+    this.browserVoice.setRecognitionLanguage(lang);
+  }
+}
+
 // Create singleton instance
-const voiceService = new VoiceService();
+const voiceService = new VoiceServiceFactory();
 
 export default voiceService;

@@ -19,6 +19,18 @@ else
     echo "ComfyUI already running on port 8188"
 fi
 
+# Start Bark TTS if not already running
+if ! lsof -i:8189 > /dev/null 2>&1; then
+    echo "Starting Bark TTS for AI voices..."
+    cd ai-tools/ComfyUI
+    ./start-bark-tts.sh &
+    BARK_PID=$!
+    cd ../..
+    echo "Bark TTS starting in background..."
+else
+    echo "Bark TTS already running on port 8189"
+fi
+
 # Start React in background
 echo "Starting React server..."
 npm start &
@@ -32,11 +44,15 @@ sleep 8
 echo "Starting Sephia app..."
 npm run electron:start
 
-# When Electron closes, kill React and ComfyUI
+# When Electron closes, kill React, ComfyUI, and Bark TTS
 kill $REACT_PID 2>/dev/null
 if [ ! -z "$COMFYUI_PID" ]; then
     kill $COMFYUI_PID 2>/dev/null
     echo "ComfyUI stopped."
+fi
+if [ ! -z "$BARK_PID" ]; then
+    kill $BARK_PID 2>/dev/null
+    echo "Bark TTS stopped."
 fi
 
 echo ""

@@ -28,6 +28,15 @@ if ! curl -s http://localhost:8188/system_stats > /dev/null 2>&1; then
     done
 fi
 
+# Start Bark TTS in background if not running
+if ! curl -s http://localhost:8189/status > /dev/null 2>&1; then
+    echo "   Starting Bark TTS for AI voices..."
+    cd ai-tools/ComfyUI
+    nohup ./start-bark-tts.sh > /tmp/bark-tts.log 2>&1 &
+    cd ../..
+    echo "   Bark TTS starting in background..."
+fi
+
 # Check if packaged app exists
 if [ -d "dist/mac-arm64/Sephia.app" ]; then
     echo "   Launching packaged app..."
