@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from './ThemeContext';
 import llmService from '../services/LLMService';
+import networkStatusService from '../services/NetworkStatusService';
 
 export const AppContext = createContext();
 
@@ -95,6 +96,9 @@ export const AppProvider = ({ children }) => {
     return saved ? JSON.parse(saved) : false;
   });
   
+  // Network status state
+  const [networkStatus, setNetworkStatus] = useState(() => networkStatusService.getStatus());
+  
   // Debug image generation progress
   useEffect(() => {
     console.log('[AppContext] Image generation progress changed:', {
@@ -155,6 +159,28 @@ export const AppProvider = ({ children }) => {
   
   const resetTokenCount = () => {
     setTokenCount({ input: 0, output: 0, total: 0 });
+  };
+
+  // Auto-switch models based on network status
+  const autoSwitchModel = () => {
+    const recommendation = networkStatusService.getRecommendedModel();
+    const currentModel = localStorage.getItem('sephia_current_model');
+    
+    if (recommendation.model !== currentModel) {
+      console.log(`[AppContext] Auto-switching model: ${currentModel} → ${recommendation.model} (${recommendation.reason})`);
+      setCurrentModel(recommendation.model);
+      localStorage.setItem('sephia_current_model', recommendation.model);
+      
+      // Update connection status based on model type
+      setAppState(prev => ({
+        ...prev,
+        connectionStatus: recommendation.type === 'local' ? 'connected' : 
+                         networkStatus.isOnline ? 'connected' : 'disconnected'
+      }));
+      
+      return recommendation;
+    }
+    return null;
   };
   
 
@@ -928,6 +954,7 @@ export const AppProvider = ({ children }) => {
     messageDuration,
     imageGenerationProgress,
     companionMode,
+    networkStatus,
     
     // State setters
     setCurrentModel,
@@ -962,7 +989,8 @@ export const AppProvider = ({ children }) => {
     unloadModel,
     toggleStarChat,
     processPendingProjectUpdates,
-    generateChatDescription
+    generateChatDescription,
+    autoSwitchModel
   };
   
   // Save chats to localStorage whenever they change
@@ -1044,6 +1072,41 @@ export const AppProvider = ({ children }) => {
     localStorage.setItem('sephia_companion_mode', JSON.stringify(companionMode));
     console.log('[AppContext] Companion mode saved:', companionMode);
   }, [companionMode]);
+
+  // Listen for network status changes and auto-switch models
+  useEffect(() => {
+    const unsubscribe = networkStatusService.addListener((status) => {
+      console.log('[AppContext] Network status changed:', status);
+      setNetworkStatus(status);
+      
+      // Auto-switch model when network status changes
+      setTimeout(() => {
+        const switched = autoSwitchModel();
+        if (switched) {
+          console.log(`[AppContext] Model auto-switched due to network change:`, switched);
+        }
+      }, 1000); // Small delay to let network status settle
+    });
+    
+    return unsubscribe;
+  }, []);
+
+  // Auto-switch model on initial load based on current network status
+  useEffect(() => {
+    // Only run once on initial load
+    setTimeout(() => {
+      const recommendation = networkStatusService.getRecommendedModel();
+      console.log('[AppContext] Initial model recommendation:', recommendation);
+      
+      // If we don't have a current model or it doesn't match recommendation, switch
+      if (recommendation.reason === 'offline' || recommendation.reason === 'cloud_unavailable') {
+        const switched = autoSwitchModel();
+        if (switched) {
+          console.log('[AppContext] Model auto-switched on startup:', switched);
+        }
+      }
+    }, 2000); // Wait for network status to stabilize
+  }, []); // Empty dependency array - run only once
   
   // Fetch available models
   useEffect(() => {

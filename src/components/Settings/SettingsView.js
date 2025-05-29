@@ -13,6 +13,7 @@ import { Slider, Divider } from '@mui/material';
 import voiceService from '../../services/VoiceService';
 import integrationService from '../../services/IntegrationService';
 import VoiceStatus from './VoiceStatus';
+import networkStatusService from '../../services/NetworkStatusService';
 
 const SettingsContainer = styled('div')({
   display: 'flex',
@@ -338,7 +339,9 @@ const SettingsView = () => {
     loading,
     loadModel,
     unloadModel,
-    appState = { connectionStatus: 'disconnected' }
+    appState = { connectionStatus: 'disconnected' },
+    networkStatus,
+    autoSwitchModel
   } = useApp();
   
   const [newModelName, setNewModelName] = useState('');
@@ -575,6 +578,45 @@ const SettingsView = () => {
       await voiceService.speak(testText);
     } catch (error) {
       console.error('Failed to test voice:', error);
+    }
+  };
+
+  const testClaudeConnection = async () => {
+    if (!settings.claudeApiKey) {
+      alert('Please enter your Claude API key first');
+      return;
+    }
+
+    try {
+      // Test Claude API connection
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': settings.claudeApiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 50,
+          messages: [
+            {
+              role: 'user',
+              content: 'Hello! Just testing the connection.'
+            }
+          ]
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        alert('✅ Claude API connection successful!\n\nResponse: ' + data.content[0].text);
+      } else {
+        const error = await response.json();
+        alert('❌ Claude API connection failed:\n' + (error.error?.message || response.statusText));
+      }
+    } catch (error) {
+      alert('❌ Claude API test failed:\n' + error.message);
     }
   };
   
@@ -1683,6 +1725,50 @@ const SettingsView = () => {
               Get credentials from <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>Google Cloud Console</a>
             </Description2>
           </div>
+
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Claude API Key</Label>
+            <Description2>
+              Anthropic Claude API key for enhanced AI capabilities
+            </Description2>
+          </SettingLabel>
+          <InputContainer>
+            <Input 
+              type="password" 
+              value={settings.claudeApiKey || ''} 
+              onChange={(e) => updateSetting('claudeApiKey', e.target.value)}
+              placeholder="sk-ant-..."
+            />
+            <Button 
+              onClick={() => testClaudeConnection()}
+              disabled={!settings.claudeApiKey}
+            >
+              Test
+            </Button>
+          </InputContainer>
+          <Description2 style={{ fontSize: '12px', marginTop: '8px' }}>
+            Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>Anthropic Console</a>. Enables Claude 3.5 Sonnet for Aria conversations.
+          </Description2>
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Preferred AI Model</Label>
+            <Description2>
+              Choose between local Ollama models or cloud AI services
+            </Description2>
+          </SettingLabel>
+          <Select 
+            value={settings.preferredAIModel || 'ollama'} 
+            onChange={(e) => updateSetting('preferredAIModel', e.target.value)}
+          >
+            <option value="ollama">Local Ollama (Privacy)</option>
+            <option value="claude" disabled={!settings.claudeApiKey}>Claude 3.5 Sonnet (Performance)</option>
+            <option value="claude-haiku" disabled={!settings.claudeApiKey}>Claude 3.5 Haiku (Fast & Affordable)</option>
+          </Select>
         </SettingItem>
         
         <SettingItem>
@@ -1987,27 +2073,132 @@ const SettingsView = () => {
       </SettingsSection>
       
       <SettingsSection>
-        <SectionTitle>Connection Status</SectionTitle>
+        <SectionTitle>🌐 Network & AI Model Status</SectionTitle>
         
         <SettingItem>
           <SettingLabel>
-            <Label>Current Status</Label>
+            <Label>Network Status</Label>
+            <Description2>
+              {networkStatus?.isOnline ? 
+                '✅ Connected to internet' : 
+                '❌ Offline - using local models only'}
+            </Description2>
+          </SettingLabel>
+          <Button
+            onClick={async () => {
+              const connectivity = await networkStatusService.testConnectivity();
+              const info = networkStatusService.getNetworkInfo();
+              
+              alert(`🌐 Network Diagnostics:\n\n` +
+                    `Overall Status: ${connectivity.overallStatus ? '✅ Good' : '❌ Issues detected'}\n\n` +
+                    `Tests:\n${connectivity.tests.map(test => 
+                      `• ${test.name}: ${test.result ? '✅' : '❌'} ${test.details}`
+                    ).join('\n')}\n\n` +
+                    `Connection: ${info.connectionType} | RTT: ${info.rtt}ms`);
+            }}
+          >
+            Test Network
+          </Button>
+        </SettingItem>
+
+        <SettingItem>
+          <SettingLabel>
+            <Label>AI Model Recommendation</Label>
+            <Description2>
+              Based on your current network status and preferences
+            </Description2>
+          </SettingLabel>
+          <Button
+            onClick={() => {
+              const recommendation = networkStatusService.getRecommendedModel();
+              const isCurrentRecommended = recommendation.model === currentModel;
+              
+              if (isCurrentRecommended) {
+                alert(`✅ You're using the optimal model!\n\n` +
+                      `Current: ${recommendation.model}\n` +
+                      `Type: ${recommendation.type}\n` +
+                      `Reason: ${recommendation.reason.replace('_', ' ')}`);
+              } else {
+                const switchNow = window.confirm(
+                  `💡 Model Switch Recommended:\n\n` +
+                  `Current: ${currentModel}\n` +
+                  `Recommended: ${recommendation.model}\n` +
+                  `Type: ${recommendation.type}\n` +
+                  `Reason: ${recommendation.reason.replace('_', ' ')}\n\n` +
+                  `Would you like to switch now?`
+                );
+                
+                if (switchNow) {
+                  const switched = autoSwitchModel();
+                  if (switched) {
+                    alert(`✅ Model switched to ${switched.model}!`);
+                  }
+                }
+              }
+            }}
+          >
+            Check Recommendation
+          </Button>
+        </SettingItem>
+
+        <SettingItem>
+          <SettingLabel>
+            <Label>Cloud API Status</Label>
+            <Description2>
+              Availability of external AI services
+            </Description2>
+          </SettingLabel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ color: networkStatus?.cloudApis?.claude ? '#4CAF50' : '#666' }}>
+              🤖 Claude API: {networkStatus?.cloudApis?.claude ? 'Available' : 'Not available'}
+            </div>
+            <div style={{ color: networkStatus?.cloudApis?.openai ? '#4CAF50' : '#666' }}>
+              🔮 OpenAI API: {networkStatus?.cloudApis?.openai ? 'Available' : 'Not available'}
+            </div>
+            <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>
+              Last checked: {networkStatus?.cloudApis?.lastChecked ? 
+                new Date(networkStatus.cloudApis.lastChecked).toLocaleTimeString() : 'Never'}
+            </div>
+          </div>
+        </SettingItem>
+
+        <SettingItem>
+          <SettingLabel>
+            <Label>Automatic Model Switching</Label>
+            <Description2>
+              Automatically switch between local and cloud models based on network status
+            </Description2>
+          </SettingLabel>
+          <ToggleSwitch checked={settings.autoModelSwitching !== false}>
+            <input 
+              type="checkbox" 
+              checked={settings.autoModelSwitching !== false}
+              onChange={(e) => updateSetting('autoModelSwitching', e.target.checked)}
+            />
+            <span className="slider"></span>
+          </ToggleSwitch>
+        </SettingItem>
+
+        <SettingItem>
+          <SettingLabel>
+            <Label>Connection Status</Label>
             <Description2>
               {appState.connectionStatus === 'connected' ? 
-                'Successfully connected to Ollama' : 
+                'Successfully connected to AI models' : 
                 appState.connectionStatus === 'connecting' ?
-                'Attempting to connect to Ollama...' :
-                'Not connected to Ollama'}
+                'Attempting to connect...' :
+                'Not connected'}
             </Description2>
           </SettingLabel>
           <ModelButton
             style={{ padding: '8px 16px' }}
             onClick={() => {
-              // Would trigger a connection refresh in a real implementation
+              // Force refresh network status
+              window.location.reload();
             }}
           >
             <RefreshIcon fontSize="small" style={{ marginRight: '8px' }} />
-            Refresh
+            Refresh Status
           </ModelButton>
         </SettingItem>
       </SettingsSection>

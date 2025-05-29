@@ -9,6 +9,7 @@ import ProjectsView from '../Projects/ProjectsView';
 import SettingsView from '../Settings/SettingsView';
 import OllamaChatView from '../../views/OllamaChatView';
 import TerminalView from '../../views/TerminalView';
+import NetworkStatusIndicator from '../Common/OfflineIndicator';
 
 const LayoutContainer = styled.div`
   display: flex;
@@ -186,6 +187,7 @@ const MainLayout = () => {
           })()}
         </ContentArea>
       </MainContent>
+      <NetworkStatusIndicator />
     </LayoutContainer>
   );
 };
