@@ -555,6 +555,7 @@ class VoiceServiceFactory {
         name: 'Bark AI TTS',
         type: 'AI Voice Synthesis',
         available: barkStatus.status === 'running',
+        modelsLoaded: barkStatus.models_loaded,
         voices: this.barkVoice.voices.length,
         quality: 'High',
         local: true
@@ -565,7 +566,8 @@ class VoiceServiceFactory {
         name: 'Bark AI TTS',
         type: 'AI Voice Synthesis',
         available: false,
-        error: 'Server not running',
+        modelsLoaded: false,
+        error: error.message || 'Server not running',
         voices: 0
       });
     }
@@ -573,8 +575,46 @@ class VoiceServiceFactory {
     return providers;
   }
 
-  // Unified speak method
+  // Unified speak method with intelligent voice selection
   async speak(text, options = {}) {
+    // Check user's voice settings
+    const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+    const preferFemaleVoice = voiceSettings.preferFemaleVoice === true;
+    const userWantsBark = voiceSettings.voiceSynthesisProvider === 'bark';
+    const femaleVoices = ['v2/en_speaker_3', 'v2/en_speaker_4', 'v2/en_speaker_5', 'v2/en_speaker_9'];
+    
+    // ONLY use browser TTS override if:
+    // 1. User explicitly enabled "Use Guaranteed Female Voice" toggle 
+    // 2. User has Bark selected as synthesis provider
+    // 3. User selected a "female" bark voice
+    // 4. Current provider is actually set to bark
+    if (preferFemaleVoice && userWantsBark && this.currentProvider === 'bark' && 
+        femaleVoices.includes(voiceSettings.barkVoice)) {
+      
+      console.log('[VoiceServiceFactory] User wants guaranteed female voice - using Browser TTS for reliable female voice');
+      
+      // Find best female browser voice
+      const browserVoices = this.browserVoice.getVoices();
+      const femaleSystemVoice = browserVoices.find(v => 
+        v.name.toLowerCase().includes('samantha') ||
+        v.name.toLowerCase().includes('ava') ||
+        v.name.toLowerCase().includes('victoria') ||
+        (v.lang.startsWith('en') && v.name.toLowerCase().includes('female'))
+      ) || browserVoices.find(v => v.lang.startsWith('en'));
+      
+      if (femaleSystemVoice) {
+        console.log('[VoiceServiceFactory] Using guaranteed female voice:', femaleSystemVoice.name);
+        return await this.browserVoice.speak(text, { 
+          ...options, 
+          voice: femaleSystemVoice 
+        });
+      }
+    }
+    
+    // Otherwise, respect user's explicit provider choice
+    console.log('[VoiceServiceFactory] Using user-selected provider:', this.currentProvider, 'with voice:', voiceSettings.barkVoice || 'default');
+    
+    // Otherwise use the selected provider
     const service = this.getActiveService();
     
     if (this.currentProvider === 'bark') {

@@ -1175,6 +1175,26 @@ const SettingsView = () => {
                   </Select>
                 </SettingItem>
                 
+                {voiceSettings.voiceSynthesisProvider === 'bark' && (
+                  <SettingItem>
+                    <SettingLabel>
+                      <Label>Use Guaranteed Female Voice</Label>
+                      <Description2>
+                        When enabled, female Bark voices (Speaker 3, 4, 5, 9) will automatically use Browser TTS for reliable female voices, while keeping Bark for everything else
+                      </Description2>
+                    </SettingLabel>
+                    <ToggleSwitch checked={voiceSettings.preferFemaleVoice}>
+                      <input 
+                        type="checkbox" 
+                        checked={voiceSettings.preferFemaleVoice}
+                        onChange={(e) => updateVoiceSetting('preferFemaleVoice', e.target.checked)}
+                        disabled={!voiceSettings.voiceEnabled}
+                      />
+                      <span className="slider"></span>
+                    </ToggleSwitch>
+                  </SettingItem>
+                )}
+                
                 {voiceSettings.speechProvider === 'azure' && (
                   <>
                     <SettingItem>
@@ -1217,7 +1237,7 @@ const SettingsView = () => {
                       <SettingLabel>
                         <Label>Bark Voice Selection</Label>
                         <Description2>
-                          Choose from high-quality AI-generated voices (requires Bark TTS server)
+                          Choose from AI-generated voice styles. Note: Gender characteristics may vary - Bark generates voices based on style, not guaranteed gender.
                         </Description2>
                       </SettingLabel>
                       <Select 
@@ -1225,20 +1245,25 @@ const SettingsView = () => {
                         onChange={(e) => updateVoiceSetting('barkVoice', e.target.value)}
                         disabled={!voiceSettings.voiceEnabled}
                       >
-                        <optgroup label="Female Voices">
-                          <option value="v2/en_speaker_1">Sarah (Female, Professional)</option>
-                          <option value="v2/en_speaker_3">Emma (Female, Warm)</option>
-                          <option value="v2/en_speaker_9">Lisa (Female, Clear)</option>
+                        <optgroup label="Natural & Professional">
+                          <option value="v2/en_speaker_0">Speaker 0 (Natural, Clear)</option>
+                          <option value="v2/en_speaker_1">Speaker 1 (Conversational) - Often deeper tone</option>
+                          <option value="v2/en_speaker_2">Speaker 2 (Professional, Authoritative)</option>
                         </optgroup>
-                        <optgroup label="Male Voices">
-                          <option value="v2/en_speaker_0">David (Male, Deep)</option>
-                          <option value="v2/en_speaker_2">Michael (Male, Professional)</option>
-                          <option value="v2/en_speaker_4">James (Male, Friendly)</option>
+                        <optgroup label="Warm & Expressive">
+                          <option value="v2/en_speaker_3">Speaker 3 (Warm) - Often higher tone</option>
+                          <option value="v2/en_speaker_4">Speaker 4 (Expressive, Dynamic)</option>
+                          <option value="v2/en_speaker_5">Speaker 5 (Clear, Crisp)</option>
                         </optgroup>
-                        <optgroup label="Character Voices">
-                          <option value="v2/en_speaker_6">Alex (Narrator)</option>
-                          <option value="v2/en_speaker_7">Sam (Casual)</option>
-                          <option value="v2/en_speaker_8">Jordan (Energetic)</option>
+                        <optgroup label="Narrative & Casual">
+                          <option value="v2/en_speaker_6">Speaker 6 (Narrative, Storytelling)</option>
+                          <option value="v2/en_speaker_7">Speaker 7 (Casual, Relaxed)</option>
+                          <option value="v2/en_speaker_8">Speaker 8 (Energetic, Animated)</option>
+                          <option value="v2/en_speaker_9">Speaker 9 (Gentle, Soft-spoken)</option>
+                        </optgroup>
+                        <optgroup label="Special Styles">
+                          <option value="announcer">Announcer (Broadcast-style)</option>
+                          <option value="narrator">Narrator (Book reading)</option>
                         </optgroup>
                       </Select>
                     </SettingItem>
@@ -1279,34 +1304,28 @@ const SettingsView = () => {
                       <Button 
                         onClick={async () => {
                           try {
-                            console.log('[Settings] Testing Bark audio output...');
+                            console.log('[Settings] Testing Bark audio output with user-selected voice...');
                             
-                            // Import Bark service dynamically
-                            const { default: BarkVoiceService } = await import('../../services/BarkVoiceService');
-                            const barkService = new BarkVoiceService();
+                            // Use the unified voice service to respect user settings
+                            const userVoice = voiceSettings.barkVoice || 'v2/en_speaker_3';
+                            console.log('[Settings] Testing with voice:', userVoice);
                             
-                            // First test system audio
-                            const audioTest = await barkService.testSystemAudio();
-                            console.log('[Settings] System audio test result:', audioTest);
+                            // Test using the VoiceServiceFactory to ensure consistency
+                            voiceService.setProvider('bark');
+                            const testText = `Hello! This is a test of ${userVoice} voice. If you can hear this clearly, your Bark AI voice system is working perfectly.`;
                             
-                            // Check audio devices
-                            const deviceTest = await barkService.checkAudioDevices();
-                            console.log('[Settings] Audio devices test result:', deviceTest);
-                            
-                            if (audioTest.success) {
-                              // Now test Bark TTS
-                              const barkTest = await barkService.test();
-                              if (barkTest.success) {
-                                alert('✅ Bark audio test successful!\n\nIf you heard the test voice, Bark AI is working correctly. If you didn\'t hear anything, check your system volume settings.');
-                              } else {
-                                alert(`❌ Bark test failed: ${barkTest.message}`);
-                              }
+                            // Test the voice using the unified service
+                            const barkTest = await voiceService.testProvider('bark');
+                            if (barkTest.success) {
+                              // Now test with user's selected voice specifically
+                              await voiceService.speak(testText);
+                              alert(`✅ Bark audio test successful!\n\nTested voice: ${userVoice}\n\nIf you heard the test voice clearly, Bark AI is working correctly with your selected voice. If you didn't hear anything, check your system volume settings.`);
                             } else {
-                              alert(`❌ System audio test failed: ${audioTest.message}\n\nPlease check your system audio settings and make sure speakers/headphones are connected and volume is up.`);
+                              alert(`❌ Bark test failed: ${barkTest.message}`);
                             }
                           } catch (error) {
                             console.error('[Settings] Bark audio test failed:', error);
-                            alert(`❌ Audio test error: ${error.message}`);
+                            alert(`❌ Audio test error: ${error.message}\n\nPlease ensure the Bark TTS server is running and try again.`);
                           }
                         }}
                         disabled={!voiceSettings.voiceEnabled}

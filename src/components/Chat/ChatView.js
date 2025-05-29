@@ -581,8 +581,9 @@ const ChatView = React.memo(({ projectId }) => {
       return;
     }
     
-    // Check if companion mode is enabled
-    if (companionMode && !messageText.trim().startsWith('@')) {
+    // Check if companion mode is enabled OR memory is force-enabled
+    const forceMemory = localStorage.getItem('sephia_force_memory') === 'true';
+    if ((companionMode || forceMemory) && !messageText.trim().startsWith('@')) {
       console.log('[ChatView] Companion mode: Processing natural conversation');
       try {
         // Initialize companion service if needed
@@ -681,7 +682,8 @@ const ChatView = React.memo(({ projectId }) => {
       try {
         console.log('[ChatView] Calling processCommand...');
         const commandResult = await processCommand(messageText.trim(), attachments, { 
-          setImageGenerationProgress 
+          setImageGenerationProgress,
+          companionMode
         });
         console.log('[ChatView] Command result:', commandResult);
         
@@ -1405,6 +1407,56 @@ const ChatView = React.memo(({ projectId }) => {
             
             // And once more after longer delay
             setTimeout(focusInput, 300);
+            
+            // Auto-speak the response if enabled
+            setTimeout(() => {
+              const savedSettings = localStorage.getItem('sephia_voice_settings');
+              if (savedSettings) {
+                try {
+                  const voiceSettings = JSON.parse(savedSettings);
+                  if (voiceSettings.autoSpeak && voiceSettings.voiceEnabled) {
+                    console.log('[ChatView] Auto-speak enabled, triggering voice synthesis');
+                    
+                    // Import voice service dynamically
+                    import('../../services/VoiceService').then(({ default: voiceService }) => {
+                      // Set the voice provider based on user settings BEFORE speaking
+                      const provider = voiceSettings.voiceSynthesisProvider || 'browser';
+                      console.log('[ChatView] Setting voice provider to:', provider);
+                      voiceService.setProvider(provider);
+                      
+                      // Clean content for speaking (remove Claude thinking and markdown)
+                      const cleanContent = finalContent
+                        .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove Claude thinking process
+                        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
+                        .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown
+                        .replace(/`(.*?)`/g, '$1') // Remove code markdown
+                        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links, keep text
+                        .replace(/#{1,6}\s/g, '') // Remove markdown headers
+                        .replace(/\n+/g, '. ') // Replace newlines with pauses
+                        .replace(/\s+/g, ' ') // Normalize whitespace
+                        .trim();
+                      
+                      if (cleanContent && cleanContent.length > 0) {
+                        console.log('[ChatView] Speaking response with', provider, 'provider:', cleanContent.substring(0, 100) + '...');
+                        voiceService.speak(cleanContent, {
+                          onStart: () => console.log('[ChatView] ✅ Auto-speak started with', provider),
+                          onEnd: () => console.log('[ChatView] ✅ Auto-speak completed with', provider),
+                          onError: (error) => console.warn('[ChatView] ⚠️ Auto-speak failed with', provider, ':', error)
+                        });
+                      } else {
+                        console.warn('[ChatView] ⚠️ No content to speak after cleaning');
+                      }
+                    }).catch(error => {
+                      console.error('[ChatView] ❌ Failed to load voice service:', error);
+                    });
+                  } else {
+                    console.log('[ChatView] Auto-speak disabled in settings');
+                  }
+                } catch (error) {
+                  console.error('[ChatView] ❌ Error checking auto-speak settings:', error);
+                }
+              }
+            }, 300); // Small delay to ensure message is saved
             
             // Clear streaming content AFTER everything is saved
             setTimeout(() => {

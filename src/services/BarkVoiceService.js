@@ -9,11 +9,25 @@ class BarkVoiceService {
     this.baseUrl = 'http://localhost:8189';
     this.isSupported = true;
     this.voices = [];
-    this.currentVoice = 'v2/en_speaker_1'; // Default to Sarah (Female)
+    this.currentVoice = this.getUserSelectedVoice() || 'v2/en_speaker_3'; // Default to Emma (Speaker 3)
     this.isServerRunning = false;
     
     // Initialize service
     this.init();
+  }
+
+  // Get user's selected Bark voice from settings
+  getUserSelectedVoice() {
+    try {
+      const voiceSettings = localStorage.getItem('sephia_voice_settings');
+      if (voiceSettings) {
+        const settings = JSON.parse(voiceSettings);
+        return settings.barkVoice || null;
+      }
+    } catch (error) {
+      console.warn('[BarkVoiceService] Failed to load voice settings:', error);
+    }
+    return null;
   }
 
   async init() {
@@ -29,7 +43,18 @@ class BarkVoiceService {
 
   async checkServerStatus() {
     try {
-      const response = await fetch(`${this.baseUrl}/status`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      const response = await fetch(`${this.baseUrl}/status`, {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
       if (!response.ok) {
         throw new Error(`Server returned ${response.status}`);
       }
@@ -48,6 +73,10 @@ class BarkVoiceService {
     } catch (error) {
       console.error('[BarkVoiceService] Server check failed:', error);
       this.isServerRunning = false;
+      
+      if (error.name === 'AbortError') {
+        throw new Error('Server connection timeout - server may be loading models');
+      }
       throw error;
     }
   }
@@ -89,6 +118,13 @@ class BarkVoiceService {
   }
 
   async speak(text, options = {}) {
+    // Check server status first
+    try {
+      await this.checkServerStatus();
+    } catch (error) {
+      throw new Error('Bark TTS server is not available. Please check if the server is running.');
+    }
+
     if (!this.isServerRunning) {
       throw new Error('Bark TTS server is not running. Start it with: ./start-bark-tts.sh');
     }
@@ -97,7 +133,9 @@ class BarkVoiceService {
       throw new Error('Text cannot be empty');
     }
 
-    const voice = options.voice || this.currentVoice;
+    // Always get the latest user-selected voice
+    const userVoice = this.getUserSelectedVoice();
+    const voice = options.voice || userVoice || this.currentVoice;
     
     console.log('[BarkVoiceService] Generating speech:', {
       text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
@@ -277,10 +315,37 @@ class BarkVoiceService {
   }
 
   setVoice(voiceId) {
+    // Allow setting voice even if voices haven't loaded yet (for default voices)
+    if (!this.voices || this.voices.length === 0) {
+      this.currentVoice = voiceId;
+      
+      // Save to localStorage
+      try {
+        const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+        voiceSettings.barkVoice = voiceId;
+        localStorage.setItem('sephia_voice_settings', JSON.stringify(voiceSettings));
+        console.log('[BarkVoiceService] Voice set to:', voiceId, '(voices not loaded yet)');
+      } catch (error) {
+        console.warn('[BarkVoiceService] Failed to save voice setting:', error);
+      }
+      
+      return true;
+    }
+    
     const voice = this.voices.find(v => v.id === voiceId);
     if (voice) {
       this.currentVoice = voiceId;
-      console.log('[BarkVoiceService] Voice changed to:', voice.name);
+      
+      // Also save to localStorage so it persists
+      try {
+        const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+        voiceSettings.barkVoice = voiceId;
+        localStorage.setItem('sephia_voice_settings', JSON.stringify(voiceSettings));
+        console.log('[BarkVoiceService] Voice changed to:', voice.name, 'and saved to settings');
+      } catch (error) {
+        console.warn('[BarkVoiceService] Failed to save voice setting:', error);
+      }
+      
       return true;
     }
     console.warn('[BarkVoiceService] Voice not found:', voiceId);
@@ -288,6 +353,9 @@ class BarkVoiceService {
   }
 
   getCurrentVoice() {
+    if (!this.voices || this.voices.length === 0) {
+      return null;
+    }
     return this.voices.find(v => v.id === this.currentVoice) || this.voices[0];
   }
 
@@ -332,11 +400,12 @@ class BarkVoiceService {
         voice: 'v2/en_speaker_1'
       });
 
+      const currentVoice = this.getCurrentVoice();
       return {
         success: true,
         message: 'Bark TTS is working correctly!',
         voices: this.voices.length,
-        currentVoice: this.getCurrentVoice().name
+        currentVoice: currentVoice ? currentVoice.name : this.currentVoice || 'Unknown'
       };
 
     } catch (error) {

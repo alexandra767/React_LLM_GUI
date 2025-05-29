@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Voice Settings Debug</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1E1E1E; color: #FFFFFF; }
+        .settings { background: #252525; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        pre { background: #333; padding: 10px; border-radius: 5px; overflow-x: auto; }
+        button { background: #FF643D; color: white; border: none; padding: 10px 15px; margin: 5px; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #E55A36; }
+        .status { padding: 10px; margin: 5px 0; border-radius: 5px; }
+        .success { background: #4CAF50; }
+        .error { background: #f44336; }
+        .warning { background: #ff9800; }
+    </style>
+</head>
+<body>
+    <h1>🎤 Voice Settings Debug Tool</h1>
+    
+    <div class="settings">
+        <h2>Current Voice Settings</h2>
+        <pre id="voiceSettings"></pre>
+    </div>
+    
+    <div class="settings">
+        <h2>Actions</h2>
+        <button onclick="loadSettings()">🔄 Refresh Settings</button>
+        <button onclick="setToBark()">🐕 Set to Bark + Speaker 3</button>
+        <button onclick="disableOverride()">🚫 Disable Female Voice Override</button>
+        <button onclick="setBrowserTTS()">🌐 Set to Browser TTS</button>
+        <button onclick="clearSettings()">🗑️ Clear All Settings</button>
+        <button onclick="testVoiceService()">🎵 Test Voice Service Routing</button>
+    </div>
+    
+    <div id="status"></div>
+    
+    <div class="settings">
+        <h2>Instructions</h2>
+        <p><strong>Problem:</strong> Aria is using Browser TTS instead of your selected Bark voice</p>
+        <p><strong>Solution:</strong></p>
+        <p>1. Click "🔄 Refresh Settings" to see if override is active</p>
+        <p>2. If you see "⚠️ OVERRIDE ACTIVE!" - click "🚫 Disable Female Voice Override"</p>
+        <p>3. OR click "🐕 Set to Bark + Speaker 3" to set everything correctly</p>
+        <p>4. Go back to your app and test Aria's voice - it should now use Bark consistently</p>
+        <p><strong>Explanation:</strong> The "Use Guaranteed Female Voice" toggle was causing Bark to switch to Browser TTS</p>
+    </div>
+
+    <script>
+        function showStatus(message, type = 'success') {
+            const status = document.getElementById('status');
+            status.innerHTML = `<div class="status ${type}">${message}</div>`;
+            setTimeout(() => status.innerHTML = '', 3000);
+        }
+
+        function loadSettings() {
+            const voiceSettings = localStorage.getItem('sephia_voice_settings');
+            const element = document.getElementById('voiceSettings');
+            
+            if (voiceSettings) {
+                try {
+                    const parsed = JSON.parse(voiceSettings);
+                    element.textContent = JSON.stringify(parsed, null, 2);
+                    
+                    // Check provider and override settings
+                    const provider = parsed.voiceSynthesisProvider || 'browser';
+                    const preferFemaleVoice = parsed.preferFemaleVoice === true;
+                    const barkVoice = parsed.barkVoice || 'default';
+                    const femaleVoices = ['v2/en_speaker_3', 'v2/en_speaker_4', 'v2/en_speaker_5', 'v2/en_speaker_9'];
+                    
+                    if (provider === 'bark') {
+                        if (preferFemaleVoice && femaleVoices.includes(barkVoice)) {
+                            showStatus(`⚠️ OVERRIDE ACTIVE! Provider: ${provider} | Voice: ${barkVoice} | But will use Browser TTS due to "Use Guaranteed Female Voice" toggle`, 'warning');
+                        } else {
+                            showStatus(`✅ Provider set to: ${provider} | Voice: ${barkVoice} | Override: ${preferFemaleVoice ? 'enabled' : 'disabled'}`, 'success');
+                        }
+                    } else {
+                        showStatus(`⚠️ Provider set to: ${provider} (not Bark)`, 'warning');
+                    }
+                } catch (e) {
+                    element.textContent = 'Error parsing settings: ' + e.message;
+                    showStatus('❌ Invalid JSON in settings', 'error');
+                }
+            } else {
+                element.textContent = 'No voice settings found in localStorage';
+                showStatus('⚠️ No voice settings found', 'warning');
+            }
+        }
+
+        function setToBark() {
+            const settings = {
+                voiceEnabled: true,
+                autoSpeak: true,
+                voiceSynthesisProvider: 'bark',
+                barkVoice: 'v2/en_speaker_3',
+                preferFemaleVoice: false, // DISABLE override to Browser TTS
+                speechRate: 1.0,
+                speechPitch: 1.0,
+                speechVolume: 1.0,
+                recognitionLanguage: 'en-US'
+            };
+            
+            localStorage.setItem('sephia_voice_settings', JSON.stringify(settings));
+            loadSettings();
+            showStatus('✅ Settings updated to use Bark with Speaker 3 (Emma) - Override disabled', 'success');
+        }
+
+        function disableOverride() {
+            const currentSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+            
+            // Just disable the override, keep everything else
+            currentSettings.preferFemaleVoice = false;
+            
+            localStorage.setItem('sephia_voice_settings', JSON.stringify(currentSettings));
+            loadSettings();
+            showStatus('✅ Female voice override disabled - Bark will now be used consistently', 'success');
+        }
+
+        function setBrowserTTS() {
+            const settings = {
+                voiceEnabled: true,
+                autoSpeak: true,
+                voiceSynthesisProvider: 'browser',
+                speechRate: 1.0,
+                speechPitch: 1.0,
+                speechVolume: 1.0,
+                recognitionLanguage: 'en-US'
+            };
+            
+            localStorage.setItem('sephia_voice_settings', JSON.stringify(settings));
+            loadSettings();
+            showStatus('✅ Settings updated to use Browser TTS', 'success');
+        }
+
+        function clearSettings() {
+            localStorage.removeItem('sephia_voice_settings');
+            loadSettings();
+            showStatus('✅ Voice settings cleared', 'success');
+        }
+
+        function testVoiceService() {
+            const settings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+            const provider = settings.voiceSynthesisProvider || 'browser';
+            
+            console.log('[Debug] Current voice settings:', settings);
+            console.log('[Debug] Provider should be:', provider);
+            console.log('[Debug] Bark voice should be:', settings.barkVoice);
+            
+            showStatus(`🔍 Check console - Provider: ${provider} | Voice: ${settings.barkVoice || 'default'}`, 'success');
+        }
+
+        // Load settings on page load
+        loadSettings();
+    </script>
+</body>
+</html>
