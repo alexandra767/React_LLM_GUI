@@ -256,6 +256,38 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           content: `Web search results for "${args}":\n\n${formattedResults}`
         };
 
+      case '@news':
+        // @news [query] - Get real news content
+        const newsQuery = args || 'latest news';
+        try {
+          const newsResults = await service.getLatestNews(newsQuery);
+          const formattedNews = service.formatWebSearchResults(newsResults);
+          return {
+            type: 'integration',
+            content: `Latest news for "${newsQuery}":\n\n${formattedNews}`
+          };
+        } catch (error) {
+          return {
+            type: 'error',
+            content: `News search failed: ${error.message}`
+          };
+        }
+
+      case '@spacex':
+        // @spacex - Get latest SpaceX news and updates
+        try {
+          const spacexNews = await service.getSpaceXUpdates();
+          return {
+            type: 'integration',
+            content: `Latest SpaceX Updates:\n\n${spacexNews}`
+          };
+        } catch (error) {
+          return {
+            type: 'error',
+            content: `SpaceX updates failed: ${error.message}`
+          };
+        }
+
       case '@test':
         // @test - test AppleScript functionality
         if (window.electron && window.electron.execAppleScript) {
@@ -763,6 +795,8 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             type: 'help',
             content: `Available commands in Electron:
 • @search [query] - Search the web
+• @news [query] - Get latest news articles with content
+• @spacex - Get latest SpaceX news and updates
 • @gmail [search] - Search Gmail (e.g., @gmail from:john)
 • @drive [search] - List or search Google Drive files
 • @drive-upload [file] - Upload file to Google Drive
@@ -777,6 +811,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @help - Show this help message
 
 Examples:
+• @search weather tomorrow
+• @news AI developments
+• @spacex (get latest SpaceX updates)
 • @gmail is:unread
 • @drive presentation
 • @drive-upload meeting notes.pdf
@@ -784,7 +821,6 @@ Examples:
 • @calendar 14
 • @calendar-add Meeting with team tomorrow at 3pm
 • @calendar-delete standup meeting
-• @search weather tomorrow
 • @image a beautiful sunset
 • @flux a cyberpunk city at night (uses 12 steps)
 • @flux:20 a detailed portrait (uses 20 steps)

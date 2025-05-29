@@ -880,6 +880,124 @@ class ElectronIntegrationService {
       }
     };
   }
+  // Get latest news using enhanced search
+  async getLatestNews(query = 'latest news') {
+    console.log('[ElectronIntegrationService] Getting latest news for:', query);
+    
+    try {
+      // Use the enhanced web search with better content
+      const results = await webSearchService.search(query);
+      return results.filter(result => 
+        result.type === 'news' && 
+        result.publishedAt && 
+        !result.url.includes('/search?')
+      ).slice(0, 10);
+    } catch (error) {
+      console.error('[ElectronIntegrationService] News fetch failed:', error);
+      throw error;
+    }
+  }
+
+  // Get SpaceX specific updates
+  async getSpaceXUpdates() {
+    console.log('[ElectronIntegrationService] Getting SpaceX updates...');
+    
+    try {
+      // Try multiple SpaceX-specific sources
+      const updates = [];
+      
+      // SpaceX RSS feed
+      try {
+        const spaceXRSS = await this.fetchSpaceXRSS();
+        updates.push(...spaceXRSS);
+      } catch (error) {
+        console.error('SpaceX RSS failed:', error);
+      }
+      
+      // General SpaceX news search
+      try {
+        const newsResults = await webSearchService.search('SpaceX latest news');
+        const recentNews = newsResults.filter(result => 
+          result.type === 'news' && 
+          !result.url.includes('/search?')
+        ).slice(0, 5);
+        updates.push(...recentNews);
+      } catch (error) {
+        console.error('SpaceX news search failed:', error);
+      }
+      
+      // Add official links if we don't have much content
+      if (updates.length < 3) {
+        updates.push({
+          title: '🚀 SpaceX Official Website',
+          url: 'https://www.spacex.com/',
+          snippet: 'Visit SpaceX.com for official mission updates, launch schedules, and company announcements.',
+          source: 'SpaceX Official',
+          type: 'official'
+        });
+        
+        updates.push({
+          title: '📡 SpaceX Live Updates',
+          url: 'https://twitter.com/spacex',
+          snippet: 'Follow @SpaceX on Twitter/X for real-time mission updates and launch coverage.',
+          source: 'SpaceX Twitter',
+          type: 'social'
+        });
+      }
+      
+      return this.formatWebSearchResults(updates);
+      
+    } catch (error) {
+      console.error('[ElectronIntegrationService] SpaceX updates failed:', error);
+      return 'Unable to fetch SpaceX updates at this time. Check https://www.spacex.com/ for official updates.';
+    }
+  }
+
+  // Fetch SpaceX RSS feed
+  async fetchSpaceXRSS() {
+    try {
+      // Try SpaceX news via RSS proxy
+      const rssUrl = 'https://news.google.com/rss/search?q=SpaceX&hl=en-US&gl=US&ceid=US:en';
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
+      
+      const response = await fetch(proxyUrl);
+      if (!response.ok) return [];
+      
+      const data = await response.json();
+      const xmlText = data.contents;
+      
+      // Parse RSS
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+      const items = xmlDoc.getElementsByTagName('item');
+      
+      const results = [];
+      for (let i = 0; i < Math.min(items.length, 5); i++) {
+        const item = items[i];
+        
+        const title = item.getElementsByTagName('title')[0]?.textContent;
+        const link = item.getElementsByTagName('link')[0]?.textContent;
+        const description = item.getElementsByTagName('description')[0]?.textContent;
+        const pubDate = item.getElementsByTagName('pubDate')[0]?.textContent;
+        
+        if (title && link && title.toLowerCase().includes('spacex')) {
+          results.push({
+            title: title.replace(/<[^>]*>/g, ''),
+            url: link,
+            snippet: description ? description.replace(/<[^>]*>/g, '').substring(0, 200) : 'SpaceX news update',
+            source: 'Google News',
+            type: 'news',
+            publishedAt: pubDate
+          });
+        }
+      }
+      
+      return results;
+    } catch (error) {
+      console.error('[ElectronIntegrationService] SpaceX RSS failed:', error);
+      return [];
+    }
+  }
 }
 
 // Export the class, not an instance, to prevent constructor from running on import
