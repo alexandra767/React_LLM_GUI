@@ -323,7 +323,7 @@ const Message = React.memo(({ message, onDelete }) => {
       try {
         const parsed = JSON.parse(savedSettings);
         voiceEnabled = parsed.voiceEnabled !== false;
-        ttsProvider = parsed.ttsProvider || 'browser';
+        ttsProvider = parsed.voiceSynthesisProvider || parsed.ttsProvider || 'browser';
       } catch (e) {
         console.error('Failed to load voice settings:', e);
       }

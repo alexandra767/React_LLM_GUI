@@ -89,6 +89,11 @@ export const AppProvider = ({ children }) => {
   const [tokenCount, setTokenCount] = useState({ input: 0, output: 0, total: 0 });
   const [messageDuration, setMessageDuration] = useState(0);
   const [imageGenerationProgress, setImageGenerationProgress] = useState(null);
+  const [companionMode, setCompanionMode] = useState(() => {
+    // Load companion mode preference from localStorage
+    const saved = localStorage.getItem('sephia_companion_mode');
+    return saved ? JSON.parse(saved) : false;
+  });
   
   // Debug image generation progress
   useEffect(() => {
@@ -922,6 +927,7 @@ export const AppProvider = ({ children }) => {
     tokenCount,
     messageDuration,
     imageGenerationProgress,
+    companionMode,
     
     // State setters
     setCurrentModel,
@@ -937,6 +943,7 @@ export const AppProvider = ({ children }) => {
     setMessageTime,
     setImageGenerationProgress: setImageGenerationProgressWithDebug,
     cancelImageGeneration,
+    setCompanionMode,
     
     // Methods
     handleChatSelect,
@@ -1031,6 +1038,12 @@ export const AppProvider = ({ children }) => {
       localStorage.setItem('sephia_current_model', currentModel);
     }
   }, [currentModel]);
+  
+  // Save companion mode to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('sephia_companion_mode', JSON.stringify(companionMode));
+    console.log('[AppContext] Companion mode saved:', companionMode);
+  }, [companionMode]);
   
   // Fetch available models
   useEffect(() => {

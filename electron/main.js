@@ -12,11 +12,16 @@ app.name = 'Sephia';
 
 // Enable features needed for Web Speech API
 app.commandLine.appendSwitch('enable-speech-dispatcher');
-app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
+app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI,SpeechRecognition');
 app.commandLine.appendSwitch('enable-web-speech');
 app.commandLine.appendSwitch('disable-web-security');
-app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
 app.commandLine.appendSwitch('allow-running-insecure-content');
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream'); // Auto-grant microphone permission
+app.commandLine.appendSwitch('enable-usermedia-screen-capturing');
+app.commandLine.appendSwitch('ignore-certificate-errors'); // Allow speech API connections
+app.commandLine.appendSwitch('ignore-ssl-errors'); // Allow HTTPS connections to Google
+app.commandLine.appendSwitch('allow-insecure-localhost'); // Allow local connections
+app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor,RendererCodeIntegrity'); // Disable restrictions
 
 // Terminal process management
 let terminalProcess = null;
@@ -32,6 +37,12 @@ let mainWindow;
 
 // Handle any uncaught exceptions
 process.on('uncaughtException', (err) => {
+  // Ignore common EIO errors that don't affect functionality
+  if (err.code === 'EIO' || err.message.includes('write EIO')) {
+    // Don't log EIO errors to avoid cascading issues
+    return;
+  }
+  
   console.error('Uncaught Exception:', err);
   if (dialog && dialog.showErrorBox) {
     dialog.showErrorBox('Uncaught Exception', `An error occurred: ${err.message}\n\n${err.stack || 'No stack trace available'}`);
@@ -46,6 +57,13 @@ process.on('uncaughtException', (err) => {
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
   const err = reason instanceof Error ? reason : new Error(String(reason));
+  
+  // Ignore EIO errors in promise rejections too
+  if (err.code === 'EIO' || err.message.includes('write EIO')) {
+    // Don't log EIO errors to avoid cascading issues
+    return;
+  }
+  
   console.error('Unhandled Rejection at:', promise, 'reason:', err);
   if (err.stack) {
     console.error('Stack:', err.stack);
@@ -105,12 +123,15 @@ function createWindow() {
         enableRemoteModule: false, // Disable remote module for security
         preload: path.join(__dirname, 'preload.js'),
         sandbox: false, // Disable sandbox to allow child_process
-        webSecurity: false, // Temporarily disable for testing
+        webSecurity: false, // Disable for speech recognition
         allowRunningInsecureContent: true,
         // Enable features needed for voice
         experimentalFeatures: true,
         // Allow network access for speech recognition
-        webviewTag: true
+        webviewTag: true,
+        // Additional permissions for speech API
+        plugins: true,
+        backgroundThrottling: false
       },
       title: 'Sephia',
       icon: process.platform === 'darwin' ? path.join(__dirname, '../public/favicon.icns') : path.join(__dirname, '../public/favicon.ico')
@@ -124,7 +145,7 @@ function createWindow() {
           ...details.responseHeaders,
           'Content-Security-Policy': [
             "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: ws: wss: http: https:; " +
-            "connect-src 'self' ws: wss: http: https: http://localhost:* *.google.com *.googleapis.com speech.googleapis.com; " +
+            "connect-src 'self' ws: wss: http: https: http://localhost:* *.google.com *.googleapis.com speech.googleapis.com *.googleusercontent.com *.gstatic.com www.google.com; " +
             "media-src 'self' blob: data: https:; " +
             "img-src 'self' data: blob: http: https: http://localhost:*; " +
             "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
@@ -134,6 +155,18 @@ function createWindow() {
       });
     });
     
+    // Handle permission requests (microphone)
+    mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
+      console.log('Permission requested:', permission);
+      if (permission === 'microphone' || permission === 'media') {
+        // Always grant microphone permission for speech recognition
+        callback(true);
+      } else {
+        // For other permissions, use default behavior
+        callback(false);
+      }
+    });
+
     mainWindow.on('closed', () => {
       mainWindow = null;
     });

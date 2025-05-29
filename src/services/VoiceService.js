@@ -44,13 +44,16 @@ class VoiceService {
         this.recognition.lang = 'en-US';
         this.recognition.maxAlternatives = 1;
         
-        // Try to use offline recognition if available
-        if ('webkitSpeechRecognition' in window) {
+        // Try to configure for offline/local use in Electron
+        if ('webkitSpeechRecognition' in window && isElectron) {
           try {
-            // Some browsers support offline mode
-            console.log('[VoiceService] WebKit Speech Recognition available');
+            // For Electron, try to use local recognition
+            console.log('[VoiceService] Configuring WebKit Speech Recognition for Electron');
+            // Disable network-based services if possible
+            this.recognition.serviceURI = ''; // Try to disable remote service
+            console.log('[VoiceService] Attempted to disable remote service');
           } catch (e) {
-            console.log('[VoiceService] Could not set offline mode:', e);
+            console.log('[VoiceService] Could not configure offline mode:', e);
           }
         }
       } else {
@@ -187,11 +190,11 @@ class VoiceService {
       };
 
       this.recognition.onresult = (event) => {
-        console.log('[VoiceService] Got result event:', event);
-        console.log('[VoiceService] Results length:', event.results.length);
+        console.log('[VoiceService] 🎤 Got result event:', event);
+        console.log('[VoiceService] 📊 Results length:', event.results.length);
         
         if (event.results.length === 0) {
-          console.warn('[VoiceService] No results in event');
+          console.warn('[VoiceService] ⚠️ No results in event');
           return;
         }
         
@@ -199,25 +202,33 @@ class VoiceService {
         const result = event.results[last];
         
         if (!result || result.length === 0) {
-          console.warn('[VoiceService] Empty result at index', last);
+          console.warn('[VoiceService] ⚠️ Empty result at index', last);
           return;
         }
         
         const transcript = result[0].transcript;
         const isFinal = result.isFinal;
 
-        console.log('[VoiceService] Speech result:', { 
+        console.log('[VoiceService] 🗣️ Speech result:', { 
           transcript, 
           isFinal,
           confidence: result[0].confidence,
-          alternatives: result.length
+          alternatives: result.length,
+          resultIndex: last,
+          totalResults: event.results.length
         });
 
-        callbacks.onResult?.({
-          transcript,
-          isFinal,
-          confidence: result[0].confidence
-        });
+        console.log('[VoiceService] 📞 Calling onResult callback with transcript:', transcript);
+        try {
+          callbacks.onResult?.({
+            transcript,
+            isFinal,
+            confidence: result[0].confidence
+          });
+          console.log('[VoiceService] ✅ onResult callback completed');
+        } catch (error) {
+          console.error('[VoiceService] ❌ Error in onResult callback:', error);
+        }
       };
       
       // Add more event handlers for debugging
@@ -253,14 +264,18 @@ class VoiceService {
         this.isListening = false;
         const errorMessage = this.getErrorMessage(event.error);
         
-        // For network errors in Electron, trigger automatic offline mode
+        // For network errors in Electron, automatically switch to offline mode
         if (event.error === 'network' && window.electron) {
-          console.log('[VoiceService] Network error in Electron - triggering automatic offline mode');
+          console.log('[VoiceService] Network error in Electron - switching to offline mode automatically');
           this.isListening = false;
           
-          // Pass a specific network error that ChatInput can handle
-          callbacks.onError?.('network');
-          reject(new Error('network'));
+          // Instead of prompt, trigger the offline voice service or manual input mode
+          setTimeout(() => {
+            console.log('[VoiceService] Network error - offering alternative input methods');
+            callbacks.onError?.('network'); // This will be handled by ChatInput to enable typing mode
+          }, 100);
+          
+          return; // Don't reject immediately
         } else {
           callbacks.onError?.(errorMessage);
           reject(new Error(errorMessage));
@@ -268,9 +283,15 @@ class VoiceService {
       };
 
       this.recognition.onend = () => {
-        console.log('[VoiceService] Speech recognition ended');
+        console.log('[VoiceService] 🏁 Speech recognition ended');
         this.isListening = false;
-        callbacks.onEnd?.();
+        console.log('[VoiceService] 📞 Calling onEnd callback...');
+        try {
+          callbacks.onEnd?.();
+          console.log('[VoiceService] ✅ onEnd callback completed');
+        } catch (error) {
+          console.error('[VoiceService] ❌ Error in onEnd callback:', error);
+        }
       };
 
       this.recognition.onaudiostart = () => {
@@ -282,7 +303,17 @@ class VoiceService {
       };
 
       try {
+        // Add extra configuration for Electron
+        if (window.electron) {
+          console.log('[VoiceService] 🖥️ Configuring recognition for Electron environment');
+          this.recognition.interimResults = true;
+          this.recognition.maxAlternatives = 1;
+          this.recognition.continuous = false;
+        }
+        
+        console.log('[VoiceService] 🚀 Starting speech recognition...');
         this.recognition.start();
+        console.log('[VoiceService] ✅ Recognition start() called successfully');
       } catch (error) {
         console.error('[VoiceService] Failed to start recognition:', error);
         this.isListening = false;

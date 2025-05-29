@@ -155,23 +155,122 @@ class BarkVoiceService {
   async playAudioData(audioData) {
     return new Promise((resolve, reject) => {
       try {
-        const audio = new Audio(audioData);
+        console.log('[BarkVoiceService] Processing audio data:', {
+          type: typeof audioData,
+          length: audioData?.length || 'unknown',
+          isDataUrl: audioData?.startsWith?.('data:') || false,
+          isBlob: audioData instanceof Blob,
+          preview: typeof audioData === 'string' ? audioData.substring(0, 50) : 'not string'
+        });
+        
+        let audioUrl;
+        
+        // Handle different audio data formats
+        if (typeof audioData === 'string') {
+          if (audioData.startsWith('data:audio/')) {
+            // Already a data URL
+            audioUrl = audioData;
+          } else if (audioData.startsWith('http')) {
+            // HTTP URL
+            audioUrl = audioData;
+          } else {
+            // Assume base64 encoded audio, create proper data URL
+            audioUrl = `data:audio/wav;base64,${audioData}`;
+          }
+        } else if (audioData instanceof Blob) {
+          // Blob data
+          audioUrl = URL.createObjectURL(audioData);
+        } else {
+          throw new Error('Unsupported audio data format');
+        }
+        
+        console.log('[BarkVoiceService] Using audio URL:', audioUrl.substring(0, 100) + '...');
+        
+        const audio = new Audio(audioUrl);
+        
+        // Add more detailed event listeners for debugging
+        audio.onloadstart = () => {
+          console.log('[BarkVoiceService] Audio loading started');
+        };
+        
+        audio.oncanplay = () => {
+          console.log('[BarkVoiceService] Audio can start playing');
+        };
+        
+        audio.oncanplaythrough = () => {
+          console.log('[BarkVoiceService] Audio can play through without buffering');
+        };
+        
+        audio.onplay = () => {
+          console.log('[BarkVoiceService] Audio playback started');
+        };
         
         audio.onended = () => {
           console.log('[BarkVoiceService] Audio playback completed');
+          // Clean up blob URL if we created one
+          if (audioData instanceof Blob) {
+            URL.revokeObjectURL(audioUrl);
+          }
           resolve();
         };
         
         audio.onerror = (error) => {
-          console.error('[BarkVoiceService] Audio playback error:', error);
-          reject(new Error('Audio playback failed'));
+          console.error('[BarkVoiceService] Audio playback error:', {
+            error: error,
+            audioError: audio.error,
+            networkState: audio.networkState,
+            readyState: audio.readyState,
+            audioUrl: audioUrl.substring(0, 100)
+          });
+          
+          // Clean up blob URL if we created one
+          if (audioData instanceof Blob) {
+            URL.revokeObjectURL(audioUrl);
+          }
+          
+          reject(new Error(`Audio playback failed: ${audio.error?.message || 'Unknown error'}`));
+        };
+        
+        audio.onabort = () => {
+          console.log('[BarkVoiceService] Audio playback aborted');
+        };
+        
+        audio.onstalled = () => {
+          console.warn('[BarkVoiceService] Audio playback stalled');
+        };
+        
+        audio.onsuspend = () => {
+          console.log('[BarkVoiceService] Audio playback suspended');
+        };
+        
+        audio.onwaiting = () => {
+          console.log('[BarkVoiceService] Audio playback waiting for data');
         };
         
         // Set volume and play
-        audio.volume = 0.8;
-        audio.play().catch(reject);
+        audio.volume = 1.0; // Maximum volume to ensure audibility
+        console.log('[BarkVoiceService] Starting audio playback with volume:', audio.volume);
+        
+        // Check browser autoplay policy
+        audio.play().then(() => {
+          console.log('[BarkVoiceService] Audio play() promise resolved successfully');
+        }).catch((playError) => {
+          console.error('[BarkVoiceService] Audio play() failed:', playError);
+          
+          // Clean up blob URL if we created one
+          if (audioData instanceof Blob) {
+            URL.revokeObjectURL(audioUrl);
+          }
+          
+          if (playError.name === 'NotAllowedError') {
+            reject(new Error('Audio playback blocked by browser autoplay policy. Please interact with the page first.'));
+          } else {
+            reject(new Error(`Audio playback failed: ${playError.message}`));
+          }
+        });
         
       } catch (error) {
+        console.error('[BarkVoiceService] Error in playAudioData:', error);
         reject(error);
       }
     });
@@ -244,6 +343,81 @@ class BarkVoiceService {
       return {
         success: false,
         message: `Test failed: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  // Test system audio output
+  async testSystemAudio() {
+    return new Promise((resolve) => {
+      try {
+        console.log('[BarkVoiceService] Testing system audio output...');
+        
+        // Create a simple test tone
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime); // Low volume
+        
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.5); // Play for 0.5 seconds
+        
+        oscillator.onended = () => {
+          console.log('[BarkVoiceService] Test tone completed');
+          audioContext.close();
+          resolve({
+            success: true,
+            message: 'System audio test completed. Did you hear a brief tone?'
+          });
+        };
+        
+        // Fallback timeout
+        setTimeout(() => {
+          console.log('[BarkVoiceService] Audio test timeout');
+          audioContext.close();
+          resolve({
+            success: false,
+            message: 'Audio test timed out - possible audio system issue'
+          });
+        }, 2000);
+        
+      } catch (error) {
+        console.error('[BarkVoiceService] System audio test failed:', error);
+        resolve({
+          success: false,
+          message: `System audio test failed: ${error.message}`
+        });
+      }
+    });
+  }
+
+  // Check audio output devices
+  async checkAudioDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputs = devices.filter(device => device.kind === 'audiooutput');
+      
+      console.log('[BarkVoiceService] Available audio output devices:', audioOutputs.map(d => ({
+        deviceId: d.deviceId,
+        label: d.label || 'Unknown device',
+        groupId: d.groupId
+      })));
+      
+      return {
+        success: true,
+        devices: audioOutputs,
+        defaultDevice: audioOutputs.find(d => d.deviceId === 'default') || audioOutputs[0]
+      };
+    } catch (error) {
+      console.error('[BarkVoiceService] Failed to enumerate audio devices:', error);
+      return {
+        success: false,
         error: error.message
       };
     }

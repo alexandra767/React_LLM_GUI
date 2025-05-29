@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aria Voice System Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        h1 {
+            color: #3498db;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .status-card {
+            background: rgba(52, 152, 219, 0.1);
+            border: 1px solid rgba(52, 152, 219, 0.3);
+            border-radius: 8px;
+            padding: 20px;
+        }
+        
+        .status-label {
+            font-size: 14px;
+            color: #bdc3c7;
+            margin-bottom: 10px;
+        }
+        
+        .status-value {
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #e74c3c;
+        }
+        
+        .status-indicator.good { background: #27ae60; }
+        .status-indicator.loading { 
+            background: #3498db; 
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .test-section {
+            margin: 30px 0;
+            padding: 20px;
+            background: rgba(44, 62, 80, 0.3);
+            border-radius: 8px;
+        }
+        
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 12px 24px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: #2980b9;
+            transform: translateY(-1px);
+        }
+        
+        button:disabled {
+            background: #7f8c8d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .log {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid #34495e;
+            border-radius: 6px;
+            padding: 15px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 12px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            color: #ecf0f1;
+        }
+        
+        .success { color: #27ae60; }
+        .error { color: #e74c3c; }
+        .warning { color: #f39c12; }
+        .info { color: #3498db; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Aria Voice System Test</h1>
+        
+        <div class="status-grid">
+            <div class="status-card">
+                <div class="status-label">Bark AI TTS Status</div>
+                <div class="status-value" id="barkStatus">
+                    <div class="status-indicator" id="barkIndicator"></div>
+                    <span id="barkText">Checking...</span>
+                </div>
+                <div style="font-size: 12px; color: #95a5a6; margin-top: 10px;" id="barkDetails"></div>
+            </div>
+            
+            <div class="status-card">
+                <div class="status-label">Browser TTS Status</div>
+                <div class="status-value">
+                    <div class="status-indicator good"></div>
+                    <span id="browserText">Ready</span>
+                </div>
+                <div style="font-size: 12px; color: #95a5a6; margin-top: 10px;" id="browserDetails"></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Voice Tests</h3>
+            <p>Test both voice synthesis systems to ensure they're working correctly:</p>
+            
+            <button onclick="testBrowserVoice()" id="testBrowserBtn">
+                🔊 Test Browser Voice
+            </button>
+            
+            <button onclick="testBarkVoice()" id="testBarkBtn" disabled>
+                🎤 Test Bark AI Voice
+            </button>
+            
+            <button onclick="stopAllAudio()" style="background: #e74c3c;">
+                ⏹️ Stop All Audio
+            </button>
+            
+            <button onclick="refreshStatus()" style="background: #95a5a6;">
+                🔄 Refresh Status
+            </button>
+        </div>
+        
+        <div class="test-section">
+            <h3>Voice Configuration</h3>
+            <p>Current voice settings and available options:</p>
+            
+            <div style="margin: 10px 0;">
+                <label>Browser Voice: </label>
+                <select id="voiceSelect" onchange="updateSelectedVoice()">
+                    <option value="">Loading voices...</option>
+                </select>
+            </div>
+            
+            <div style="margin: 10px 0;">
+                <label>Speech Rate: </label>
+                <input type="range" id="rateSlider" min="0.1" max="2" step="0.1" value="1" 
+                       onchange="updateSpeechRate()">
+                <span id="rateValue">1.0</span>
+            </div>
+        </div>
+        
+        <div class="log" id="log">
+            <div class="log-entry info">[INFO] Voice system test page loaded</div>
+        </div>
+    </div>
+
+    <script>
+        let selectedVoice = null;
+        let speechRate = 1.0;
+        
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logElement.appendChild(entry);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        async function checkBarkStatus() {
+            try {
+                log('Checking Bark TTS server...', 'info');
+                const response = await fetch('http://localhost:8189/status');
+                
+                if (response.ok) {
+                    const status = await response.json();
+                    const indicator = document.getElementById('barkIndicator');
+                    const text = document.getElementById('barkText');
+                    const details = document.getElementById('barkDetails');
+                    const testBtn = document.getElementById('testBarkBtn');
+                    
+                    if (status.models_loaded) {
+                        indicator.className = 'status-indicator good';
+                        text.textContent = 'Ready';
+                        details.textContent = `Device: ${status.device} | Voices: 12`;
+                        testBtn.disabled = false;
+                        log('Bark TTS: Models loaded and ready!', 'success');
+                    } else {
+                        indicator.className = 'status-indicator loading';
+                        text.textContent = 'Loading Models...';
+                        details.textContent = `Device: ${status.device} | Loading in progress`;
+                        testBtn.disabled = true;
+                        log('Bark TTS: Models still loading...', 'warning');
+                    }
+                    
+                    return status;
+                } else {
+                    throw new Error(`Server responded with ${response.status}`);
+                }
+            } catch (error) {
+                log(`Bark TTS error: ${error.message}`, 'error');
+                const indicator = document.getElementById('barkIndicator');
+                const text = document.getElementById('barkText');
+                const details = document.getElementById('barkDetails');
+                const testBtn = document.getElementById('testBarkBtn');
+                
+                indicator.className = 'status-indicator';
+                text.textContent = 'Server Offline';
+                details.textContent = 'Make sure Bark TTS server is running';
+                testBtn.disabled = true;
+                
+                return null;
+            }
+        }
+        
+        function loadBrowserVoices() {
+            log('Loading browser voices...', 'info');
+            const voices = window.speechSynthesis.getVoices();
+            const select = document.getElementById('voiceSelect');
+            const details = document.getElementById('browserDetails');
+            
+            select.innerHTML = '<option value="">Default Voice</option>';
+            
+            // Find the best voices
+            const premiumVoices = voices.filter(v => 
+                v.name.toLowerCase().includes('samantha') || 
+                v.name.toLowerCase().includes('alex') ||
+                v.name.toLowerCase().includes('ava')
+            );
+            
+            if (premiumVoices.length > 0) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = 'Premium Voices';
+                premiumVoices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.name;
+                    option.textContent = `${voice.name} (${voice.lang})`;
+                    optgroup.appendChild(option);
+                });
+                select.appendChild(optgroup);
+            }
+            
+            // Add all other voices
+            const otherVoices = voices.filter(v => !premiumVoices.includes(v));
+            if (otherVoices.length > 0) {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = 'Standard Voices';
+                otherVoices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.name;
+                    option.textContent = `${voice.name} (${voice.lang})`;
+                    optgroup.appendChild(option);
+                });
+                select.appendChild(optgroup);
+            }
+            
+            const bestVoice = premiumVoices[0] || voices.find(v => v.lang.startsWith('en')) || voices[0];
+            details.textContent = `${voices.length} voices | Best: ${bestVoice?.name || 'None'}`;
+            
+            log(`Found ${voices.length} browser voices`, 'success');
+        }
+        
+        function updateSelectedVoice() {
+            const select = document.getElementById('voiceSelect');
+            const voices = window.speechSynthesis.getVoices();
+            selectedVoice = voices.find(v => v.name === select.value) || null;
+            log(`Selected voice: ${selectedVoice?.name || 'Default'}`, 'info');
+        }
+        
+        function updateSpeechRate() {
+            const slider = document.getElementById('rateSlider');
+            const value = document.getElementById('rateValue');
+            speechRate = parseFloat(slider.value);
+            value.textContent = speechRate.toFixed(1);
+            log(`Speech rate set to: ${speechRate}`, 'info');
+        }
+        
+        async function testBrowserVoice() {
+            log('Testing browser voice synthesis...', 'info');
+            const testBtn = document.getElementById('testBrowserBtn');
+            testBtn.disabled = true;
+            testBtn.textContent = '🔊 Speaking...';
+            
+            try {
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(
+                    'Hello! This is Aria testing the browser voice system. The voice synthesis is working correctly.'
+                );
+                
+                if (selectedVoice) {
+                    utterance.voice = selectedVoice;
+                    log(`Using voice: ${selectedVoice.name}`, 'info');
+                }
+                
+                utterance.rate = speechRate;
+                utterance.volume = 1.0;
+                
+                utterance.onend = () => {
+                    log('Browser voice test completed successfully!', 'success');
+                    testBtn.disabled = false;
+                    testBtn.textContent = '🔊 Test Browser Voice';
+                };
+                
+                utterance.onerror = (error) => {
+                    log(`Browser voice error: ${error.error}`, 'error');
+                    testBtn.disabled = false;
+                    testBtn.textContent = '🔊 Test Browser Voice';
+                };
+                
+                window.speechSynthesis.speak(utterance);
+                log('Browser voice: Speaking...', 'info');
+                
+            } catch (error) {
+                log(`Browser voice test failed: ${error.message}`, 'error');
+                testBtn.disabled = false;
+                testBtn.textContent = '🔊 Test Browser Voice';
+            }
+        }
+        
+        async function testBarkVoice() {
+            log('Testing Bark AI voice synthesis...', 'info');
+            const testBtn = document.getElementById('testBarkBtn');
+            testBtn.disabled = true;
+            testBtn.textContent = '🎤 Generating...';
+            
+            try {
+                const response = await fetch('http://localhost:8189/tts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: 'Hello! This is Aria testing the Bark AI voice system. The neural voice synthesis is working beautifully.',
+                        voice: 'v2/en_speaker_1',
+                        temperature: 0.7
+                    })
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    
+                    if (result.success && result.audio_data) {
+                        log('Bark AI: Voice generated successfully!', 'success');
+                        log(`Generated ${result.duration?.toFixed(1)}s of audio`, 'info');
+                        
+                        // Play the audio
+                        const audio = new Audio(result.audio_data);
+                        
+                        audio.onended = () => {
+                            log('Bark AI voice test completed successfully!', 'success');
+                            testBtn.disabled = false;
+                            testBtn.textContent = '🎤 Test Bark AI Voice';
+                        };
+                        
+                        audio.onerror = () => {
+                            log('Bark AI: Audio playback failed', 'error');
+                            testBtn.disabled = false;
+                            testBtn.textContent = '🎤 Test Bark AI Voice';
+                        };
+                        
+                        await audio.play();
+                        log('Bark AI: Playing generated audio...', 'info');
+                    } else {
+                        log(`Bark AI failed: ${result.error || 'Unknown error'}`, 'error');
+                        testBtn.disabled = false;
+                        testBtn.textContent = '🎤 Test Bark AI Voice';
+                    }
+                } else {
+                    const error = await response.json();
+                    log(`Bark AI error: ${error.detail || 'Server error'}`, 'error');
+                    testBtn.disabled = false;
+                    testBtn.textContent = '🎤 Test Bark AI Voice';
+                }
+            } catch (error) {
+                log(`Bark AI test failed: ${error.message}`, 'error');
+                testBtn.disabled = false;
+                testBtn.textContent = '🎤 Test Bark AI Voice';
+            }
+        }
+        
+        function stopAllAudio() {
+            log('Stopping all audio playback...', 'info');
+            
+            // Stop browser speech
+            window.speechSynthesis.cancel();
+            
+            // Stop any playing audio elements
+            const audioElements = document.querySelectorAll('audio');
+            audioElements.forEach(audio => {
+                audio.pause();
+                audio.currentTime = 0;
+            });
+            
+            // Re-enable buttons
+            document.getElementById('testBrowserBtn').disabled = false;
+            document.getElementById('testBrowserBtn').textContent = '🔊 Test Browser Voice';
+            document.getElementById('testBarkBtn').textContent = '🎤 Test Bark AI Voice';
+            
+            log('All audio stopped', 'success');
+        }
+        
+        async function refreshStatus() {
+            log('Refreshing voice system status...', 'info');
+            await checkBarkStatus();
+            loadBrowserVoices();
+            log('Status refresh completed', 'success');
+        }
+        
+        // Initialize on page load
+        window.addEventListener('load', async () => {
+            log('Initializing voice system test...', 'info');
+            
+            // Initial status check
+            await refreshStatus();
+            
+            // Auto-refresh Bark status every 30 seconds
+            setInterval(checkBarkStatus, 30000);
+            
+            // Load voices when they change
+            if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                window.speechSynthesis.onvoiceschanged = loadBrowserVoices;
+            }
+            
+            log('Voice system test ready!', 'success');
+        });
+    </script>
+</body>
+</html>

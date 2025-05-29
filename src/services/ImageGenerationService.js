@@ -75,12 +75,7 @@ class ImageGenerationService {
           }
         };
 
-        // Timeout connection attempt
-        setTimeout(() => {
-          if (!this.isConnected) {
-            reject(new Error('ComfyUI connection timeout'));
-          }
-        }, 5000);
+        // No timeout for connection - wait indefinitely
       });
     } catch (error) {
       console.error('[ImageGen] Failed to connect to ComfyUI:', error);
@@ -157,25 +152,28 @@ class ImageGenerationService {
         const nodeCount = request.executionState.nodesSeen.size;
         
         // Estimate progress based on nodes executed (rough approximation)
-        // For Flux: typically 8-12 major nodes, with KSampler being the main one
+        // For all generations: typically 8-12 major nodes, with KSampler being the main one
         if (data.node === '3') { // KSampler node - this is where the main generation happens
           // Start showing meaningful progress when KSampler starts
+          const currentStep = Math.max(6, nodeCount); // Don't go below step 6 for KSampler
           request.onProgress?.({ 
-            currentStep: Math.max(6, nodeCount), // Don't go below step 6 for KSampler
-            totalSteps: request.totalSteps || 12,
-            message: 'Generating with Flux.1 Dev...',
+            currentStep: currentStep,
+            totalSteps: request.totalSteps || 20,
+            message: 'Processing image generation...',
             status: 'sampling'
           });
+          console.log('[ImageGen] KSampler progress:', { currentStep, totalSteps: request.totalSteps || 20 });
         } else {
           // Ensure progress never stops - increment from current step
-          const currentStep = Math.min(nodeCount + 2, (request.totalSteps || 12) - 1);
+          const currentStep = Math.min(nodeCount + 2, (request.totalSteps || 20) - 1);
           request.onProgress?.({ 
             currentStep: currentStep, 
-            totalSteps: request.totalSteps || 12,
+            totalSteps: request.totalSteps || 20,
             message: nodeCount < 6 ? 'Loading models...' : 'Processing...',
             status: 'executing', 
             node: data.node 
           });
+          console.log('[ImageGen] Node progress:', { node: data.node, currentStep, totalSteps: request.totalSteps || 20 });
         }
       }
     } else if (type === 'progress' && data?.prompt_id) {
@@ -183,15 +181,17 @@ class ImageGenerationService {
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
         const { value, max } = data;
-        // Ensure progress continues from where it left off
-        const currentStep = Math.max(6, value || 0); // Don't go below step 6
+        // Use actual progress values from ComfyUI
+        const currentStep = value || 0;
+        const totalSteps = max || request.totalSteps || 20;
         request.onProgress?.({ 
           currentStep: currentStep, 
-          totalSteps: max || request.totalSteps || 12,
-          percentage: max > 0 ? (currentStep / max) * 100 : ((currentStep / (request.totalSteps || 12)) * 100),
-          message: 'Sampling...',
+          totalSteps: totalSteps,
+          percentage: totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0,
+          message: 'Processing steps...',
           status: 'progress'
         });
+        console.log('[ImageGen] ComfyUI progress:', { currentStep, totalSteps, value, max });
       }
     } else if (type === 'executed' && data?.prompt_id) {
       // Log all executed messages to debug
@@ -380,18 +380,7 @@ class ImageGenerationService {
 
       // No fallback needed - WebSocket messages are working correctly
 
-      // Set timeout based on model type
-      const isFluxModel = workflow["4"]?.class_type === "UNETLoader";
-      const timeoutMs = isFluxModel ? 7200000 : 300000; // 2 hours for Flux, 5 minutes for others
-      
-      setTimeout(() => {
-        if (this.pendingRequests.has(promptId)) {
-          console.log(`[ImageGen] Timeout reached for promptId: ${promptId} (${isFluxModel ? 'Flux' : 'Standard'} model)`);
-          this.pendingRequests.delete(promptId);
-          this.isGenerating = false;
-          reject(new Error(`Image generation timeout after ${timeoutMs / 60000} minutes`));
-        }
-      }, timeoutMs);
+      // No timeout - let generation run as long as needed
     });
   }
 
@@ -520,18 +509,7 @@ class ImageGenerationService {
         totalSteps: steps
       });
 
-      // No timeout for img2img - can take a long time
-      // Keep a reasonable timeout for non-Flux models
-      if (workflow["4"]?.class_type !== "CheckpointLoaderSimple" || !this.getModelName(model).includes('flux')) {
-        const timeoutMs = 300000; // 5 minutes for non-Flux models
-        setTimeout(() => {
-          if (this.pendingRequests.has(promptId)) {
-            console.log('[ImageGen] Timeout reached for promptId:', promptId);
-            this.pendingRequests.delete(promptId);
-            reject(new Error('Image generation timeout'));
-          }
-        }, timeoutMs);
-      }
+      // No timeout - let generation run as long as needed
     });
   }
 

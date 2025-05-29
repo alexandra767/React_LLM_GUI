@@ -599,6 +599,287 @@ class ElectronIntegrationService {
       return eventStr;
     }).join('\n\n');
   }
+
+  // Create Google Calendar event
+  async createGoogleCalendarEvent(eventDetails) {
+    console.log('[ElectronIntegrationService] Creating calendar event:', eventDetails);
+    
+    try {
+      const accessToken = await this.googleAuth.getValidAccessToken();
+      
+      // Parse event details (basic implementation)
+      const event = this.parseEventDetails(eventDetails);
+      
+      const url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(event)
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          await this.googleAuth.refreshAccessToken();
+          return this.createGoogleCalendarEvent(eventDetails);
+        }
+        
+        const error = await response.text();
+        console.error('[ElectronIntegrationService] Calendar creation error:', response.status, error);
+        throw new Error(`Failed to create calendar event: ${response.status}`);
+      }
+
+      const createdEvent = await response.json();
+      console.log('[ElectronIntegrationService] Calendar event created:', createdEvent.id);
+      
+      return {
+        content: `Successfully created calendar event: "${createdEvent.summary}" scheduled for ${new Date(createdEvent.start.dateTime || createdEvent.start.date).toLocaleString()}`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to create calendar event:', error);
+      return {
+        content: `Error creating calendar event: ${error.message}`
+      };
+    }
+  }
+
+  // Delete Google Calendar event
+  async deleteGoogleCalendarEvent(eventDetails) {
+    console.log('[ElectronIntegrationService] Deleting calendar event:', eventDetails);
+    
+    try {
+      const accessToken = await this.googleAuth.getValidAccessToken();
+      
+      // First, search for events matching the details
+      const searchQuery = encodeURIComponent(eventDetails);
+      const searchUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events?q=${searchQuery}&maxResults=10`;
+      
+      const searchResponse = await fetch(searchUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!searchResponse.ok) {
+        throw new Error(`Failed to search calendar events: ${searchResponse.status}`);
+      }
+
+      const searchData = await searchResponse.json();
+      const events = searchData.items || [];
+      
+      if (events.length === 0) {
+        return {
+          content: `No calendar events found matching "${eventDetails}"`
+        };
+      }
+
+      // Delete the first matching event
+      const eventToDelete = events[0];
+      const deleteUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventToDelete.id}`;
+      
+      const deleteResponse = await fetch(deleteUrl, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      if (!deleteResponse.ok) {
+        throw new Error(`Failed to delete calendar event: ${deleteResponse.status}`);
+      }
+
+      return {
+        content: `Successfully deleted calendar event: "${eventToDelete.summary}"`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to delete calendar event:', error);
+      return {
+        content: `Error deleting calendar event: ${error.message}`
+      };
+    }
+  }
+
+  // Upload file to Google Drive
+  async uploadGoogleDriveFile(fileDetails) {
+    console.log('[ElectronIntegrationService] Uploading file to Drive:', fileDetails);
+    
+    try {
+      return {
+        content: `File upload to Google Drive is not yet fully implemented. For now, you can:\n\n• Use the Google Drive web interface\n• Drag and drop files directly to drive.google.com\n• Use the Google Drive desktop sync app\n\nRequested upload: "${fileDetails}"`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to upload file:', error);
+      return {
+        content: `Error uploading file: ${error.message}`
+      };
+    }
+  }
+
+  // Download file from Google Drive
+  async downloadGoogleDriveFile(fileDetails) {
+    console.log('[ElectronIntegrationService] Downloading file from Drive:', fileDetails);
+    
+    try {
+      const accessToken = await this.googleAuth.getValidAccessToken();
+      
+      // Search for the file
+      const searchQuery = encodeURIComponent(fileDetails);
+      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name contains '${searchQuery}'&fields=files(id,name,mimeType,webViewLink)`;
+      
+      const searchResponse = await fetch(searchUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!searchResponse.ok) {
+        throw new Error(`Failed to search Drive files: ${searchResponse.status}`);
+      }
+
+      const searchData = await searchResponse.json();
+      const files = searchData.files || [];
+      
+      if (files.length === 0) {
+        return {
+          content: `No Google Drive files found matching "${fileDetails}"`
+        };
+      }
+
+      const file = files[0];
+      
+      return {
+        content: `Found file: "${file.name}"\nView/Download: ${file.webViewLink}\n\nNote: Direct download will be implemented in a future update. For now, click the link above to access your file.`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to download file:', error);
+      return {
+        content: `Error accessing file: ${error.message}`
+      };
+    }
+  }
+
+  // Delete file from Google Drive
+  async deleteGoogleDriveFile(fileDetails) {
+    console.log('[ElectronIntegrationService] Deleting file from Drive:', fileDetails);
+    
+    try {
+      const accessToken = await this.googleAuth.getValidAccessToken();
+      
+      // Search for the file
+      const searchQuery = encodeURIComponent(fileDetails);
+      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name contains '${searchQuery}'&fields=files(id,name)`;
+      
+      const searchResponse = await fetch(searchUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!searchResponse.ok) {
+        throw new Error(`Failed to search Drive files: ${searchResponse.status}`);
+      }
+
+      const searchData = await searchResponse.json();
+      const files = searchData.files || [];
+      
+      if (files.length === 0) {
+        return {
+          content: `No Google Drive files found matching "${fileDetails}"`
+        };
+      }
+
+      const file = files[0];
+      
+      // Delete the file
+      const deleteUrl = `https://www.googleapis.com/drive/v3/files/${file.id}`;
+      
+      const deleteResponse = await fetch(deleteUrl, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      if (!deleteResponse.ok) {
+        throw new Error(`Failed to delete file: ${deleteResponse.status}`);
+      }
+
+      return {
+        content: `Successfully deleted file: "${file.name}" from Google Drive`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to delete file:', error);
+      return {
+        content: `Error deleting file: ${error.message}`
+      };
+    }
+  }
+
+  // Parse event details from natural language
+  parseEventDetails(eventDetails) {
+    const now = new Date();
+    let startDate = new Date(now.getTime() + 60 * 60 * 1000); // Default to 1 hour from now
+    let endDate = new Date(startDate.getTime() + 60 * 60 * 1000); // 1 hour duration
+    let title = eventDetails;
+    let description = '';
+    let location = '';
+
+    // Extract time information
+    const timeMatch = eventDetails.match(/at (\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
+    if (timeMatch) {
+      let hours = parseInt(timeMatch[1]);
+      const minutes = parseInt(timeMatch[2] || '0');
+      const ampm = timeMatch[3];
+      
+      if (ampm && ampm.toLowerCase() === 'pm' && hours !== 12) {
+        hours += 12;
+      } else if (ampm && ampm.toLowerCase() === 'am' && hours === 12) {
+        hours = 0;
+      }
+      
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes);
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    }
+
+    // Extract date information
+    const dateMatch = eventDetails.match(/(tomorrow|today|next week|this week)/i);
+    if (dateMatch) {
+      const dateRef = dateMatch[1].toLowerCase();
+      if (dateRef === 'tomorrow') {
+        startDate.setDate(startDate.getDate() + 1);
+        endDate.setDate(endDate.getDate() + 1);
+      } else if (dateRef === 'next week') {
+        startDate.setDate(startDate.getDate() + 7);
+        endDate.setDate(endDate.getDate() + 7);
+      }
+    }
+
+    // Clean up title by removing time and date references
+    title = eventDetails
+      .replace(/at \d{1,2}:?\d{0,2}\s*(am|pm)?/gi, '')
+      .replace(/(tomorrow|today|next week|this week)/gi, '')
+      .trim();
+
+    return {
+      summary: title || 'New Event',
+      description: description,
+      location: location,
+      start: {
+        dateTime: startDate.toISOString(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      },
+      end: {
+        dateTime: endDate.toISOString(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      }
+    };
+  }
 }
 
 // Export the class, not an instance, to prevent constructor from running on import

@@ -14,6 +14,7 @@ import streamingManager from '../../services/StreamingManager';
 import { useStreamingProtection } from '../../hooks/useStreamingProtection';
 import simpleStreamingService from '../../services/SimpleStreamingService';
 import { processCommand } from '../../utils/commandProcessor';
+import companionService from '../../services/CompanionService';
 // DeleteIcon import removed as it's no longer needed here
 import ErrorBoundary from '../Common/ErrorBoundary';
 
@@ -276,7 +277,9 @@ const ChatView = React.memo(({ projectId }) => {
     generateChatDescription,
     imageGenerationProgress,
     setImageGenerationProgress,
-    cancelImageGeneration
+    cancelImageGeneration,
+    companionMode,
+    setCompanionMode
   } = useApp();
   
   // Force component refresh with version stamp
@@ -426,7 +429,7 @@ const ChatView = React.memo(({ projectId }) => {
         projectId,
         projectExists: !!project,
         projectMessageCount: project.messages.length,
-        firstMessagePreview: project.messages[0]?.content?.substring(0, 50)
+        firstMessagePreview: typeof project.messages[0]?.content === 'string' ? project.messages[0].content.substring(0, 50) : 'N/A'
       });
       
       // Update local messages from project
@@ -478,7 +481,7 @@ const ChatView = React.memo(({ projectId }) => {
         console.log('[DIAGNOSTIC] Updated streaming message:', {
           id: msgs[messageIndex].id,
           contentLength: msgs[messageIndex].content.length,
-          contentPreview: msgs[messageIndex].content.substring(0, 50),
+          contentPreview: typeof msgs[messageIndex].content === 'string' ? msgs[messageIndex].content.substring(0, 50) : 'N/A',
           isStreaming: msgs[messageIndex].isStreaming
         });
       } else {
@@ -489,7 +492,7 @@ const ChatView = React.memo(({ projectId }) => {
     console.log('[DIAGNOSTIC] Final messages:', {
       count: msgs.length,
       lastMessage: msgs[msgs.length - 1],
-      lastMessageContent: msgs[msgs.length - 1]?.content?.substring(0, 50)
+      lastMessageContent: typeof msgs[msgs.length - 1]?.content === 'string' ? msgs[msgs.length - 1].content.substring(0, 50) : 'N/A'
     });
     
     return msgs;
@@ -578,7 +581,101 @@ const ChatView = React.memo(({ projectId }) => {
       return;
     }
     
-    // Check for @ commands
+    // Check if companion mode is enabled
+    if (companionMode && !messageText.trim().startsWith('@')) {
+      console.log('[ChatView] Companion mode: Processing natural conversation');
+      try {
+        // Initialize companion service if needed
+        if (!companionService.integrationService) {
+          const { getIntegrationService } = await import('../../utils/commandProcessor');
+          const integrationService = await getIntegrationService();
+          companionService.initialize(integrationService, { processCommand });
+          
+          // Connect voice service for auto-speaking
+          const voiceService = await import('../../services/VoiceService');
+          companionService.setVoiceService(voiceService.default);
+        }
+        
+        // Process through companion service
+        const companionResult = await companionService.handleConversation(messageText.trim(), {
+          setImageGenerationProgress,
+          attachments
+        });
+        
+        console.log('[ChatView] Companion result:', companionResult);
+        
+        // Create user message
+        const userMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'user',
+          content: messageText.trim(),
+          timestamp: new Date().toISOString()
+        };
+        
+        // Create companion response
+        const companionMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'assistant',
+          content: typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.'),
+          timestamp: new Date().toISOString(),
+          isCompanion: true,
+          ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
+            imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
+          })
+        };
+        
+        // Handle project context or regular chat
+        if (projectId && updateProject) {
+          const currentMessages = Array.isArray(messages) ? messages : [];
+          const updatedMessages = [...currentMessages, userMessage, companionMessage];
+          setLocalProjectMessages(updatedMessages);
+          updateProject(projectId, { 
+            messages: updatedMessages,
+            lastUpdated: new Date().toISOString()
+          });
+        } else {
+          // Handle regular chat context
+          if (!currentChat) {
+            const newChat = createNewChat('Chat with Aria', theme?.name || 'dark', messageText.trim());
+            const chatWithMessages = {
+              ...newChat,
+              messages: [userMessage, companionMessage],
+              updatedAt: new Date().toISOString()
+            };
+            setCurrentChat(chatWithMessages);
+            if (setChats) {
+              setChats(prevChats => 
+                prevChats.map(chat => 
+                  chat.id === newChat.id ? chatWithMessages : chat
+                )
+              );
+            }
+          } else {
+            const updatedChat = {
+              ...currentChat,
+              messages: [...currentChat.messages, userMessage, companionMessage],
+              updatedAt: new Date().toISOString()
+            };
+            setCurrentChat(updatedChat);
+            if (setChats) {
+              setChats(prevChats => 
+                prevChats.map(chat => 
+                  chat.id === currentChat.id ? updatedChat : chat
+                )
+              );
+            }
+          }
+        }
+        
+        return; // Don't continue with normal AI processing
+        
+      } catch (error) {
+        console.error('[ChatView] Companion error:', error);
+        // Fall through to normal chat processing if companion fails
+      }
+    }
+    
+    // Check for @ commands (when not in companion mode or starts with @)
     if (messageText.trim().startsWith('@')) {
       console.log('[ChatView] Detected @ command:', messageText);
       try {
@@ -1209,7 +1306,7 @@ const ChatView = React.memo(({ projectId }) => {
             finalLength: finalContent.length,
             messageId: assistantMessageId,
             isStillStreaming: window.__isStreaming,
-            preview: finalContent.substring(0, 100)
+            preview: typeof finalContent === 'string' ? finalContent.substring(0, 100) : 'N/A'
           });
           
           // Ensure we have content
@@ -1738,6 +1835,34 @@ const ChatView = React.memo(({ projectId }) => {
               </Select>
               <span>Ready</span>
             </ModelInfo>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              flex: 1,
+              justifyContent: 'center',
+              padding: '0 16px'
+            }}>
+              <label style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '6px',
+                fontSize: '12px',
+                color: 'rgba(255, 255, 255, 0.9)',
+                cursor: 'pointer'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={companionMode}
+                  onChange={(e) => setCompanionMode(e.target.checked)}
+                  style={{
+                    marginRight: '4px',
+                    transform: 'scale(0.9)'
+                  }}
+                />
+                🤖 Aria Companion
+              </label>
+            </div>
           </StatusBar>
           <ChatInput ref={chatInputRef} onSendMessage={handleSendMessage} disabled={isStreaming} />
         </div>
@@ -1835,6 +1960,34 @@ const ChatView = React.memo(({ projectId }) => {
             </Select>
             <span>{isStreaming ? 'Generating...' : 'Ready'}</span>
           </ModelInfo>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: '8px',
+            flex: 1,
+            justifyContent: 'center',
+            padding: '0 16px'
+          }}>
+            <label style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '6px',
+              fontSize: '12px',
+              color: 'rgba(255, 255, 255, 0.9)',
+              cursor: 'pointer'
+            }}>
+              <input
+                type="checkbox"
+                checked={companionMode}
+                onChange={(e) => setCompanionMode(e.target.checked)}
+                style={{
+                  marginRight: '4px',
+                  transform: 'scale(0.9)'
+                }}
+              />
+              🤖 Aria Companion
+            </label>
+          </div>
         </StatusBar>
         <ChatInput ref={chatInputRef} onSendMessage={handleSendMessage} disabled={isStreaming} />
       </div>

@@ -60,8 +60,8 @@ class OllamaAdapter extends LLMAdapter {
       const isCoderModel = modelName.includes('coder');
       console.log(`Sending message to ${modelName} (raw: ${rawModel}, isM4: ${isM4Model}, isCoder: ${isCoderModel})`);
       
-      // Force terminal connection if in Electron environment
-      if (window.electron && window.electron.exec) {
+      // Try HTTP API first, fallback to terminal if needed
+      if (false && window.electron && window.electron.exec) {
         console.log('Using terminal connection as requested');
         try {
           const exec = window.electron.exec;
@@ -70,13 +70,10 @@ class OllamaAdapter extends LLMAdapter {
             console.log(`Running terminal command: ollama run ${modelName}`);
             
             // Add parameters to improve quality and reliability
-            const m4Params = isM4Model ? 
-              '--num-ctx 32768 --num-gpu 999 --num-thread 12' :
-              '--num-ctx 16384 --num-gpu 999 --num-thread 10';
+            // Note: --num-ctx is not a valid ollama run flag, it's for API only
+            const m4Params = '';
             
-            const command = `ollama run ${modelName} \
-              ${m4Params} \
-              "${message.replace(/"/g, '\\"')}"`;
+            const command = `ollama run ${modelName} "${message.replace(/"/g, '\\"')}"`;
             
             // Execute without timeout
             exec(command, 
@@ -154,7 +151,7 @@ class OllamaAdapter extends LLMAdapter {
         console.error('Ollama API Error:', apiError.message);
         
         // Try using terminal fallback if in Electron environment
-        if (window.electron && window.electron.exec) {
+        if (false && window.electron && window.electron.exec) {
           console.log('Attempting terminal fallback...');
           try {
             const exec = window.electron.exec;
@@ -163,13 +160,10 @@ class OllamaAdapter extends LLMAdapter {
               console.log(`Running terminal command: ollama run ${modelName}`);
               
               // Add parameters to improve quality and reliability
-              const m4Params = isM4Model ? 
-                '--num-ctx 32768 --num-gpu 999 --num-thread 12' :
-                '--num-ctx 16384 --num-gpu 999 --num-thread 10';
+              // Note: --num-ctx is not a valid ollama run flag, it's for API only
+              const m4Params = '';
               
-              const command = `ollama run ${modelName} \
-                ${m4Params} \
-                "${message.replace(/"/g, '\\"')}"`;
+              const command = `ollama run ${modelName} "${message.replace(/"/g, '\\"')}"`;
               
               // Execute without timeout
               exec(command, 
@@ -439,11 +433,8 @@ class OllamaAdapter extends LLMAdapter {
             const { exec } = window.require('child_process');
             
             // Add parameters to improve quality and reliability
-            const command = `ollama run ${modelName} \
-              --num-ctx 8192 \
-              --num-gpu 1 \
-              --num-thread 8 \
-              "${message.replace(/"/g, '\\"')}"`;
+            // Note: --num-ctx is not a valid ollama run flag, it's for API only
+            const command = `ollama run ${modelName} "${message.replace(/"/g, '\\"')}"`;
             
             console.log(`Running terminal command: ${command}`);
             

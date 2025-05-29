@@ -12,6 +12,7 @@ import {
 import { Slider, Divider } from '@mui/material';
 import voiceService from '../../services/VoiceService';
 import integrationService from '../../services/IntegrationService';
+import VoiceStatus from './VoiceStatus';
 
 const SettingsContainer = styled('div')({
   display: 'flex',
@@ -378,8 +379,9 @@ const SettingsView = () => {
     recognitionLanguage: 'en-US',
     voiceEnabled: true,
     autoSpeak: false,
-    useOfflineRecognition: true,  // Default to offline for Electron
-    speechProvider: 'browser',  // Default provider
+    useOfflineRecognition: false,  // Default to online for better quality
+    speechProvider: 'browser',  // Speech recognition provider
+    voiceSynthesisProvider: 'bark',  // Voice output provider (separate from input)
     azureApiKey: '',
     openaiApiKey: ''
   });
@@ -435,6 +437,10 @@ const SettingsView = () => {
       case 'recognitionLanguage':
         voiceService.setRecognitionLanguage(value);
         break;
+      case 'voiceSynthesisProvider':
+        voiceService.setProvider(value);
+        console.log('[Settings] Switched voice synthesis provider to:', value);
+        break;
     }
   };
   
@@ -480,12 +486,29 @@ const SettingsView = () => {
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
+        
+        // Migration: If user had bark as speechProvider, move it to voiceSynthesisProvider
+        if (parsed.speechProvider === 'bark') {
+          parsed.voiceSynthesisProvider = 'bark';
+          parsed.speechProvider = 'browser'; // Reset speech provider to browser
+          console.log('[Settings] Migrated Bark from speech to synthesis provider');
+          
+          // Save the migrated settings
+          localStorage.setItem('sephia_voice_settings', JSON.stringify(parsed));
+        }
+        
         setVoiceSettings(parsed);
         
         // Apply saved settings to voice service
         voiceService.setSpeechRate(parsed.speechRate || 1.0);
         voiceService.setSpeechPitch(parsed.speechPitch || 1.0);
         voiceService.setSpeechVolume(parsed.speechVolume || 1.0);
+        
+        // Set voice synthesis provider
+        if (parsed.voiceSynthesisProvider) {
+          voiceService.setProvider(parsed.voiceSynthesisProvider);
+          console.log('[Settings] Set voice synthesis provider to:', parsed.voiceSynthesisProvider);
+        }
         voiceService.setRecognitionLanguage(parsed.recognitionLanguage || 'en-US');
       } catch (e) {
         console.error('Failed to load voice settings:', e);
@@ -807,6 +830,9 @@ const SettingsView = () => {
       <SettingsSection>
         <SectionTitle>Voice Settings</SectionTitle>
         
+        {/* Voice System Status */}
+        <VoiceStatus />
+        
         {!isSpeechSupported.synthesis && !isSpeechSupported.recognition ? (
           <>
             <SettingItem>
@@ -1062,6 +1088,11 @@ const SettingsView = () => {
                     <Label>Speech Recognition Provider</Label>
                     <Description2>
                       Choose which service to use for converting speech to text
+                      {window.electron && (
+                        <span style={{ color: '#FFA500', display: 'block', marginTop: '4px' }}>
+                          ⚠️ In Electron: Browser Speech API requires internet and may have network restrictions
+                        </span>
+                      )}
                     </Description2>
                   </SettingLabel>
                   <Select 
@@ -1077,12 +1108,28 @@ const SettingsView = () => {
                     }}
                     disabled={!voiceSettings.voiceEnabled}
                   >
-                    <option value="browser">Browser Speech API (Google)</option>
-                    <option value="bark">Bark AI TTS (High Quality)</option>
+                    <option value="browser">Browser Speech API (Google) {window.electron ? '- Requires Internet' : ''}</option>
                     <option value="azure">Azure Speech Services</option>
                     <option value="openai">OpenAI Whisper API</option>
                     <option value="vosk">Vosk (Offline Speech Recognition)</option>
-                    <option value="offline">Manual Input (Type/Paste)</option>
+                    <option value="offline">Manual Input (Type/Paste) {window.electron ? '- Recommended for Electron' : ''}</option>
+                  </Select>
+                </SettingItem>
+
+                <SettingItem>
+                  <SettingLabel>
+                    <Label>Voice Synthesis Provider</Label>
+                    <Description2>
+                      Choose your preferred text-to-speech service for voice output (speaking)
+                    </Description2>
+                  </SettingLabel>
+                  <Select 
+                    value={voiceSettings.voiceSynthesisProvider || 'browser'} 
+                    onChange={(e) => updateVoiceSetting('voiceSynthesisProvider', e.target.value)}
+                    disabled={!voiceSettings.voiceEnabled}
+                  >
+                    <option value="browser">Browser TTS (Standard)</option>
+                    <option value="bark">Bark AI TTS (High Quality)</option>
                   </Select>
                 </SettingItem>
                 
@@ -1122,7 +1169,7 @@ const SettingsView = () => {
                   </>
                 )}
                 
-                {voiceSettings.speechProvider === 'bark' && (
+                {voiceSettings.voiceSynthesisProvider === 'bark' && (
                   <>
                     <SettingItem>
                       <SettingLabel>
@@ -1177,6 +1224,125 @@ const SettingsView = () => {
                         disabled={!voiceSettings.voiceEnabled}
                       >
                         Check Bark Server
+                      </Button>
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>Test Bark Audio Output</Label>
+                        <Description2>
+                          Test if Bark AI voice can generate and play audio
+                        </Description2>
+                      </SettingLabel>
+                      <Button 
+                        onClick={async () => {
+                          try {
+                            console.log('[Settings] Testing Bark audio output...');
+                            
+                            // Import Bark service dynamically
+                            const { default: BarkVoiceService } = await import('../../services/BarkVoiceService');
+                            const barkService = new BarkVoiceService();
+                            
+                            // First test system audio
+                            const audioTest = await barkService.testSystemAudio();
+                            console.log('[Settings] System audio test result:', audioTest);
+                            
+                            // Check audio devices
+                            const deviceTest = await barkService.checkAudioDevices();
+                            console.log('[Settings] Audio devices test result:', deviceTest);
+                            
+                            if (audioTest.success) {
+                              // Now test Bark TTS
+                              const barkTest = await barkService.test();
+                              if (barkTest.success) {
+                                alert('✅ Bark audio test successful!\n\nIf you heard the test voice, Bark AI is working correctly. If you didn\'t hear anything, check your system volume settings.');
+                              } else {
+                                alert(`❌ Bark test failed: ${barkTest.message}`);
+                              }
+                            } else {
+                              alert(`❌ System audio test failed: ${audioTest.message}\n\nPlease check your system audio settings and make sure speakers/headphones are connected and volume is up.`);
+                            }
+                          } catch (error) {
+                            console.error('[Settings] Bark audio test failed:', error);
+                            alert(`❌ Audio test error: ${error.message}`);
+                          }
+                        }}
+                        disabled={!voiceSettings.voiceEnabled}
+                      >
+                        Test Bark Audio
+                      </Button>
+                    </SettingItem>
+                    
+                    <SettingItem>
+                      <SettingLabel>
+                        <Label>System Audio Diagnostics</Label>
+                        <Description2>
+                          Check system audio output devices and volume levels
+                        </Description2>
+                      </SettingLabel>
+                      <Button 
+                        onClick={async () => {
+                          try {
+                            console.log('[Settings] Running audio diagnostics...');
+                            
+                            // Check audio context availability
+                            const hasAudioContext = !!(window.AudioContext || window.webkitAudioContext);
+                            console.log('[Settings] Audio Context available:', hasAudioContext);
+                            
+                            // Check audio devices
+                            let devices = [];
+                            try {
+                              const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+                              devices = mediaDevices.filter(device => device.kind === 'audiooutput');
+                              console.log('[Settings] Audio output devices:', devices);
+                            } catch (e) {
+                              console.error('[Settings] Could not enumerate devices:', e);
+                            }
+                            
+                            // Check browser audio policy
+                            let autoplowBlocked = false;
+                            try {
+                              const audio = new Audio();
+                              const playPromise = audio.play();
+                              if (playPromise) {
+                                await playPromise.catch(e => {
+                                  if (e.name === 'NotAllowedError') {
+                                    autoplowBlocked = true;
+                                  }
+                                });
+                              }
+                            } catch (e) {
+                              console.log('[Settings] Audio policy check failed:', e);
+                            }
+                            
+                            // Create diagnostic report
+                            const diagnostics = {
+                              audioContext: hasAudioContext,
+                              outputDevices: devices.length,
+                              defaultDevice: devices.find(d => d.deviceId === 'default')?.label || 'Unknown',
+                              autoplayBlocked: autoplowBlocked,
+                              userAgent: navigator.userAgent.includes('Electron') ? 'Electron' : 'Browser',
+                              timestamp: new Date().toISOString()
+                            };
+                            
+                            console.log('[Settings] Audio diagnostics:', diagnostics);
+                            
+                            // Show results
+                            alert(`🔧 Audio Diagnostics Results:\n\n` +
+                                  `• Audio Context: ${diagnostics.audioContext ? '✅ Available' : '❌ Not available'}\n` +
+                                  `• Output Devices: ${diagnostics.outputDevices} found\n` +
+                                  `• Default Device: ${diagnostics.defaultDevice}\n` +
+                                  `• Autoplay Policy: ${diagnostics.autoplayBlocked ? '⚠️ Blocked' : '✅ Allowed'}\n` +
+                                  `• Environment: ${diagnostics.userAgent}\n\n` +
+                                  `${diagnostics.autoplayBlocked ? 'Try clicking somewhere on the page first to enable autoplay.' : 'Audio should work normally.'}`);
+                          } catch (error) {
+                            console.error('[Settings] Audio diagnostics failed:', error);
+                            alert(`❌ Diagnostics failed: ${error.message}`);
+                          }
+                        }}
+                        disabled={!voiceSettings.voiceEnabled}
+                      >
+                        Run Audio Diagnostics
                       </Button>
                     </SettingItem>
                   </>

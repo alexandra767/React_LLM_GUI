@@ -10,7 +10,7 @@ console.log('[commandProcessor] Environment check:', {
 });
 
 // Only import the service we need
-const getIntegrationService = async () => {
+export const getIntegrationService = async () => {
   // Check if running in Electron - use multiple checks
   const inElectron = !!(window.electron || (window.process && window.process.type) || navigator.userAgent.includes('Electron'));
   
@@ -614,6 +614,146 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           };
         }
 
+      case '@calendar-add':
+        // @calendar-add [event details] - Add event to calendar
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide event details. Example: @calendar-add Meeting with John tomorrow at 2pm'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.createGoogleCalendarEvent(args);
+          return {
+            type: 'integration',
+            content: `Calendar event created: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Calendar creation error:', error);
+          return {
+            type: 'error',
+            content: `Failed to create calendar event: ${error.message}`
+          };
+        }
+
+      case '@calendar-delete':
+        // @calendar-delete [event details] - Delete event from calendar
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide event details to delete. Example: @calendar-delete Meeting with John'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.deleteGoogleCalendarEvent(args);
+          return {
+            type: 'integration',
+            content: `Calendar event deleted: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Calendar deletion error:', error);
+          return {
+            type: 'error',
+            content: `Failed to delete calendar event: ${error.message}`
+          };
+        }
+
+      case '@drive-upload':
+        // @drive-upload [file details] - Upload file to Google Drive
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide file details to upload. Example: @drive-upload my document.pdf'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.uploadGoogleDriveFile(args);
+          return {
+            type: 'integration',
+            content: `File uploaded to Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive upload error:', error);
+          return {
+            type: 'error',
+            content: `Failed to upload file: ${error.message}`
+          };
+        }
+
+      case '@drive-download':
+        // @drive-download [file details] - Download file from Google Drive
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide file details to download. Example: @drive-download my document.pdf'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.downloadGoogleDriveFile(args);
+          return {
+            type: 'integration',
+            content: `File downloaded from Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive download error:', error);
+          return {
+            type: 'error',
+            content: `Failed to download file: ${error.message}`
+          };
+        }
+
+      case '@drive-delete':
+        // @drive-delete [file details] - Delete file from Google Drive
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide file details to delete. Example: @drive-delete my document.pdf'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.deleteGoogleDriveFile(args);
+          return {
+            type: 'integration',
+            content: `File deleted from Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive deletion error:', error);
+          return {
+            type: 'error',
+            content: `Failed to delete file: ${error.message}`
+          };
+        }
+
       case '@help':
         // @help - show available commands
         const isElectron = typeof window !== 'undefined' && window.process && window.process.type;
@@ -625,7 +765,12 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @search [query] - Search the web
 • @gmail [search] - Search Gmail (e.g., @gmail from:john)
 • @drive [search] - List or search Google Drive files
+• @drive-upload [file] - Upload file to Google Drive
+• @drive-download [file] - Download file from Google Drive
+• @drive-delete [file] - Delete file from Google Drive
 • @calendar [days] - Show Google Calendar events (default: 7 days)
+• @calendar-add [details] - Add event to Google Calendar
+• @calendar-delete [event] - Delete event from Google Calendar
 • @image [prompt] - Generate an image locally
 • @flux [prompt] - Generate an image with Flux model (12 steps)
 • @flux:STEPS [prompt] - Generate with custom steps (1-50)
@@ -634,7 +779,11 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 Examples:
 • @gmail is:unread
 • @drive presentation
+• @drive-upload meeting notes.pdf
+• @drive-download project report.docx
 • @calendar 14
+• @calendar-add Meeting with team tomorrow at 3pm
+• @calendar-delete standup meeting
 • @search weather tomorrow
 • @image a beautiful sunset
 • @flux a cyberpunk city at night (uses 12 steps)
@@ -649,7 +798,12 @@ Examples:
           content: `Available commands:
 • @gmail [search] - Search Gmail (e.g., @gmail from:john)
 • @drive [search] - List or search Google Drive files
+• @drive-upload [file] - Upload file to Google Drive
+• @drive-download [file] - Download file from Google Drive
+• @drive-delete [file] - Delete file from Google Drive
 • @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
+• @calendar-add [details] - Add event to Google Calendar
+• @calendar-delete [event] - Delete event from Google Calendar
 • @search [query] - Search the web
 • @image [prompt] - Generate an image locally
 • @flux [prompt] - Generate an image with Flux model (12 steps)
@@ -659,9 +813,13 @@ Examples:
 Examples:
 • @gmail is:unread
 • @drive presentation
+• @drive-upload meeting notes.pdf
+• @drive-download project report.docx
 • @calendar - Show Google Calendar for next 7 days
 • @calendar 14 google - Show Google Calendar for next 14 days
 • @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
+• @calendar-add Team meeting Friday at 10am
+• @calendar-delete lunch with client
 • @search weather tomorrow
 • @image a cyberpunk city at night
 • @flux a futuristic landscape (uses 12 steps)
