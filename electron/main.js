@@ -596,6 +596,73 @@ function setupClipboardHandlers() {
   });
 }
 
+// File System Handlers for External Memory
+function setupFileSystemHandlers() {
+  // Read file
+  ipcMain.handle('fs:readFile', async (event, filePath) => {
+    try {
+      console.log('[Main] Reading file:', filePath);
+      const data = await fs.promises.readFile(filePath, 'utf8');
+      return data;
+    } catch (error) {
+      console.error('[Main] Failed to read file:', error);
+      throw error;
+    }
+  });
+
+  // Write file
+  ipcMain.handle('fs:writeFile', async (event, filePath, data) => {
+    try {
+      console.log('[Main] Writing file:', filePath);
+      
+      // Ensure directory exists
+      const dir = path.dirname(filePath);
+      await fs.promises.mkdir(dir, { recursive: true });
+      
+      await fs.promises.writeFile(filePath, data, 'utf8');
+      console.log('[Main] File written successfully');
+      return true;
+    } catch (error) {
+      console.error('[Main] Failed to write file:', error);
+      throw error;
+    }
+  });
+
+  // Delete file
+  ipcMain.handle('fs:deleteFile', async (event, filePath) => {
+    try {
+      console.log('[Main] Deleting file:', filePath);
+      await fs.promises.unlink(filePath);
+      return true;
+    } catch (error) {
+      console.error('[Main] Failed to delete file:', error);
+      throw error;
+    }
+  });
+
+  // Check if file exists
+  ipcMain.handle('fs:fileExists', async (event, filePath) => {
+    try {
+      await fs.promises.access(filePath);
+      return true;
+    } catch (error) {
+      return false;
+    }
+  });
+
+  // Create directory
+  ipcMain.handle('fs:mkdir', async (event, dirPath) => {
+    try {
+      console.log('[Main] Creating directory:', dirPath);
+      await fs.promises.mkdir(dirPath, { recursive: true });
+      return true;
+    } catch (error) {
+      console.error('[Main] Failed to create directory:', error);
+      throw error;
+    }
+  });
+}
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
   console.log('App is ready, creating window...');
@@ -622,6 +689,7 @@ app.whenReady().then(() => {
   setupAppleScriptHandlers();
   setupSystemHandlers();
   setupClipboardHandlers();
+  setupFileSystemHandlers();
   createWindow();
 }).catch(err => {
   console.error('Failed to start app:', err);

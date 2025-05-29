@@ -274,6 +274,56 @@ const electronAPI = {
     }
   },
   
+  // File System Operations for External Memory
+  readFile: async (filePath) => {
+    console.log('[Preload] Reading file:', filePath);
+    try {
+      return await ipcRenderer.invoke('fs:readFile', filePath);
+    } catch (error) {
+      console.error('[Preload] Failed to read file:', error);
+      throw error;
+    }
+  },
+  
+  writeFile: async (filePath, data) => {
+    console.log('[Preload] Writing file:', filePath);
+    try {
+      return await ipcRenderer.invoke('fs:writeFile', filePath, data);
+    } catch (error) {
+      console.error('[Preload] Failed to write file:', error);
+      throw error;
+    }
+  },
+  
+  deleteFile: async (filePath) => {
+    console.log('[Preload] Deleting file:', filePath);
+    try {
+      return await ipcRenderer.invoke('fs:deleteFile', filePath);
+    } catch (error) {
+      console.error('[Preload] Failed to delete file:', error);
+      throw error;
+    }
+  },
+  
+  fileExists: async (filePath) => {
+    try {
+      return await ipcRenderer.invoke('fs:fileExists', filePath);
+    } catch (error) {
+      console.error('[Preload] Failed to check if file exists:', error);
+      return false;
+    }
+  },
+  
+  mkdir: async (dirPath) => {
+    console.log('[Preload] Creating directory:', dirPath);
+    try {
+      return await ipcRenderer.invoke('fs:mkdir', dirPath);
+    } catch (error) {
+      console.error('[Preload] Failed to create directory:', error);
+      throw error;
+    }
+  },
+  
   // Ollama API
   ollama: {
     // List available models

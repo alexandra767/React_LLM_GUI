@@ -9,7 +9,7 @@ class BarkVoiceService {
     this.baseUrl = 'http://localhost:8189';
     this.isSupported = true;
     this.voices = [];
-    this.currentVoice = this.getUserSelectedVoice() || 'v2/en_speaker_3'; // Default to Emma (Speaker 3)
+    this.currentVoice = this.getUserSelectedVoice() || 'v2/en_speaker_9'; // Default to Speaker 9 (Gentle, soft-spoken)
     this.isServerRunning = false;
     
     // Initialize service
@@ -144,8 +144,11 @@ class BarkVoiceService {
     });
 
     try {
+      // Add feminine context to ensure female voice characteristics
+      const contextualText = this.addFeminineContext(text.trim(), voice);
+      
       const requestBody = {
-        text: text.trim(),
+        text: contextualText,
         voice: voice,
         temperature: options.temperature || 0.7,
         silent: false
@@ -493,6 +496,35 @@ class BarkVoiceService {
   }
 
   // Get service info
+  // Add feminine context to ensure consistent female voice
+  addFeminineContext(text, voice) {
+    // Define female speakers that need context reinforcement
+    const femaleVoices = ['v2/en_speaker_3', 'v2/en_speaker_4', 'v2/en_speaker_5', 'v2/en_speaker_9'];
+    
+    if (!femaleVoices.includes(voice)) {
+      return text; // Return unchanged for other voices
+    }
+    
+    // Add subtle feminine context prefix to guide voice characteristics
+    const femininePrefixes = [
+      "*clears throat in a feminine voice* Hi, I'm Aria, your AI assistant. ",
+      "*speaking in a gentle female voice* Hello! This is Aria. ",
+      "*in a warm, feminine tone* Hi there! I'm Aria. ",
+      "*with a soft female voice* Aria here! "
+    ];
+    
+    // Use a consistent prefix for the session
+    const prefixIndex = Math.floor(Date.now() / (1000 * 60 * 5)) % femininePrefixes.length; // Change every 5 minutes
+    const prefix = femininePrefixes[prefixIndex];
+    
+    // Only add prefix if text doesn't already start with Aria's name
+    if (text.toLowerCase().includes('aria') || text.toLowerCase().includes("i'm") || text.toLowerCase().includes("i am")) {
+      return text; // Already has identity context
+    }
+    
+    return prefix + text;
+  }
+
   getInfo() {
     return {
       name: 'Bark TTS',

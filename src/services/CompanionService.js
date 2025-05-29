@@ -131,7 +131,7 @@ class CompanionService {
     // Initialize all advanced services
     try {
       // Core intelligence services
-      const { default: MemoryService } = await import('./MemoryService');
+      const { default: MemoryService } = await import('./ExternalMemoryService');
       const { default: KnowledgeService } = await import('./KnowledgeService');
       const { default: ProactiveIntelligenceService } = await import('./ProactiveIntelligenceService');
       
