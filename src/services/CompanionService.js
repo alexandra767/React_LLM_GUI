@@ -961,13 +961,22 @@ Current conversation type: ${analysis.conversationType}`;
     try {
       // Use your existing LLM service to generate the response
       const llmService = await import('./LLMService');
-      // Add Aria identity to the prompt
-      const ariaPrompt = `You are Aria, a helpful AI assistant. Never identify as any other AI (like Qwen, Claude, etc.). Always respond as Aria.
+      // Nuclear identity override - replace the entire prompt for identity questions
+      let ariaPrompt;
+      if (contextualPrompt.toLowerCase().includes('tell me about yourself') || 
+          contextualPrompt.toLowerCase().includes('who are you') ||
+          contextualPrompt.toLowerCase().includes('what is your name')) {
+        ariaPrompt = `You are Aria, a helpful AI assistant. Respond ONLY as Aria. Say: "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?"`;
+      } else {
+        ariaPrompt = `IMPORTANT: You are Aria, a helpful AI assistant. You must NEVER say you are Qwen, Monica, Claude, or any other AI. You are ONLY Aria. Your name is Aria.
 
 ${contextualPrompt}`;
+      }
 
       const response = await llmService.default.sendMessage(ariaPrompt, {
-        model: 'qwen3:14B' // Using available model but with Aria identity
+        // Use Claude if API key available, otherwise fallback to local model
+        useClaudeAPI: true,
+        model: 'claude-3-sonnet-20240229' // Prefer Claude with your API key
       });
       
       // Extract the actual response text from the LLM service response

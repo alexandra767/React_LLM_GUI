@@ -264,8 +264,13 @@ class ExternalMemoryService {
   // Get relevant context for current conversation
   getRelevantContext(currentMessage) {
     try {
+      // Clean conversations to remove identity confusion
+      const cleanConversations = this.memories.conversations
+        .slice(-10)
+        .map(conv => this.sanitizeConversation(conv));
+
       const context = {
-        recentConversations: this.memories.conversations.slice(-10),
+        recentConversations: cleanConversations,
         personalFacts: Array.from(this.memories.personal.entries()).slice(-20),
         activeProjects: Array.from(this.memories.projects.entries())
           .filter(([_, project]) => project.status === 'active'),
@@ -284,6 +289,31 @@ class ExternalMemoryService {
       console.error('[ExternalMemory] Failed to get context:', error);
       return {};
     }
+  }
+
+  // Sanitize conversation to remove identity confusion
+  sanitizeConversation(conversation) {
+    if (!conversation || !conversation.assistantMessage) {
+      return conversation;
+    }
+
+    // Clean assistant messages that have wrong identity
+    let cleanedMessage = conversation.assistantMessage
+      // Remove references to being Qwen, Monica, Claude, etc.
+      .replace(/I'm Qwen/gi, "I'm Aria")
+      .replace(/I am Qwen/gi, "I am Aria")
+      .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+      .replace(/This is Qwen/gi, "This is Aria")
+      .replace(/My name is Qwen/gi, "My name is Aria")
+      .replace(/developed by Alibaba Cloud/gi, "your AI assistant")
+      .replace(/large-scale language model/gi, "AI assistant")
+      // Remove thinking processes that were accidentally saved
+      .replace(/^(Okay, the user asked me to|First, I should|Let me think about)[\s\S]*?(?=Hello!|Hi!|I'm)/i, '');
+
+    return {
+      ...conversation,
+      assistantMessage: cleanedMessage.trim()
+    };
   }
 
   // Extract topics from text
@@ -316,6 +346,19 @@ class ExternalMemoryService {
     });
     
     return Math.min(importance, 1.0);
+  }
+
+  // Clean all stored conversations to fix identity issues
+  async cleanStoredIdentity() {
+    console.log('[ExternalMemory] 🧹 Cleaning stored identity issues...');
+    
+    // Clean all conversations
+    this.memories.conversations = this.memories.conversations.map(conv => this.sanitizeConversation(conv));
+    
+    // Save cleaned memories
+    await this.saveMemories();
+    
+    console.log('[ExternalMemory] ✅ Identity cleanup completed');
   }
 
   // Get memory statistics
