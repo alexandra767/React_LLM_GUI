@@ -1043,6 +1043,7 @@ Current conversation type: ${analysis.conversationType}`;
   // Clean content for text-to-speech
   cleanContentForSpeaking(content) {
     return content
+      .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove Claude's thinking process
       .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
       .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown
       .replace(/`(.*?)`/g, '$1') // Remove code markdown
