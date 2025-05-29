@@ -710,8 +710,10 @@ Current conversation type: ${analysis.conversationType}`;
   async executeCurrentEventsCommand(message) {
     try {
       const newsQuery = this.extractNewsQuery(message);
-      const searchCommand = `@search ${newsQuery} recent news today`;
-      return await this.commandProcessor.processCommand(searchCommand);
+      
+      // Use enhanced @news command for better breaking news results
+      const newsCommand = `@news ${newsQuery}`;
+      return await this.commandProcessor.processCommand(newsCommand);
     } catch (error) {
       console.error('[Companion] News error:', error);
       return null;
@@ -864,19 +866,27 @@ Current conversation type: ${analysis.conversationType}`;
 
   extractNewsQuery(message) {
     // Extract news/current events query
-    const newsIndicators = ['news about', 'latest on', 'what\'s happening with', 'updates on'];
+    const lowerMessage = message.toLowerCase();
+    const newsIndicators = ['news about', 'latest on', 'what\'s happening with', 'updates on', 'breaking news'];
     let query = message;
     
     for (const indicator of newsIndicators) {
-      if (message.toLowerCase().includes(indicator)) {
-        query = message.toLowerCase().replace(indicator, '').trim();
+      if (lowerMessage.includes(indicator)) {
+        query = lowerMessage.replace(indicator, '').trim();
         break;
       }
     }
     
-    // If no specific topic, get general news
-    if (query === message.toLowerCase()) {
-      query = 'latest news headlines today';
+    // Handle specific breaking news patterns
+    if (lowerMessage.includes('breaking news today')) {
+      query = 'breaking news today';
+    } else if (lowerMessage.includes('breaking news')) {
+      query = 'breaking news';
+    } else if (lowerMessage.includes('today') && lowerMessage.includes('news')) {
+      query = 'news today';
+    } else if (query === message.toLowerCase()) {
+      // If no specific topic, get general breaking news
+      query = 'breaking news today';
     }
     
     return query;
