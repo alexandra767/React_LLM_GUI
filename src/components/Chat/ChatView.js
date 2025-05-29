@@ -1424,9 +1424,11 @@ const ChatView = React.memo(({ projectId }) => {
                       console.log('[ChatView] Setting voice provider to:', provider);
                       voiceService.setProvider(provider);
                       
-                      // Clean content for speaking (remove Claude thinking and markdown)
+                      // Clean content for speaking (remove thinking process and markdown)
                       const cleanContent = finalContent
-                        .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove Claude thinking process
+                        .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove tagged thinking process
+                        // Remove exposed thinking patterns (common AI reasoning patterns)
+                        .replace(/^(Okay, the user asked me to|First, I should|Let me think about|I should|Maybe|Wait, did I|I think|Okay, I think)[\s\S]*?(?=Hello!|Hi!|I'm|My name|Welcome)/i, '') 
                         .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
                         .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown
                         .replace(/`(.*?)`/g, '$1') // Remove code markdown

@@ -247,14 +247,8 @@ class CompanionService {
       }
     }
     
-    // Auto-speak the response if voice is enabled
-    if (this.personality.voice.autoSpeak && this.voiceService) {
-      try {
-        await this.speakResponse(response.content);
-      } catch (error) {
-        console.warn('[Companion] Auto-speak failed:', error);
-      }
-    }
+    // Note: Auto-speak is now handled by ChatView to prevent duplicate voice synthesis
+    // Voice synthesis is managed centrally in the chat interface
     
     return response;
   }
@@ -967,8 +961,13 @@ Current conversation type: ${analysis.conversationType}`;
     try {
       // Use your existing LLM service to generate the response
       const llmService = await import('./LLMService');
-      const response = await llmService.default.sendMessage(contextualPrompt, {
-        model: 'qwen3:14B' // Use the model that's actually installed
+      // Add Aria identity to the prompt
+      const ariaPrompt = `You are Aria, a helpful AI assistant. Never identify as any other AI (like Qwen, Claude, etc.). Always respond as Aria.
+
+${contextualPrompt}`;
+
+      const response = await llmService.default.sendMessage(ariaPrompt, {
+        model: 'qwen3:14B' // Using available model but with Aria identity
       });
       
       // Extract the actual response text from the LLM service response
