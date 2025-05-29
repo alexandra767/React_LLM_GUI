@@ -583,33 +583,39 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
       e.stopPropagation();
     }
     
-    console.log('[ChatInput] Voice input button clicked');
-    console.log('[ChatInput] Voice support check:', {
+    console.log('[ChatInput] 🎤 Voice input button clicked');
+    console.log('[ChatInput] 🔍 Voice support check:', {
       isVoiceSupported,
       voiceEnabled,
       useOfflineRecognition,
       isOnline,
-      speechProvider
+      speechProvider,
+      voiceService: !!voiceService,
+      SpeechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition)
     });
     
     if (!isVoiceSupported) {
-      console.error('[ChatInput] Voice not supported');
+      console.error('[ChatInput] ❌ Voice not supported');
       alert('Speech recognition is not supported in your browser. Please use Chrome or Edge.');
       return;
     }
     
     if (!voiceEnabled) {
-      console.error('[ChatInput] Voice disabled in settings');
+      console.error('[ChatInput] ❌ Voice disabled in settings');
       alert('Voice features are disabled. Enable them in Settings.');
       return;
     }
     
+    console.log('[ChatInput] ✅ All voice checks passed, proceeding...');
+    
     // Only check online status if using online recognition
     if (!useOfflineRecognition && !isOnline) {
-      console.error('[ChatInput] Offline but online recognition selected');
+      console.error('[ChatInput] ❌ Offline but online recognition selected');
       alert('Online speech recognition requires an internet connection. Enable offline recognition in Settings or connect to the internet.');
       return;
     }
+    
+    console.log('[ChatInput] 🚀 Starting voice input process...');
 
     if (isListening) {
       // Stop listening
@@ -758,20 +764,17 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
           }, 100);
         }
         
-        // Check if we're online
-        const isOnline = navigator.onLine;
-        console.log('[ChatInput] Online status:', isOnline);
+        // Check if we're online (in Electron, assume we're online if we can reach the app)
+        const isOnline = window.electron ? true : navigator.onLine;
+        console.log('[ChatInput] Online status:', isOnline, window.electron ? '(Electron app)' : '(Browser)');
         
         // Select the appropriate service based on provider and online status
         let selectedService;
         
-        // In Electron, always use offline service to avoid network errors
-        if (window.electron && speechProvider === 'browser') {
+        // Allow browser speech recognition in Electron (it needs internet but works)
+        if (speechProvider === 'offline') {
+          console.log('[ChatInput] 🔧 Using offline provider - using offline service');
           selectedService = offlineVoiceService;
-          console.log('[ChatInput] Electron detected - using typing mode to avoid network errors');
-        } else if (!isOnline && window.electron) {
-          selectedService = offlineVoiceService;
-          console.log('[ChatInput] Offline detected - using typing mode');
         } else {
           switch (speechProvider) {
             case 'azure':
@@ -791,9 +794,9 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
               console.log('[ChatInput] Using Offline Voice Service');
               break;
             default:
-              // Always try to use browser voice service for proper speech recognition
+              // Use browser voice service for proper speech recognition (works in Electron too)
               selectedService = voiceService;
-              console.log('[ChatInput] Using Browser VoiceService (automatic speech recognition)');
+              console.log('[ChatInput] Using Browser VoiceService (speech recognition enabled)');
           }
         }
         
@@ -802,55 +805,36 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
         console.log('[ChatInput] Service methods:', Object.getOwnPropertyNames(selectedService));
         
         try {
-          console.log('[ChatInput] About to call startListening on service');
+          console.log('[ChatInput] 📞 About to call startListening on service');
+          console.log('[ChatInput] 🔧 Service type:', selectedService.constructor.name);
+          console.log('[ChatInput] 🔧 Service has startListening method:', typeof selectedService.startListening === 'function');
+          
           await selectedService.startListening({
             onStart: () => {
               console.log('[ChatInput] Voice recognition started successfully');
             },
           onResult: (result) => {
-            console.log('[ChatInput] Voice result received:', result);
+            console.log('[ChatInput] 🎤 Voice result received:', result);
             
             const transcript = result.transcript || '';
-            console.log('[ChatInput] Transcript:', transcript);
+            console.log('[ChatInput] 📝 Transcript:', {
+              transcript,
+              length: transcript.length,
+              isFinal: result.isFinal,
+              confidence: result.confidence
+            });
             
             if (transcript) {
-              // Update React state first
+              // Update React state first - this will trigger re-render and update textarea value
               setMessage(transcript);
-              console.log('[ChatInput] Updated message state to:', transcript);
-              
-              // Use setTimeout to ensure DOM is updated after state change
-              setTimeout(() => {
-                if (inputRef.current) {
-                  console.log('[ChatInput] Current textarea state:', {
-                    value: inputRef.current.value,
-                    disabled: inputRef.current.disabled,
-                    readOnly: inputRef.current.readOnly,
-                    placeholder: inputRef.current.placeholder
-                  });
-                  
-                  // Make sure textarea is not disabled or readonly
-                  inputRef.current.disabled = false;
-                  inputRef.current.readOnly = false;
-                  
-                  // Update value
-                  inputRef.current.value = transcript;
-                  
-                  // Trigger input event for React
-                  const event = new Event('input', { bubbles: true });
-                  inputRef.current.dispatchEvent(event);
-                  
-                  console.log('[ChatInput] Textarea updated. New value:', inputRef.current.value);
-                } else {
-                  console.error('[ChatInput] inputRef.current is null!');
-                }
-              }, 0);
+              console.log('[ChatInput] ✅ Updated message state to:', transcript);
               
               if (result.isFinal) {
                 setTranscript(transcript);
-                console.log('[ChatInput] Set final transcript:', transcript);
+                console.log('[ChatInput] 🏁 Set final transcript:', transcript);
               }
             } else {
-              console.warn('[ChatInput] Empty transcript received');
+              console.warn('[ChatInput] ⚠️ Empty transcript received from voice recognition');
             }
           },
           onError: async (error) => {
@@ -859,9 +843,9 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
             
             // Automatically switch to offline mode for network errors in Electron
             if ((error === 'network' || error.includes('network') || error.includes('Speech recognition requires internet')) && window.electron) {
-              console.log('[ChatInput] Network error detected, switching to offline mode automatically');
+              console.log('[ChatInput] 🌐 Network error detected - enabling typing mode');
               
-              // Just enable typing mode immediately
+              // Clear listening state
               setIsListening(false);
               setTranscript('');
               
@@ -869,12 +853,22 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
               if (inputRef.current) {
                 inputRef.current.disabled = false;
                 inputRef.current.readOnly = false;
-                inputRef.current.placeholder = 'Type your message...';
+                inputRef.current.placeholder = 'Type your message (voice recognition needs internet)...';
                 inputRef.current.focus();
+                
+                // Clear any existing value
+                inputRef.current.value = '';
+                setMessage('');
               }
               
-              // Don't show alert - just silently enable typing mode
-              console.log('[ChatInput] Enabled typing mode due to offline status');
+              // Show a helpful message
+              console.log('[ChatInput] ✅ Typing mode enabled - you can now type your message');
+              
+              // Optional: Show a brief notification
+              setTimeout(() => {
+                console.log('[ChatInput] 💡 Tip: Voice recognition needs internet. You can type your message instead.');
+              }, 1000);
+              
             } else if (error.includes('not-allowed')) {
               alert('Microphone permission denied. Please allow microphone access in your system settings.');
             } else {
@@ -888,28 +882,71 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
             // Auto-send if we have content
             setTimeout(() => {
               const currentMessage = inputRef.current?.value || message;
+              console.log('[ChatInput] 🔍 Voice input onEnd - checking for message to send:', {
+                inputRefValue: inputRef.current?.value,
+                messageState: message,
+                finalMessage: currentMessage,
+                hasContent: !!(currentMessage && currentMessage.trim()),
+                onSendMessageExists: typeof onSendMessage === 'function'
+              });
+              
               if (currentMessage && currentMessage.trim()) {
-                console.log('[ChatInput] Auto-sending message after voice input:', currentMessage.trim());
-                onSendMessage(currentMessage.trim());
+                console.log('[ChatInput] ✅ Auto-sending message after voice input:', currentMessage.trim());
+                console.log('[ChatInput] 📞 Calling onSendMessage function...');
+                try {
+                  onSendMessage(currentMessage.trim());
+                  console.log('[ChatInput] ✅ onSendMessage called successfully');
+                } catch (error) {
+                  console.error('[ChatInput] ❌ Error calling onSendMessage:', error);
+                }
                 setTranscript('');
                 setMessage('');
                 if (inputRef.current) {
                   inputRef.current.value = '';
                 }
+              } else {
+                console.warn('[ChatInput] ⚠️ No message to send after voice input:', {
+                  currentMessage,
+                  messageLength: currentMessage?.length,
+                  trimmedLength: currentMessage?.trim()?.length
+                });
               }
             }, 500); // Small delay to ensure all updates are complete
           }
         });
         } catch (serviceError) {
-          console.error('[ChatInput] Service startListening failed:', serviceError);
-          console.error('[ChatInput] Service error stack:', serviceError.stack);
+          console.error('[ChatInput] 💥 Service startListening failed:', serviceError);
+          console.error('[ChatInput] 💥 Service error stack:', serviceError.stack);
+          console.error('[ChatInput] 💥 Error name:', serviceError.name);
+          console.error('[ChatInput] 💥 Error message:', serviceError.message);
           setIsListening(false);
-          alert('Voice service error: ' + serviceError.message);
+          
+          // More user-friendly error messages
+          let userMessage = 'Voice recognition failed. ';
+          if (serviceError.message.includes('not-allowed')) {
+            userMessage += 'Please allow microphone access in your browser settings.';
+          } else if (serviceError.message.includes('network')) {
+            userMessage += 'Network issue detected. Try enabling offline mode in Settings.';
+          } else {
+            userMessage += serviceError.message;
+          }
+          alert(userMessage);
         }
       } catch (error) {
-        console.error('[ChatInput] Failed to start voice recognition:', error);
-        console.error('[ChatInput] Error stack:', error.stack);
-        alert('Failed to start voice recognition: ' + error.message);
+        console.error('[ChatInput] 🔥 Failed to start voice recognition:', error);
+        console.error('[ChatInput] 🔥 Error stack:', error.stack);
+        console.error('[ChatInput] 🔥 Error type:', typeof error);
+        console.error('[ChatInput] 🔥 Error constructor:', error.constructor.name);
+        
+        let userMessage = 'Could not start voice recognition. ';
+        if (error.message.includes('not-allowed')) {
+          userMessage += 'Microphone permission denied. Please check your browser settings.';
+        } else if (error.message.includes('not supported')) {
+          userMessage += 'Speech recognition not supported in this browser. Try Chrome or Edge.';
+        } else {
+          userMessage += error.message + '\n\nTry using the debug tool: debug-voice.html';
+        }
+        alert(userMessage);
         setIsListening(false);
       }
     }
@@ -1269,7 +1306,7 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
                 console.log('[ChatInput] Prevented paste during listening');
               }
             }}
-            placeholder={isListening ? "Listening..." : "Type a message..."}
+            placeholder={isListening ? "Listening..." : "Type a message or click the microphone..."}
             disabled={disabled}
             readOnly={isListening && speechProvider !== 'offline' && !(window.electron && speechProvider === 'browser')}
             rows={1}
@@ -1444,13 +1481,9 @@ const ChatInput = React.forwardRef(({ onSendMessage, disabled }, ref) => {
               console.log('[ChatInput] Microphone button mouse up');
             }}
             isListening={isListening}
-            disabled={disabled || (!useOfflineRecognition && !isOnline)}
-            title={
-              useOfflineRecognition 
-                ? (isListening ? "Stop recording" : "Start voice input (Offline mode)")
-                : (!isOnline ? "Offline - Internet required for online voice input" : (isListening ? "Stop recording" : "Start voice input"))
-            }
-            style={{ opacity: (!useOfflineRecognition && !isOnline) ? 0.5 : 1 }}
+            disabled={disabled}
+            title={isListening ? "Stop recording" : "Click to start voice input"}
+            style={{ opacity: 1 }}
           >
             {isListening ? (
               <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
