@@ -441,8 +441,8 @@ const SettingsView = () => {
         voiceService.setRecognitionLanguage(value);
         break;
       case 'voiceSynthesisProvider':
-        voiceService.setProvider(value);
-        console.log('[Settings] Switched voice synthesis provider to:', value);
+        // VoiceService automatically reads provider from localStorage
+        console.log('[Settings] Voice synthesis provider setting saved:', value);
         break;
     }
   };
@@ -507,11 +507,9 @@ const SettingsView = () => {
         voiceService.setSpeechPitch(parsed.speechPitch || 1.0);
         voiceService.setSpeechVolume(parsed.speechVolume || 1.0);
         
-        // Set voice synthesis provider
-        if (parsed.voiceSynthesisProvider) {
-          voiceService.setProvider(parsed.voiceSynthesisProvider);
-          console.log('[Settings] Set voice synthesis provider to:', parsed.voiceSynthesisProvider);
-        }
+        // Note: VoiceService automatically reads provider from settings
+        // No need to manually set provider here to avoid conflicts
+        console.log('[Settings] Voice provider configured:', parsed.voiceSynthesisProvider);
         voiceService.setRecognitionLanguage(parsed.recognitionLanguage || 'en-US');
       } catch (e) {
         console.error('Failed to load voice settings:', e);
@@ -1310,8 +1308,7 @@ const SettingsView = () => {
                             const userVoice = voiceSettings.barkVoice || 'v2/en_speaker_3';
                             console.log('[Settings] Testing with voice:', userVoice);
                             
-                            // Test using the VoiceServiceFactory to ensure consistency
-                            voiceService.setProvider('bark');
+                            // VoiceService will automatically use the correct provider
                             const testText = `Hello! This is a test of ${userVoice} voice. If you can hear this clearly, your Bark AI voice system is working perfectly.`;
                             
                             // Test the voice using the unified service

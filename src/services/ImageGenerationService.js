@@ -269,9 +269,9 @@ class ImageGenerationService {
       width = 512,
       height = 512,
       steps = 20,
-      cfg = 7,
+      cfg = 3.5,  // Better for Flux models
       sampler = 'euler',
-      scheduler = 'normal',
+      scheduler = 'simple',  // Better for Flux models
       seed = Math.floor(Math.random() * 1000000),
       model = 'sd15',  // Will need to be configured based on available models
       onProgress = null
@@ -401,9 +401,9 @@ class ImageGenerationService {
       width = 512,
       height = 512,
       steps = 20,
-      cfg = 7,
+      cfg = 3.5,  // Better for Flux models
       sampler = 'euler',
-      scheduler = 'normal',
+      scheduler = 'simple',  // Better for Flux models
       seed = Math.floor(Math.random() * 1000000),
       model = 'sd15',
       denoise = 0.75, // How much to change the image (0=no change, 1=complete change)

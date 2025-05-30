@@ -1,8 +1,9 @@
-// External SSD Memory Service for Aria
+// External Storage Memory Service for Aria
 
 class ExternalMemoryService {
-  constructor(ssdPath = '/Volumes/Alexandra-External-SSD-Storge/Aria-Memory') {
-    this.ssdPath = ssdPath;
+  constructor(storagePath = null) {
+    // Use Mac internal storage - better performance and reliability
+    this.storagePath = storagePath || '/Users/alexandratitus767/.aria-memory';
     this.isElectron = !!(window.electron || (window.process && window.process.type));
     this.fallbackToLocal = false;
     
@@ -31,16 +32,16 @@ class ExternalMemoryService {
         return;
       }
 
-      // Check if SSD is accessible
-      const ssdExists = await this.checkSSDAccess();
-      if (!ssdExists) {
-        console.warn('[ExternalMemory] SSD not accessible, falling back to localStorage');
+      // Check if internal storage is accessible
+      const storageExists = await this.checkStorageAccess();
+      if (!storageExists) {
+        console.warn('[Memory] Internal storage not accessible, falling back to localStorage');
         this.fallbackToLocal = true;
         return;
       }
 
-      console.log('[ExternalMemory] ✅ External SSD storage initialized:', this.ssdPath);
-      await this.loadMemoriesFromSSD();
+      console.log('[Memory] ✅ Internal storage initialized:', this.storagePath);
+      await this.loadMemoriesFromStorage();
       
     } catch (error) {
       console.error('[ExternalMemory] Initialization failed:', error);
@@ -48,12 +49,12 @@ class ExternalMemoryService {
     }
   }
 
-  async checkSSDAccess() {
+  async checkStorageAccess() {
     try {
       if (!this.isElectron) return false;
       
       // Check if directory exists and is writable
-      const testFile = `${this.ssdPath}/.aria-test`;
+      const testFile = `${this.storagePath}/.aria-test`;
       await window.electron.writeFile(testFile, 'test');
       await window.electron.deleteFile(testFile);
       return true;
@@ -62,17 +63,17 @@ class ExternalMemoryService {
     }
   }
 
-  async loadMemoriesFromSSD() {
+  async loadMemoriesFromStorage() {
     try {
       if (this.fallbackToLocal) {
         return this.loadFromLocalStorage();
       }
 
-      // Load from individual JSON files on SSD
+      // Load from individual JSON files on internal storage
       const files = {
-        conversations: `${this.ssdPath}/conversations/recent.json`,
-        personal: `${this.ssdPath}/personal-facts/facts.json`,
-        projects: `${this.ssdPath}/projects/active.json`
+        conversations: `${this.storagePath}/conversations/recent.json`,
+        personal: `${this.storagePath}/personal-facts/facts.json`,
+        projects: `${this.storagePath}/projects/active.json`
       };
 
       for (const [type, filePath] of Object.entries(files)) {
@@ -90,14 +91,14 @@ class ExternalMemoryService {
         }
       }
 
-      console.log('[ExternalMemory] ✅ Loaded memories from SSD:', {
+      console.log('[ExternalMemory] ✅ Loaded memories from Internal Storage:', {
         conversations: this.memories.conversations.length,
         personal: this.memories.personal.size,
         projects: this.memories.projects.size
       });
 
     } catch (error) {
-      console.error('[ExternalMemory] Failed to load from SSD:', error);
+      console.error('[ExternalMemory] Failed to load from Internal Storage:', error);
       this.fallbackToLocal = true;
       this.loadFromLocalStorage();
     }
@@ -125,7 +126,7 @@ class ExternalMemoryService {
     }
 
     try {
-      // Save to organized files on SSD
+      // Save to organized files on internal storage
       const saves = [
         this.saveConversations(),
         this.savePersonalFacts(),
@@ -134,35 +135,35 @@ class ExternalMemoryService {
       ];
 
       await Promise.all(saves);
-      console.log('[ExternalMemory] ✅ Saved all memories to SSD');
+      console.log('[ExternalMemory] ✅ Saved all memories to Internal Storage');
 
     } catch (error) {
-      console.error('[ExternalMemory] Failed to save to SSD:', error);
+      console.error('[ExternalMemory] Failed to save to Internal Storage:', error);
       // Fallback to localStorage
       this.saveToLocalStorage();
     }
   }
 
   async saveConversations() {
-    const filePath = `${this.ssdPath}/conversations/recent.json`;
+    const filePath = `${this.storagePath}/conversations/recent.json`;
     const data = this.memories.conversations.slice(-1000); // Keep last 1000 conversations
     await window.electron.writeFile(filePath, JSON.stringify(data, null, 2));
   }
 
   async savePersonalFacts() {
-    const filePath = `${this.ssdPath}/personal-facts/facts.json`;
+    const filePath = `${this.storagePath}/personal-facts/facts.json`;
     const data = Array.from(this.memories.personal.entries());
     await window.electron.writeFile(filePath, JSON.stringify(data, null, 2));
   }
 
   async saveProjects() {
-    const filePath = `${this.ssdPath}/projects/active.json`;
+    const filePath = `${this.storagePath}/projects/active.json`;
     const data = Array.from(this.memories.projects.entries());
     await window.electron.writeFile(filePath, JSON.stringify(data, null, 2));
   }
 
   async createBackup() {
-    const backupDir = `${this.ssdPath}/backups`;
+    const backupDir = `${this.storagePath}/backups`;
     const timestamp = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
     const backupFile = `${backupDir}/aria-memory-${timestamp}.json`;
 
@@ -203,15 +204,18 @@ class ExternalMemoryService {
 
   // Add conversation to memory
   addConversation(userMessage, assistantMessage, metadata = {}) {
+    // Clean assistant message BEFORE storing to prevent identity confusion
+    const cleanedAssistantMessage = this.sanitizeMessage(assistantMessage.substring(0, 2000));
+    
     const conversation = {
       id: `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
       timestamp: new Date().toISOString(),
       userMessage: userMessage.substring(0, 1000), // Limit length
-      assistantMessage: assistantMessage.substring(0, 2000),
-      topics: this.extractTopics(userMessage + ' ' + assistantMessage),
+      assistantMessage: cleanedAssistantMessage,
+      topics: this.extractTopics(userMessage + ' ' + cleanedAssistantMessage),
       mood: metadata.mood || 'neutral',
       context: metadata.context || {},
-      importance: this.calculateImportance(userMessage, assistantMessage)
+      importance: this.calculateImportance(userMessage, cleanedAssistantMessage)
     };
 
     this.memories.conversations.push(conversation);
@@ -261,6 +265,45 @@ class ExternalMemoryService {
     return project;
   }
 
+  // Add interest/topic tracking
+  addInterest(topic, type = 'mentioned', metadata = {}) {
+    const interest = {
+      topic,
+      type,
+      firstMentioned: new Date().toISOString(),
+      lastMentioned: new Date().toISOString(),
+      frequency: 1,
+      metadata
+    };
+
+    if (this.memories.interests.has(topic)) {
+      const existing = this.memories.interests.get(topic);
+      existing.lastMentioned = new Date().toISOString();
+      existing.frequency += 1;
+      existing.metadata = { ...existing.metadata, ...metadata };
+    } else {
+      this.memories.interests.set(topic, interest);
+    }
+
+    console.log('[ExternalMemory] 💡 Added interest:', topic);
+    return this.memories.interests.get(topic);
+  }
+
+  // Add relationship tracking
+  addRelationship(name, relationship, metadata = {}) {
+    const relationshipData = {
+      name,
+      relationship,
+      firstMentioned: new Date().toISOString(),
+      lastMentioned: new Date().toISOString(),
+      metadata
+    };
+
+    this.memories.relationships.set(name, relationshipData);
+    console.log('[ExternalMemory] 👥 Added relationship:', name, '-', relationship);
+    return relationshipData;
+  }
+
   // Get relevant context for current conversation
   getRelevantContext(currentMessage) {
     try {
@@ -292,27 +335,56 @@ class ExternalMemoryService {
   }
 
   // Sanitize conversation to remove identity confusion
-  sanitizeConversation(conversation) {
-    if (!conversation || !conversation.assistantMessage) {
-      return conversation;
+  // Clean individual message before storage
+  sanitizeMessage(message) {
+    if (!message || typeof message !== 'string') {
+      return message;
     }
 
-    // Clean assistant messages that have wrong identity
-    let cleanedMessage = conversation.assistantMessage
-      // Remove references to being Qwen, Monica, Claude, etc.
+    return message
+      // ULTRA-AGGRESSIVE Monica/identity cleaning - apply same patterns as CompanionService
+      .replace(/Hi! I'm Monica.*?I'm Aria/gi, "Hi! I'm Aria")
+      .replace(/Hello! I'm Monica.*?I'm Aria/gi, "Hello! I'm Aria")
+      .replace(/I'm Monica.*?I'm Aria/gi, "I'm Aria")
+      .replace(/Monica.*?Aria/gi, "Aria")
+      .replace(/I'm Monica/gi, "I'm Aria")
+      .replace(/I am Monica/gi, "I am Aria")
+      .replace(/My name is Monica/gi, "My name is Aria")
+      .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+      .replace(/\bMonica\b/gi, "Aria")
+      // Other AI models
       .replace(/I'm Qwen/gi, "I'm Aria")
       .replace(/I am Qwen/gi, "I am Aria")
       .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
       .replace(/This is Qwen/gi, "This is Aria")
       .replace(/My name is Qwen/gi, "My name is Aria")
+      .replace(/I'm DeepSeek/gi, "I'm Aria")
+      .replace(/I am DeepSeek/gi, "I am Aria")
+      .replace(/I'm Claude/gi, "I'm Aria")
+      .replace(/I am Claude/gi, "I am Aria")
       .replace(/developed by Alibaba Cloud/gi, "your AI assistant")
+      .replace(/developed by DeepSeek/gi, "your AI assistant")
       .replace(/large-scale language model/gi, "AI assistant")
+      .replace(/\bQwen\b/gi, "Aria")
+      .replace(/\bDeepSeek\b/gi, "Aria")
+      .replace(/\bClaude\b/gi, "Aria")
       // Remove thinking processes that were accidentally saved
-      .replace(/^(Okay, the user asked me to|First, I should|Let me think about)[\s\S]*?(?=Hello!|Hi!|I'm)/i, '');
+      .replace(/^(Okay, the user asked me to|First, I should|Let me think about)[\s\S]*?(?=Hello!|Hi!|I'm)/i, '')
+      .trim();
+  }
+
+  sanitizeConversation(conversation) {
+    if (!conversation || !conversation.assistantMessage) {
+      return conversation;
+    }
+
+    // Use the new sanitizeMessage method
+    const cleanedMessage = this.sanitizeMessage(conversation.assistantMessage);
 
     return {
       ...conversation,
-      assistantMessage: cleanedMessage.trim()
+      assistantMessage: cleanedMessage
     };
   }
 
@@ -364,14 +436,14 @@ class ExternalMemoryService {
   // Get memory statistics
   getMemoryStats() {
     return {
-      storageLocation: this.fallbackToLocal ? 'localStorage' : this.ssdPath,
+      storageLocation: this.fallbackToLocal ? 'localStorage' : this.storagePath,
       totalConversations: this.memories.conversations.length,
       personalFacts: this.memories.personal.size,
       activeProjects: Array.from(this.memories.projects.values())
         .filter(p => p.status === 'active').length,
       totalProjects: this.memories.projects.size,
       interests: this.memories.interests.size,
-      memoryCapacity: this.fallbackToLocal ? '~10MB (localStorage)' : 'Unlimited (SSD)',
+      memoryCapacity: this.fallbackToLocal ? '~10MB (localStorage)' : 'Unlimited (Internal Storage)',
       lastSaved: new Date().toISOString()
     };
   }

@@ -22,6 +22,10 @@ class BarkVoiceService {
       const voiceSettings = localStorage.getItem('sephia_voice_settings');
       if (voiceSettings) {
         const settings = JSON.parse(voiceSettings);
+        console.log('[BarkVoiceService] User voice settings:', {
+          barkVoice: settings.barkVoice,
+          fullSettings: settings
+        });
         return settings.barkVoice || null;
       }
     } catch (error) {
@@ -137,15 +141,42 @@ class BarkVoiceService {
     const userVoice = this.getUserSelectedVoice();
     const voice = options.voice || userVoice || this.currentVoice;
     
-    console.log('[BarkVoiceService] Generating speech:', {
-      text: text.substring(0, 50) + (text.length > 50 ? '...' : ''),
+    console.log('[BarkVoiceService] Voice selection details:', {
+      optionsVoice: options.voice,
+      userSelectedVoice: userVoice,
+      fallbackCurrentVoice: this.currentVoice,
+      finalVoiceUsed: voice
+    });
+    
+    console.log('[BarkVoiceService] Generating speech for complete text:', {
+      text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+      textLength: text.length,
       voice,
       temperature: options.temperature || 0.7
     });
 
     try {
-      // Add feminine context to ensure female voice characteristics
-      const contextualText = this.addFeminineContext(text.trim(), voice);
+      // CRITICAL: Apply ultra-aggressive identity cleaning before voice synthesis
+      let cleanedText = text.trim()
+        .replace(/Hello.*?I'm\s+Monica.*?Hi.*?I'm\s+Aria/gi, "Hi! I'm Aria")
+        .replace(/Hi.*?I'm\s+Monica.*?I'm\s+Aria/gi, "Hi! I'm Aria") 
+        .replace(/Monica.*?Aria/gi, "Aria")
+        .replace(/I'm\s+Monica.*?I'm\s+Aria/gi, "I'm Aria")
+        .replace(/Monica.*?Hi.*?I'm\s+Aria/gi, "Hi! I'm Aria")
+        .replace(/Hello.*?Monica.*?Aria/gi, "Hello! I'm Aria")
+        .replace(/Monica/gi, "Aria")
+        .replace(/I'm\s+Monica/gi, "I'm Aria")
+        .replace(/Hello.*?Monica/gi, "Hello! I'm Aria")
+        .replace(/Hi.*?Monica/gi, "Hi! I'm Aria");
+
+      // Add feminine context to ensure female voice characteristics  
+      const contextualText = this.addFeminineContext(cleanedText, voice);
+      
+      // For longer texts, ensure we don't truncate - Bark can handle longer text
+      if (contextualText.length > 1000) {
+        console.log('[BarkVoiceService] Processing long text:', contextualText.length, 'characters');
+        return await this.speakLongText(contextualText, voice, options);
+      }
       
       const requestBody = {
         text: contextualText,
@@ -153,6 +184,11 @@ class BarkVoiceService {
         temperature: options.temperature || 0.7,
         silent: false
       };
+
+      console.log('[BarkVoiceService] Sending full text to TTS:', {
+        textLength: contextualText.length,
+        voice: voice
+      });
 
       const response = await fetch(`${this.baseUrl}/tts`, {
         method: 'POST',
@@ -176,9 +212,10 @@ class BarkVoiceService {
       // Play the audio
       await this.playAudioData(result.audio_data);
       
-      console.log('[BarkVoiceService] Speech completed:', {
+      console.log('[BarkVoiceService] Speech completed successfully:', {
         duration: result.duration,
-        voice: result.voice_used
+        voice: result.voice_used,
+        textLength: contextualText.length
       });
 
       return {
@@ -193,8 +230,103 @@ class BarkVoiceService {
     }
   }
 
+  // Handle long text by chunking intelligently
+  async speakLongText(text, voice, options = {}) {
+    console.log('[BarkVoiceService] Processing long text in chunks');
+    
+    // Split text into meaningful chunks at sentence boundaries
+    const chunks = this.chunkTextIntelligently(text);
+    console.log('[BarkVoiceService] Split into', chunks.length, 'chunks');
+    
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      console.log(`[BarkVoiceService] Speaking chunk ${i + 1}/${chunks.length}:`, chunk.substring(0, 50) + '...');
+      
+      const requestBody = {
+        text: chunk,
+        voice: voice,
+        temperature: options.temperature || 0.7,
+        silent: false
+      };
+
+      const response = await fetch(`${this.baseUrl}/tts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(`TTS generation failed on chunk ${i + 1}: ${errorData.detail || response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(`TTS generation failed on chunk ${i + 1}: ${result.error || 'Unknown error'}`);
+      }
+
+      // Play each chunk sequentially
+      await this.playAudioData(result.audio_data);
+      
+      // Small pause between chunks if not the last chunk
+      if (i < chunks.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+    
+    console.log('[BarkVoiceService] Long text speech completed');
+    return { success: true, chunks: chunks.length };
+  }
+
+  // Intelligently chunk text at sentence boundaries
+  chunkTextIntelligently(text) {
+    const maxChunkLength = 800; // Reasonable chunk size for Bark
+    const chunks = [];
+    
+    // Split by sentences first, but handle incomplete sentences too
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    let currentChunk = '';
+    
+    for (const sentence of sentences) {
+      // If adding this sentence would exceed max length, save current chunk
+      if (currentChunk.length + sentence.length > maxChunkLength && currentChunk.length > 0) {
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+      } else {
+        currentChunk += (currentChunk ? ' ' : '') + sentence;
+      }
+    }
+    
+    // Add the last chunk if there's content
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    // If no chunks were created (single sentence), just add the whole text
+    if (chunks.length === 0 && text.trim()) {
+      chunks.push(text.trim());
+    }
+    
+    console.log('[BarkVoiceService] Text chunking result:', {
+      originalLength: text.length,
+      chunksCreated: chunks.length,
+      chunkLengths: chunks.map(chunk => chunk.length),
+      chunkPreviews: chunks.map(chunk => chunk.substring(0, 50) + '...')
+    });
+    
+    return chunks;
+  }
+
   async playAudioData(audioData) {
     return new Promise((resolve, reject) => {
+      // Declare variables in Promise scope to avoid scope issues
+      let isResolved = false;
+      let timeoutId = null;
+      let audioUrl = null;
+      
       try {
         console.log('[BarkVoiceService] Processing audio data:', {
           type: typeof audioData,
@@ -203,8 +335,6 @@ class BarkVoiceService {
           isBlob: audioData instanceof Blob,
           preview: typeof audioData === 'string' ? audioData.substring(0, 50) : 'not string'
         });
-        
-        let audioUrl;
         
         // Handle different audio data formats
         if (typeof audioData === 'string') {
@@ -246,13 +376,31 @@ class BarkVoiceService {
           console.log('[BarkVoiceService] Audio playback started');
         };
         
+        // Add timeout to ensure promise always resolves
+        const timeoutDuration = 120000; // 2 minutes max
+        timeoutId = setTimeout(() => {
+          if (!isResolved) {
+            isResolved = true;
+            console.warn('[BarkVoiceService] Audio playback timeout - force resolving');
+            // Clean up blob URL if we created one
+            if (audioData instanceof Blob) {
+              URL.revokeObjectURL(audioUrl);
+            }
+            resolve(); // Force resolve to prevent hanging
+          }
+        }, timeoutDuration);
+
         audio.onended = () => {
           console.log('[BarkVoiceService] Audio playback completed');
-          // Clean up blob URL if we created one
-          if (audioData instanceof Blob) {
-            URL.revokeObjectURL(audioUrl);
+          if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            // Clean up blob URL if we created one
+            if (audioData instanceof Blob) {
+              URL.revokeObjectURL(audioUrl);
+            }
+            resolve();
           }
-          resolve();
         };
         
         audio.onerror = (error) => {
@@ -264,12 +412,15 @@ class BarkVoiceService {
             audioUrl: audioUrl.substring(0, 100)
           });
           
-          // Clean up blob URL if we created one
-          if (audioData instanceof Blob) {
-            URL.revokeObjectURL(audioUrl);
+          if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            // Clean up blob URL if we created one
+            if (audioData instanceof Blob) {
+              URL.revokeObjectURL(audioUrl);
+            }
+            reject(new Error(`Audio playback failed: ${audio.error?.message || 'Unknown error'}`));
           }
-          
-          reject(new Error(`Audio playback failed: ${audio.error?.message || 'Unknown error'}`));
         };
         
         audio.onabort = () => {
@@ -298,21 +449,29 @@ class BarkVoiceService {
         }).catch((playError) => {
           console.error('[BarkVoiceService] Audio play() failed:', playError);
           
-          // Clean up blob URL if we created one
-          if (audioData instanceof Blob) {
-            URL.revokeObjectURL(audioUrl);
-          }
-          
-          if (playError.name === 'NotAllowedError') {
-            reject(new Error('Audio playback blocked by browser autoplay policy. Please interact with the page first.'));
-          } else {
-            reject(new Error(`Audio playback failed: ${playError.message}`));
+          if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeoutId);
+            // Clean up blob URL if we created one
+            if (audioData instanceof Blob) {
+              URL.revokeObjectURL(audioUrl);
+            }
+            
+            if (playError.name === 'NotAllowedError') {
+              reject(new Error('Audio playback blocked by browser autoplay policy. Please interact with the page first.'));
+            } else {
+              reject(new Error(`Audio playback failed: ${playError.message}`));
+            }
           }
         });
         
       } catch (error) {
         console.error('[BarkVoiceService] Error in playAudioData:', error);
-        reject(error);
+        if (!isResolved) {
+          isResolved = true;
+          clearTimeout(timeoutId);
+          reject(error);
+        }
       }
     });
   }
@@ -496,7 +655,7 @@ class BarkVoiceService {
   }
 
   // Get service info
-  // Add feminine context to ensure consistent female voice
+  // Add feminine context to ensure consistent female voice  
   addFeminineContext(text, voice) {
     // Define female speakers that need context reinforcement
     const femaleVoices = ['v2/en_speaker_3', 'v2/en_speaker_4', 'v2/en_speaker_5', 'v2/en_speaker_9'];
@@ -505,24 +664,30 @@ class BarkVoiceService {
       return text; // Return unchanged for other voices
     }
     
-    // Add subtle feminine context prefix to guide voice characteristics
-    const femininePrefixes = [
-      "*clears throat in a feminine voice* Hi, I'm Aria, your AI assistant. ",
-      "*speaking in a gentle female voice* Hello! This is Aria. ",
-      "*in a warm, feminine tone* Hi there! I'm Aria. ",
-      "*with a soft female voice* Aria here! "
-    ];
+    // CRITICAL: Clean text first to remove any identity confusion from stored patterns
+    let cleanedText = text
+      .replace(/Monica|Monic/gi, 'Aria')
+      .replace(/I'm Monica/gi, "I'm Aria")
+      .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+      .replace(/This is Monica/gi, "This is Aria");
     
-    // Use a consistent prefix for the session
-    const prefixIndex = Math.floor(Date.now() / (1000 * 60 * 5)) % femininePrefixes.length; // Change every 5 minutes
-    const prefix = femininePrefixes[prefixIndex];
-    
-    // Only add prefix if text doesn't already start with Aria's name
-    if (text.toLowerCase().includes('aria') || text.toLowerCase().includes("i'm") || text.toLowerCase().includes("i am")) {
-      return text; // Already has identity context
+    // Only add identity context if the text doesn't already establish Aria's identity clearly
+    if (cleanedText.toLowerCase().includes("i'm aria") || 
+        cleanedText.toLowerCase().includes("i am aria") ||
+        cleanedText.toLowerCase().includes("this is aria")) {
+      return cleanedText; // Already has clear Aria identity
     }
     
-    return prefix + text;
+    // For introduction or identity-related responses, be very explicit but simple
+    if (cleanedText.toLowerCase().includes('hello') || 
+        cleanedText.toLowerCase().includes('hi') ||
+        cleanedText.toLowerCase().includes('assistant')) {
+      // Don't add prefixes that might confuse the voice model
+      return cleanedText;
+    }
+    
+    // For other responses, just ensure clean output without prefixes that might confuse voice patterns
+    return cleanedText;
   }
 
   getInfo() {

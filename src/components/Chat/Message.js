@@ -212,7 +212,7 @@ const styles = {
 const Message = React.memo(({ message, onDelete }) => {
   const theme = useTheme();
   const muiTheme = useMuiTheme();
-  const { profile } = useApp();
+  const { profile, companionMode } = useApp();
   const [copyStatus, setCopyStatus] = useState({});
   const [downloadStatus, setDownloadStatus] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
@@ -1297,22 +1297,25 @@ const Message = React.memo(({ message, onDelete }) => {
               transition: 'all 0.2s ease',
             }} className="message-actions">
               <Box sx={{ display: 'flex', gap: '4px' }}>
-                <Tooltip title={isSpeaking ? 'Stop speaking' : 'Read aloud'} arrow>
-                  <IconButton 
-                    size="small" 
-                    onClick={handleSpeakMessage}
-                    sx={{
-                      color: isSpeaking ? '#ef4444' : 'rgba(255, 255, 255, 0.8)',
-                      backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.1)',
-                      '&:hover': {
-                        color: isSpeaking ? '#dc2626' : 'rgba(255, 255, 255, 1)',
-                        backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.2)',
-                      },
-                    }}
-                  >
-                    {isSpeaking ? <StopIcon fontSize="small" /> : <SpeakerIcon fontSize="small" />}
-                  </IconButton>
-                </Tooltip>
+                {/* Hide speaker icon for assistant messages when companion mode is on to prevent conflicts with auto-speak */}
+                {!(message.sender === 'assistant' && companionMode) && (
+                  <Tooltip title={isSpeaking ? 'Stop speaking' : 'Read aloud'} arrow>
+                    <IconButton 
+                      size="small" 
+                      onClick={handleSpeakMessage}
+                      sx={{
+                        color: isSpeaking ? '#ef4444' : 'rgba(255, 255, 255, 0.8)',
+                        backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.1)' : 'rgba(255, 255, 255, 0.1)',
+                        '&:hover': {
+                          color: isSpeaking ? '#dc2626' : 'rgba(255, 255, 255, 1)',
+                          backgroundColor: isSpeaking ? 'rgba(239, 68, 68, 0.2)' : 'rgba(255, 255, 255, 0.2)',
+                        },
+                      }}
+                    >
+                      {isSpeaking ? <StopIcon fontSize="small" /> : <SpeakerIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                )}
                 
                 <Tooltip title={copyStatus.message ? 'Copied!' : 'Copy message'} arrow>
                   <IconButton 

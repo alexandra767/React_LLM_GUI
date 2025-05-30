@@ -512,6 +512,8 @@ class VoiceServiceFactory {
     this.browserVoice = new VoiceService();
     this.barkVoice = new BarkVoiceService();
     this.currentProvider = 'browser'; // 'browser' or 'bark'
+    this.isSpeaking = false; // Prevent concurrent speech
+    this.voiceLock = null; // Lock to prevent race conditions
     
     console.log('[VoiceServiceFactory] Initialized with providers:', {
       browser: !!this.browserVoice,
@@ -575,15 +577,59 @@ class VoiceServiceFactory {
     return providers;
   }
 
-  // Unified speak method - always respect user's provider choice
+  // Unified speak method - always respect user's provider choice and prevent conflicts
   async speak(text, options = {}) {
-    const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+    // CRITICAL: Stop ALL speech from both providers to prevent dual voices
+    console.log('[VoiceServiceFactory] Stopping all voice services before speaking');
+    await this.stopAllVoices();
     
-    console.log('[VoiceServiceFactory] Using user-selected provider:', this.currentProvider, 'with voice:', voiceSettings.barkVoice || 'default');
+    // Add a small delay to ensure all audio stops before starting new speech
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Set speaking flag to prevent concurrent calls
+    this.isSpeaking = true;
     
-    // Use the selected provider without overrides
-    const service = this.getActiveService();
-    return await service.speak(text, options);
+    try {
+      const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+      
+      // Get the user's preferred provider from settings
+      const preferredProvider = voiceSettings.voiceSynthesisProvider || 'bark';
+      
+      // Only switch provider if it's different from current
+      if (preferredProvider !== this.currentProvider) {
+        console.log('[VoiceServiceFactory] Switching provider from', this.currentProvider, 'to', preferredProvider);
+        // Stop current provider before switching
+        await this.stop();
+        this.setProvider(preferredProvider);
+      }
+      
+      console.log('[VoiceServiceFactory] Using provider:', this.currentProvider, 'with voice:', voiceSettings.barkVoice || 'default');
+      
+      // Use the selected provider without overrides
+      const service = this.getActiveService();
+      const result = await service.speak(text, {
+        ...options,
+        onStart: () => {
+          console.log('[VoiceServiceFactory] Speech started with', this.currentProvider);
+          options.onStart?.();
+        },
+        onEnd: () => {
+          console.log('[VoiceServiceFactory] Speech ended');
+          this.isSpeaking = false; // Clear speaking flag
+          options.onEnd?.();
+        },
+        onError: (error) => {
+          console.error('[VoiceServiceFactory] Speech error:', error);
+          this.isSpeaking = false; // Clear speaking flag on error
+          options.onError?.(error);
+        }
+      });
+      
+      return result;
+    } catch (error) {
+      this.isSpeaking = false; // Clear speaking flag on error
+      throw error;
+    }
   }
 
   // Unified voice methods
@@ -602,14 +648,35 @@ class VoiceServiceFactory {
     }
   }
 
+  // Stop ALL voice services to prevent dual voices
+  async stopAllVoices() {
+    this.isSpeaking = false; // Clear speaking flag
+    
+    try {
+      // Stop browser voice
+      this.browserVoice.stopSpeaking();
+      console.log('[VoiceServiceFactory] Stopped browser voice');
+      
+      // Stop Bark voice
+      await this.barkVoice.stop();
+      console.log('[VoiceServiceFactory] Stopped Bark voice');
+      
+      // Stop any HTML audio elements that might be playing
+      const audioElements = document.querySelectorAll('audio');
+      audioElements.forEach(audio => {
+        audio.pause();
+        audio.currentTime = 0;
+      });
+      console.log('[VoiceServiceFactory] Stopped', audioElements.length, 'audio elements');
+      
+    } catch (error) {
+      console.warn('[VoiceServiceFactory] Error stopping voices:', error);
+    }
+  }
+
   // Stop/pause/resume methods
   async stop() {
-    const service = this.getActiveService();
-    if (this.currentProvider === 'bark') {
-      return await service.stop();
-    } else {
-      service.stopSpeaking();
-    }
+    return await this.stopAllVoices();
   }
 
   async pause() {

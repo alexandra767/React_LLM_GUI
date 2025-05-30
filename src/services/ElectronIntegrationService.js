@@ -5,6 +5,7 @@ import googleCalendarService from './GoogleCalendarService';
 import ElectronGoogleAuthDirect from './ElectronGoogleAuthDirect';
 import ElectronGoogleAuthDirectPatched from './ElectronGoogleAuthDirectPatched';
 import webSearchService from './WebSearchService';
+import GoogleDriveService from './GoogleDriveService';
 
 // Run migration to ensure backward compatibility
 import './MigrateGoogleTokens';
@@ -14,6 +15,7 @@ class ElectronIntegrationService {
     this.isAppleAuthorized = appleCalendarService.loadAuthState();
     this.googleAuth = new ElectronGoogleAuthDirectPatched();
     this.isGoogleAuthorized = this.googleAuth.isAuthenticated();
+    this.googleDriveService = new GoogleDriveService();
   }
 
   // Apple Calendar Integration (using CalDAV)
@@ -708,13 +710,45 @@ class ElectronIntegrationService {
     console.log('[ElectronIntegrationService] Uploading file to Drive:', fileDetails);
     
     try {
+      // Check if we have text content to upload
+      if (typeof fileDetails === 'string') {
+        // Simple text upload
+        const fileName = `aria-upload-${Date.now()}.txt`;
+        const uploadedFile = await this.googleDriveService.uploadTextFile(fileDetails, fileName);
+        
+        return {
+          content: `✅ Successfully uploaded text file to Google Drive!\n\n📄 **${uploadedFile.name}**\n🆔 File ID: ${uploadedFile.id}\n🔗 View: https://drive.google.com/file/d/${uploadedFile.id}/view`
+        };
+      }
+      
+      // Handle file object or structured data
+      if (fileDetails.content && fileDetails.fileName) {
+        const uploadedFile = await this.googleDriveService.uploadTextFile(
+          fileDetails.content, 
+          fileDetails.fileName,
+          fileDetails.mimeType || 'text/plain'
+        );
+        
+        return {
+          content: `✅ Successfully uploaded "${fileDetails.fileName}" to Google Drive!\n\n📄 **${uploadedFile.name}**\n🆔 File ID: ${uploadedFile.id}\n🔗 View: https://drive.google.com/file/d/${uploadedFile.id}/view`
+        };
+      }
+      
       return {
-        content: `File upload to Google Drive is not yet fully implemented. For now, you can:\n\n• Use the Google Drive web interface\n• Drag and drop files directly to drive.google.com\n• Use the Google Drive desktop sync app\n\nRequested upload: "${fileDetails}"`
+        content: `❌ Invalid file data provided. Please provide either:\n• Text content as a string\n• Object with 'content' and 'fileName' properties`
       };
+      
     } catch (error) {
       console.error('[ElectronIntegrationService] Failed to upload file:', error);
+      
+      if (error.message.includes('not configured')) {
+        return {
+          content: `❌ Google Drive not configured. Please:\n\n1. Add your Google Client ID in Settings\n2. Optionally add Client Secret for better authentication\n3. Try the upload command again`
+        };
+      }
+      
       return {
-        content: `Error uploading file: ${error.message}`
+        content: `❌ Upload failed: ${error.message}`
       };
     }
   }
@@ -724,41 +758,67 @@ class ElectronIntegrationService {
     console.log('[ElectronIntegrationService] Downloading file from Drive:', fileDetails);
     
     try {
-      const accessToken = await this.googleAuth.getValidAccessToken();
-      
-      // Search for the file
-      const searchQuery = encodeURIComponent(fileDetails);
-      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name contains '${searchQuery}'&fields=files(id,name,mimeType,webViewLink)`;
-      
-      const searchResponse = await fetch(searchUrl, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!searchResponse.ok) {
-        throw new Error(`Failed to search Drive files: ${searchResponse.status}`);
-      }
-
-      const searchData = await searchResponse.json();
-      const files = searchData.files || [];
+      // First search for the file
+      const files = await this.googleDriveService.listFiles(fileDetails, 10);
       
       if (files.length === 0) {
         return {
-          content: `No Google Drive files found matching "${fileDetails}"`
+          content: `❌ No Google Drive files found matching "${fileDetails}"`
         };
       }
-
-      const file = files[0];
       
-      return {
-        content: `Found file: "${file.name}"\nView/Download: ${file.webViewLink}\n\nNote: Direct download will be implemented in a future update. For now, click the link above to access your file.`
-      };
+      const file = files[0]; // Use the most recently modified match
+      console.log('[ElectronIntegrationService] Downloading file:', file.name, file.id);
+      
+      // Try to get file content (for text files)
+      try {
+        const fileWithContent = await this.googleDriveService.getFileContent(file.id);
+        
+        // For text files, show content inline
+        const previewLength = 500;
+        const contentPreview = fileWithContent.content.length > previewLength 
+          ? fileWithContent.content.substring(0, previewLength) + '...\n\n[Content truncated]'
+          : fileWithContent.content;
+        
+        return {
+          content: `✅ Downloaded "${file.name}" from Google Drive:\n\n` +
+                   `📄 **File Content:**\n\`\`\`\n${contentPreview}\n\`\`\`\n\n` +
+                   `📊 **File Info:**\n` +
+                   `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n` +
+                   `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n` +
+                   `• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n` +
+                   `• ID: ${file.id}`
+        };
+        
+      } catch (contentError) {
+        console.log('[ElectronIntegrationService] Cannot display content inline:', contentError.message);
+        
+        // For binary files or download errors, provide alternative
+        return {
+          content: `✅ Found "${file.name}" in Google Drive:\n\n` +
+                   `📊 **File Info:**\n` +
+                   `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n` +
+                   `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n` +
+                   `• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n` +
+                   `• ID: ${file.id}\n\n` +
+                   `🔗 **Access Options:**\n` +
+                   `• View online: https://drive.google.com/file/d/${file.id}/view\n` +
+                   `• Download: Use Google Drive interface for binary files\n\n` +
+                   `💡 *Text files are displayed inline, binary files require manual download*`
+        };
+      }
+      
     } catch (error) {
       console.error('[ElectronIntegrationService] Failed to download file:', error);
+      
+      if (error.message.includes('not configured')) {
+        return {
+          content: `❌ Google Drive not configured. Please add your Google Client ID in Settings.`
+        };
+      }
+      
       return {
-        content: `Error accessing file: ${error.message}`
+        content: `❌ Download failed: ${error.message}`
       };
     }
   }
@@ -768,55 +828,46 @@ class ElectronIntegrationService {
     console.log('[ElectronIntegrationService] Deleting file from Drive:', fileDetails);
     
     try {
-      const accessToken = await this.googleAuth.getValidAccessToken();
-      
-      // Search for the file
-      const searchQuery = encodeURIComponent(fileDetails);
-      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name contains '${searchQuery}'&fields=files(id,name)`;
-      
-      const searchResponse = await fetch(searchUrl, {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Accept': 'application/json'
-        }
-      });
-
-      if (!searchResponse.ok) {
-        throw new Error(`Failed to search Drive files: ${searchResponse.status}`);
-      }
-
-      const searchData = await searchResponse.json();
-      const files = searchData.files || [];
+      // First search for the file
+      const files = await this.googleDriveService.listFiles(fileDetails, 10);
       
       if (files.length === 0) {
         return {
-          content: `No Google Drive files found matching "${fileDetails}"`
+          content: `❌ No Google Drive files found matching "${fileDetails}"`
         };
       }
-
-      const file = files[0];
       
-      // Delete the file
-      const deleteUrl = `https://www.googleapis.com/drive/v3/files/${file.id}`;
+      const file = files[0]; // Use the most recently modified match
       
-      const deleteResponse = await fetch(deleteUrl, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`
-        }
-      });
-
-      if (!deleteResponse.ok) {
-        throw new Error(`Failed to delete file: ${deleteResponse.status}`);
+      // Confirm deletion (for safety)
+      const confirmMessage = `⚠️ **Delete Confirmation Required**\n\nAre you sure you want to delete "${file.name}"?\n\n📊 **File Info:**\n• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n\n🔥 **This action cannot be undone!**\n\nTo confirm deletion, use: \`@drive-delete-confirm ${file.id}\``;
+      
+      // Check if this is a confirmation command
+      if (fileDetails.startsWith('confirm-') || fileDetails.includes(file.id)) {
+        // Actually delete the file
+        await this.googleDriveService.deleteFile(file.id);
+        
+        return {
+          content: `✅ Successfully deleted "${file.name}" from Google Drive\n\n🗑️ The file has been permanently removed.`
+        };
+      } else {
+        // Return confirmation prompt
+        return {
+          content: confirmMessage
+        };
       }
-
-      return {
-        content: `Successfully deleted file: "${file.name}" from Google Drive`
-      };
+      
     } catch (error) {
       console.error('[ElectronIntegrationService] Failed to delete file:', error);
+      
+      if (error.message.includes('not configured')) {
+        return {
+          content: `❌ Google Drive not configured. Please add your Google Client ID in Settings.`
+        };
+      }
+      
       return {
-        content: `Error deleting file: ${error.message}`
+        content: `❌ Delete failed: ${error.message}`
       };
     }
   }

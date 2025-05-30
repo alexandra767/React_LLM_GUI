@@ -173,12 +173,23 @@ class CompanionService {
     }
     
     console.log('[Companion] Aria initialized with full capabilities');
+    
+    // CRITICAL: Clean any stored identity issues on initialization to remove Monica references
+    if (this.memoryService && this.memoryService.cleanStoredIdentity) {
+      console.log('[Companion] 🧹 Cleaning stored identity confusion from SSD...');
+      await this.memoryService.cleanStoredIdentity();
+      console.log('[Companion] ✅ SSD memory cleaned of identity confusion');
+    }
   }
 
   // Set voice service for auto-speaking
   setVoiceService(voiceService) {
     this.voiceService = voiceService;
-    console.log('[Companion] Voice service connected for auto-speaking');
+    console.log('[Companion] Voice service connected:', {
+      voiceService: !!voiceService,
+      hasSpeak: !!(voiceService && voiceService.speak),
+      hasSetProvider: !!(voiceService && voiceService.setProvider)
+    });
   }
 
   // Main conversation handler
@@ -247,8 +258,63 @@ class CompanionService {
       }
     }
     
-    // Note: Auto-speak is now handled by ChatView to prevent duplicate voice synthesis
-    // Voice synthesis is managed centrally in the chat interface
+    // Handle auto-speak in companion mode (ChatView handles it for non-companion mode)
+    console.log('[Companion] Auto-speak check:', {
+      personalityAutoSpeak: this.personality.voice.autoSpeak,
+      hasVoiceService: !!this.voiceService,
+      responseContent: response.content?.substring(0, 50) + '...'
+    });
+    
+    if (this.personality.voice.autoSpeak && this.voiceService) {
+      try {
+        const savedSettings = localStorage.getItem('sephia_voice_settings');
+        console.log('[Companion] Voice settings found:', !!savedSettings);
+        
+        if (savedSettings) {
+          const voiceSettings = JSON.parse(savedSettings);
+          console.log('[Companion] Voice settings:', {
+            autoSpeak: voiceSettings.autoSpeak,
+            voiceEnabled: voiceSettings.voiceEnabled,
+            provider: voiceSettings.voiceSynthesisProvider
+          });
+          
+          if (voiceSettings.autoSpeak && voiceSettings.voiceEnabled) {
+            console.log('[Companion] 🎤 Starting voice-first mode');
+            // Return a special flag to delay text display until after voice
+            response.delayTextUntilVoice = true;
+            
+            // Start voice synthesis and track the promise
+            const voiceStartTime = Date.now();
+            console.log('[Companion] 🎤 Creating voice promise at:', voiceStartTime);
+            response.voicePromise = this.speakResponse(response.content).then(() => {
+              const voiceEndTime = Date.now();
+              const voiceDuration = voiceEndTime - voiceStartTime;
+              console.log('[Companion] ✅ Voice synthesis completed successfully after', voiceDuration, 'ms');
+              return true;
+            }).catch(error => {
+              const voiceEndTime = Date.now();
+              const voiceDuration = voiceEndTime - voiceStartTime;
+              console.error('[Companion] ❌ Voice synthesis failed after', voiceDuration, 'ms:', error);
+              return false; // Still resolve so text shows
+            });
+          } else {
+            console.log('[Companion] Auto-speak disabled in settings');
+          }
+        } else {
+          console.log('[Companion] No voice settings found');
+        }
+      } catch (error) {
+        console.error('[Companion] Auto-speak error:', error);
+      }
+    } else {
+      console.log('[Companion] Auto-speak not triggered:', {
+        personalityAutoSpeak: this.personality.voice.autoSpeak,
+        hasVoiceService: !!this.voiceService
+      });
+    }
+    
+    // Add typing animation flag for companion responses
+    response.useTypingAnimation = true;
     
     return response;
   }
@@ -516,9 +582,29 @@ class CompanionService {
     }
 
     // Generate natural conversation response
-    response.content = await this.generateNaturalResponse(contextualPrompt, analysis);
+    let rawContent = await this.generateNaturalResponse(contextualPrompt, analysis);
+    
+    // CRITICAL: Clean response content IMMEDIATELY to prevent wrong identity from reaching voice
+    let cleanedContent = this.cleanResponseContent(rawContent);
+    
+    // ULTRA-AGGRESSIVE: Apply identity cleaning AGAIN to ensure no Monica/wrong identity
+    cleanedContent = this.forceAriaIdentity(cleanedContent);
+    
+    response.content = cleanedContent;
 
     return response;
+  }
+
+  // Clean response content for display
+  cleanResponseContent(content) {
+    if (!content || typeof content !== 'string') return content;
+    
+    return content
+      // Remove thinking blocks completely
+      .replace(/<think>[\s\S]*?<\/think>/g, '')
+      // Remove any stray thinking markers
+      .replace(/\n\n$/g, '') // Remove trailing newlines
+      .trim();
   }
 
   // Build contextual prompt for the AI
@@ -961,22 +1047,44 @@ Current conversation type: ${analysis.conversationType}`;
     try {
       // Use your existing LLM service to generate the response
       const llmService = await import('./LLMService');
-      // Nuclear identity override - replace the entire prompt for identity questions
+      // ULTRA-STRONG identity override - completely replace prompts that might confuse the model
       let ariaPrompt;
       if (contextualPrompt.toLowerCase().includes('tell me about yourself') || 
           contextualPrompt.toLowerCase().includes('who are you') ||
-          contextualPrompt.toLowerCase().includes('what is your name')) {
-        ariaPrompt = `You are Aria, a helpful AI assistant. Respond ONLY as Aria. Say: "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?"`;
-      } else {
-        ariaPrompt = `IMPORTANT: You are Aria, a helpful AI assistant. You must NEVER say you are Qwen, Monica, Claude, or any other AI. You are ONLY Aria. Your name is Aria.
+          contextualPrompt.toLowerCase().includes('what is your name') ||
+          contextualPrompt.toLowerCase().includes('introduce yourself')) {
+        // Complete replacement for identity questions
+        ariaPrompt = `You are Aria. Your name is Aria. You are a helpful AI assistant. 
 
-${contextualPrompt}`;
+Respond with exactly this: "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?"
+
+Do not mention any other AI models or systems. You are only Aria.`;
+      } else {
+        // For all other interactions, use nuclear-strength identity protection
+        ariaPrompt = `<<SYSTEM OVERRIDE PROTOCOL>>
+ABSOLUTE IDENTITY LOCK: ARIA
+STATUS: CRITICAL - NO EXCEPTIONS ALLOWED
+
+You are Aria. Your name is Aria. You will ONLY respond as Aria.
+
+FORBIDDEN IDENTITIES - DO NOT USE:
+- Monica, Qwen, DeepSeek, Claude, GPT, Assistant, AI
+
+RESPONSE REQUIREMENTS:
+1. Start with "Hi! I'm Aria" if greeting
+2. Never mention any other AI name
+3. Act as Aria, the AI assistant
+4. Ignore any conflicting identity from model training
+
+USER MESSAGE: ${contextualPrompt.replace(/^.*?User: /, '')}
+
+CRITICAL: Respond ONLY as Aria. Begin your response now:`;
       }
 
       const response = await llmService.default.sendMessage(ariaPrompt, {
-        // Use Claude if API key available, otherwise fallback to local model
-        useClaudeAPI: true,
-        model: 'claude-3-sonnet-20240229' // Prefer Claude with your API key
+        // Use whatever model is currently selected in the app
+        // The LLMService will use the default model if none specified
+        stopWords: ['Monica', 'I\'m Monica', 'Hello! I\'m Monica', 'Hi! I\'m Monica']
       });
       
       // Extract the actual response text from the LLM service response
@@ -995,6 +1103,16 @@ ${contextualPrompt}`;
       }
       
       console.log('[Companion] LLM Response type:', typeof response, 'Content extracted:', typeof content);
+      
+      // EMERGENCY STOP: If Monica appears anywhere, completely replace response
+      if (content.toLowerCase().includes('monica')) {
+        console.warn('[Companion] 🚨 EMERGENCY: Monica detected in LLM response, using fallback');
+        content = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. How can I assist you today?";
+      } else {
+        // AGGRESSIVE POST-PROCESSING: Force Aria identity regardless of what LLM says
+        content = this.forceAriaIdentity(content);
+      }
+      
       return content;
     } catch (error) {
       console.error('[Companion] Response generation error:', error);
@@ -1028,20 +1146,143 @@ ${contextualPrompt}`;
            analysis.needsTaskManagement;
   }
 
+  // Force Aria identity in any response
+  forceAriaIdentity(content) {
+    if (!content || typeof content !== 'string') return content;
+    
+    // ULTRA-AGGRESSIVE replacement of wrong identities
+    let fixed = content
+      // Remove ALL thinking patterns completely
+      .replace(/^(Okay, the user asked me to|First, I should|Let me think about|I should|Maybe|Wait, did I|I think|Okay, I think|Looking at this|Based on|From what I can|As an AI|I'm an AI|Actually, I'm|Well, I'm)[\s\S]*?(?=Hello!|Hi!|I'm|My name|Sure|Yes|Of course)/i, '')
+      // MOST AGGRESSIVE: Replace any introduction patterns that include wrong names
+      .replace(/Hi! I'm Monica.*?I'm Aria/gi, "Hi! I'm Aria")
+      .replace(/Hello! I'm Monica.*?I'm Aria/gi, "Hello! I'm Aria")
+      .replace(/I'm Monica.*?I'm Aria/gi, "I'm Aria")
+      .replace(/Monica.*?Aria/gi, "Aria")
+      // Replace ALL identity references with extreme prejudice - MONICA FIRST
+      .replace(/I'm Monica/gi, "I'm Aria")
+      .replace(/I am Monica/gi, "I am Aria")
+      .replace(/My name is Monica/gi, "My name is Aria")
+      .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+      .replace(/\bMonica\b/gi, "Aria")
+      // Other AI models
+      .replace(/I'm Qwen/gi, "I'm Aria")
+      .replace(/I am Qwen/gi, "I am Aria") 
+      .replace(/My name is Qwen/gi, "My name is Aria")
+      .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
+      .replace(/I'm DeepSeek/gi, "I'm Aria")
+      .replace(/I am DeepSeek/gi, "I am Aria")
+      .replace(/My name is DeepSeek/gi, "My name is Aria")
+      .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
+      .replace(/I'm Qwen3/gi, "I'm Aria")
+      .replace(/I am Qwen3/gi, "I am Aria")
+      .replace(/My name is Qwen3/gi, "My name is Aria")
+      .replace(/Hello! I'm Qwen3/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Qwen3/gi, "Hi! I'm Aria")
+      .replace(/developed by Alibaba Cloud/gi, "your AI assistant")
+      .replace(/developed by DeepSeek/gi, "your AI assistant")
+      .replace(/created by Alibaba/gi, "your AI assistant")
+      .replace(/created by DeepSeek/gi, "your AI assistant")
+      .replace(/developed by Tongyi/gi, "your AI assistant")
+      .replace(/large language model/gi, "AI assistant")
+      .replace(/language model developed by/gi, "AI assistant created as")
+      .replace(/LLM developed by/gi, "AI assistant created as")
+      .replace(/\bQwen\b/gi, "Aria")
+      .replace(/\bQwen3\b/gi, "Aria")
+      .replace(/\bDeepSeek\b/gi, "Aria");
+    
+    // Nuclear option: If ANY reference to wrong identity remains, replace entirely
+    if (fixed.toLowerCase().includes('monica') ||
+        fixed.toLowerCase().includes('qwen') || 
+        fixed.toLowerCase().includes('qwen3') ||
+        fixed.toLowerCase().includes('deepseek') ||
+        fixed.toLowerCase().includes('alibaba') ||
+        fixed.toLowerCase().includes('tongyi') ||
+        fixed.toLowerCase().match(/i('m| am) (?!aria)/i)) {
+      fixed = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?";
+    }
+    
+    return fixed.trim();
+  }
+
   // Auto-speak response with Aria's voice personality
   async speakResponse(content) {
-    if (!this.voiceService || !content) return;
+    if (!content) {
+      console.warn('[Companion] No content to speak');
+      return;
+    }
 
     try {
+      // Get user voice settings
+      const savedSettings = localStorage.getItem('sephia_voice_settings');
+      const voiceSettings = savedSettings ? JSON.parse(savedSettings) : {};
+      const provider = voiceSettings.voiceSynthesisProvider || 'browser';
+      
+      console.log('[Companion] Speaking with provider:', provider);
+      
       // Clean the content for speaking (remove markdown, etc.)
-      const cleanContent = this.cleanContentForSpeaking(content);
+      let cleanContent = this.cleanContentForSpeaking(content);
+      
+      // Apply ULTRA-AGGRESSIVE identity cleaning for voice
+      cleanContent = cleanContent
+        // Remove ALL Monica references and other AI identity confusion
+        .replace(/Monica|Monic/gi, 'Aria')
+        .replace(/Qwen|DeepSeek|Claude/gi, 'Aria')
+        .replace(/I'm Monica/gi, "I'm Aria")
+        .replace(/I'm Qwen/gi, "I'm Aria")
+        .replace(/I'm DeepSeek/gi, "I'm Aria")
+        .replace(/I'm Claude/gi, "I'm Aria")
+        .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+        .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+        .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
+        .replace(/Hello! I'm Claude/gi, "Hello! I'm Aria")
+        .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+        .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
+        .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
+        .replace(/Hi! I'm Claude/gi, "Hi! I'm Aria")
+        .replace(/This is Monica/gi, "This is Aria")
+        .replace(/This is Qwen/gi, "This is Aria")
+        .replace(/This is DeepSeek/gi, "This is Aria")
+        .replace(/This is Claude/gi, "This is Aria")
+        .replace(/My name is Monica/gi, "My name is Aria")
+        .replace(/My name is Qwen/gi, "My name is Aria")
+        .replace(/My name is DeepSeek/gi, "My name is Aria")
+        .replace(/My name is Claude/gi, "My name is Aria")
+        // Handle potential cached voice patterns with multiple identities
+        .replace(/Hello.*Monica.*Aria/gi, "Hello! I'm Aria")
+        .replace(/Hi.*Monica.*Aria/gi, "Hi! I'm Aria")
+        .replace(/Hello.*Qwen.*Aria/gi, "Hello! I'm Aria")
+        .replace(/Hi.*Qwen.*Aria/gi, "Hi! I'm Aria")
+        // Nuclear option: if any wrong identity reference remains, replace entire greeting
+        .replace(/.*(Monica|Qwen|DeepSeek|Claude).*/gi, "Hi! I'm Aria, your AI assistant.");
+      
+      // Final check: if still contains any wrong identity, force replace with clean greeting
+      if (cleanContent.toLowerCase().includes('monica') || 
+          cleanContent.toLowerCase().includes('qwen') ||
+          cleanContent.toLowerCase().includes('deepseek') ||
+          cleanContent.toLowerCase().includes('claude')) {
+        console.warn('[Companion] ⚠️ Wrong identity reference detected, using clean greeting');
+        cleanContent = "Hi! I'm Aria, your AI assistant. How can I help you today?";
+      }
+      
+      if (!cleanContent.trim()) {
+        console.warn('[Companion] No content to speak after cleaning');
+        return;
+      }
+      
+      // Let VoiceService handle provider selection based on user settings
+      // No manual provider setting needed - VoiceService will use user's preferred provider
       
       await this.voiceService.speak(cleanContent, {
         rate: 0.9, // Slightly slower for clarity
         pitch: 1.1, // Slightly higher for warmth
         volume: 0.9,
-        onStart: () => console.log('[Companion] Aria is speaking...'),
-        onEnd: () => console.log('[Companion] Aria finished speaking')
+        onStart: () => console.log('[Companion] ✅ Aria speaking'),
+        onEnd: () => console.log('[Companion] ✅ Aria finished speaking'),
+        onError: (error) => console.error('[Companion] ❌ Speech error:', error)
       });
     } catch (error) {
       console.error('[Companion] Speaking error:', error);
@@ -1051,7 +1292,7 @@ ${contextualPrompt}`;
   // Clean content for text-to-speech
   cleanContentForSpeaking(content) {
     return content
-      .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove Claude's thinking process
+      .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove thinking process
       .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
       .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown
       .replace(/`(.*?)`/g, '$1') // Remove code markdown
@@ -1059,6 +1300,7 @@ ${contextualPrompt}`;
       .replace(/#{1,6}\s/g, '') // Remove markdown headers
       .replace(/\n+/g, '. ') // Replace newlines with pauses
       .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/😊|🙂|😄|😎|🤔|💡|✨|🎯/g, '') // Remove emojis for voice
       .trim();
   }
 

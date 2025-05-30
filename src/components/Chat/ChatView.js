@@ -353,6 +353,9 @@ const ChatView = React.memo(({ projectId }) => {
     }
     return [];
   });
+
+  // Force re-render trigger for voice-first mode
+  const [voiceUpdateTrigger, setVoiceUpdateTrigger] = useState(0);
   
   // Track streaming state with ref to prevent re-initialization
   const isStreamingRef = useRef(false);
@@ -429,16 +432,43 @@ const ChatView = React.memo(({ projectId }) => {
         projectId,
         projectExists: !!project,
         projectMessageCount: project.messages.length,
+        localMessageCount: localProjectMessages.length,
         firstMessagePreview: typeof project.messages[0]?.content === 'string' ? project.messages[0].content.substring(0, 50) : 'N/A'
       });
       
-      // Update local messages from project
-      setLocalProjectMessages(project.messages);
+      // Only sync if local messages are different or local is empty
+      // This prevents overwriting messages that were just added by voice-first mode
+      const shouldSync = localProjectMessages.length === 0 || 
+                        localProjectMessages.length !== project.messages.length ||
+                        JSON.stringify(localProjectMessages.map(m => m.id)) !== JSON.stringify(project.messages.map(m => m.id));
+      
+      if (shouldSync) {
+        console.log('[ChatView] Syncing project messages - differences detected');
+        setLocalProjectMessages(project.messages);
+      } else {
+        console.log('[ChatView] Skipping project sync - local messages already up to date');
+      }
     }
-  }, [projectId, project]);
+  }, [projectId, project, localProjectMessages]);
   
   // Use local project messages if in project context, otherwise use currentChat messages
   const baseMessages = projectId ? localProjectMessages : (currentChat?.messages || []);
+  
+  // Debug effect for voice-first mode tracking
+  React.useEffect(() => {
+    if (companionMode && baseMessages.length > 0) {
+      console.log('[ChatView] 🎤 Voice-first debug - messages updated:', {
+        projectId,
+        messageCount: baseMessages.length,
+        lastMessage: baseMessages[baseMessages.length - 1] ? {
+          id: baseMessages[baseMessages.length - 1].id,
+          role: baseMessages[baseMessages.length - 1].role,
+          isCompanion: baseMessages[baseMessages.length - 1].isCompanion,
+          contentLength: baseMessages[baseMessages.length - 1].content?.length || 0
+        } : null
+      });
+    }
+  }, [baseMessages, companionMode, projectId]);
   
   // Remove debug effect to prevent re-renders
   
@@ -451,14 +481,18 @@ const ChatView = React.memo(({ projectId }) => {
     const currentStreamingContent = streamingContent || window.__streamingContent || '';
     
     console.log('[DIAGNOSTIC] Messages memo recalculating:', {
+      projectId,
       baseMessagesCount: baseMessages.length,
+      baseMessagesPreview: baseMessages.slice(-2).map(m => ({ id: m.id, role: m.role, contentLength: m.content?.length || 0 })),
       currentStreamingId,
       currentStreamingContentLength: currentStreamingContent.length,
       streamingMessageId,
       streamingContentLength: streamingContent.length,
       isStreaming,
       windowIsStreaming: window.__isStreaming,
-      windowStreamingContent: window.__streamingContent?.length || 0
+      windowStreamingContent: window.__streamingContent?.length || 0,
+      localProjectMessagesCount: projectId ? localProjectMessages.length : 'N/A',
+      currentChatMessagesCount: currentChat?.messages?.length || 'N/A'
     });
     
     // Find and update the streaming message if it exists
@@ -496,7 +530,7 @@ const ChatView = React.memo(({ projectId }) => {
     });
     
     return msgs;
-  }, [baseMessages, streamingMessageId, streamingContent, isStreaming]); // Include all streaming deps
+  }, [baseMessages, streamingMessageId, streamingContent, isStreaming, voiceUpdateTrigger]); // Include all streaming deps and voice trigger
   
   // Force re-render when messages change
   // Removed forceUpdate to prevent re-render loops in Electron
@@ -583,8 +617,17 @@ const ChatView = React.memo(({ projectId }) => {
     
     // Check if companion mode is enabled OR memory is force-enabled
     const forceMemory = localStorage.getItem('sephia_force_memory') === 'true';
+    console.log('[ChatView] 🔍 Mode detection:', {
+      companionMode, 
+      forceMemory, 
+      forceMemoryRaw: localStorage.getItem('sephia_force_memory'),
+      messageStartsWithAt: messageText.trim().startsWith('@'),
+      willUseCompanion: (companionMode || forceMemory) && !messageText.trim().startsWith('@')
+    });
+    
     if ((companionMode || forceMemory) && !messageText.trim().startsWith('@')) {
-      console.log('[ChatView] Companion mode: Processing natural conversation');
+      console.log('[ChatView] 🤖 COMPANION MODE ACTIVE: Processing natural conversation');
+      console.log('[ChatView] 🤖 companionMode:', companionMode, 'forceMemory:', forceMemory);
       try {
         // Initialize companion service if needed
         if (!companionService.integrationService) {
@@ -612,8 +655,258 @@ const ChatView = React.memo(({ projectId }) => {
           content: messageText.trim(),
           timestamp: new Date().toISOString()
         };
-        
-        // Create companion response
+
+        // Handle voice-first mode if enabled
+        if (companionResult.delayTextUntilVoice && companionResult.voicePromise) {
+          console.log('[ChatView] 🎤 Voice-first mode: Adding user message, waiting for voice to complete');
+          
+          // Capture current state to avoid stale closures
+          const capturedProjectId = projectId;
+          const capturedCurrentChat = currentChat;
+          const capturedTheme = theme;
+          
+          // Create typing message for voice-first mode
+          const typingMessage = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            role: 'assistant',
+            content: 'Aria is speaking...',
+            timestamp: new Date().toISOString(),
+            isCompanion: true,
+            isTyping: true
+          };
+          
+          // Add user message and typing indicator immediately
+          if (capturedProjectId && updateProject) {
+            setLocalProjectMessages(prevMessages => {
+              const updatedMessages = [...(prevMessages || []), userMessage, typingMessage];
+              console.log('[ChatView] 🎤 Project: Added user message + typing indicator, total messages:', updatedMessages.length);
+              return updatedMessages;
+            });
+          } else {
+            // Handle regular chat context
+            if (!capturedCurrentChat) {
+              const newChat = createNewChat('Chat with Aria', capturedTheme?.name || 'dark', messageText.trim());
+              const chatWithMessages = {
+                ...newChat,
+                messages: [userMessage, typingMessage],
+                updatedAt: new Date().toISOString()
+              };
+              console.log('[ChatView] 🎤 Chat: Created new chat with user message + typing indicator');
+              setCurrentChat(chatWithMessages);
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === newChat.id ? chatWithMessages : chat
+                  )
+                );
+              }
+            } else {
+              const updatedChat = {
+                ...capturedCurrentChat,
+                messages: [...capturedCurrentChat.messages, userMessage, typingMessage],
+                updatedAt: new Date().toISOString()
+              };
+              console.log('[ChatView] 🎤 Chat: Added user message + typing indicator, total messages:', updatedChat.messages.length);
+              setCurrentChat(updatedChat);
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === capturedCurrentChat.id ? updatedChat : chat
+                  )
+                );
+              }
+            }
+          }
+
+          // Wait for voice to complete, then add assistant message
+          console.log('[ChatView] 🎤 Setting up voice completion handler');
+          companionResult.voicePromise.then((voiceResult) => {
+            console.log('[ChatView] 🎤 Voice promise resolved with result:', voiceResult);
+            console.log('[ChatView] 🎤 Voice completed, now showing text');
+            
+            const companionMessage = {
+              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+              role: 'assistant',
+              content: typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.'),
+              timestamp: new Date().toISOString(),
+              isCompanion: true,
+              ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
+                imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
+              })
+            };
+
+            console.log('[ChatView] 🎤 Created companion message:', {
+              id: companionMessage.id,
+              contentLength: companionMessage.content.length,
+              contentPreview: companionMessage.content.substring(0, 100)
+            });
+
+            try {
+              if (capturedProjectId && updateProject) {
+                console.log('[ChatView] 🎤 Replacing typing message with actual content');
+                setLocalProjectMessages(prevMessages => {
+                  // Replace the typing message with the actual companion message
+                  const finalMessages = prevMessages.map(msg => 
+                    msg.isTyping ? { ...companionMessage, id: msg.id } : msg
+                  );
+                  console.log('[ChatView] 🎤 Project: Final messages after voice:', finalMessages.length);
+                  
+                  // Schedule project update after state update completes
+                  setTimeout(() => {
+                    updateProject(capturedProjectId, { 
+                      messages: finalMessages,
+                      lastUpdated: new Date().toISOString()
+                    });
+                    // Trigger re-render to ensure UI updates
+                    setVoiceUpdateTrigger(prev => prev + 1);
+                  }, 0);
+                  
+                  return finalMessages;
+                });
+              } else {
+                console.log('[ChatView] 🎤 Replacing typing message with actual content');
+                // Use functional update to get latest state
+                setCurrentChat(prevChat => {
+                  // Ensure we have a chat to update
+                  if (!prevChat) {
+                    console.warn('[ChatView] 🎤 No current chat found, cannot update');
+                    return prevChat;
+                  }
+                  
+                  const updatedChat = {
+                    ...prevChat,
+                    messages: prevChat.messages.map(msg => 
+                      msg.isTyping ? { ...companionMessage, id: msg.id } : msg
+                    ),
+                    updatedAt: new Date().toISOString()
+                  };
+                  
+                  console.log('[ChatView] 🎤 Chat: Updated messages after voice:', updatedChat.messages.length);
+                  
+                  // Update chats collection
+                  if (setChats) {
+                    setChats(prevChats => 
+                      prevChats.map(chat => 
+                        chat.id === prevChat.id ? updatedChat : chat
+                      )
+                    );
+                  }
+                  
+                  // Trigger re-render to ensure UI updates
+                  setTimeout(() => setVoiceUpdateTrigger(prev => prev + 1), 0);
+                  
+                  return updatedChat;
+                });
+              }
+              console.log('[ChatView] 🎤 ✅ Voice-first mode completed successfully');
+            } catch (stateError) {
+              console.error('[ChatView] 🎤 ❌ Error updating state after voice:', stateError);
+              console.error('[ChatView] 🎤 State error stack:', stateError.stack);
+              
+              // Fallback: try to replace typing message using functional updates
+              console.log('[ChatView] 🎤 Attempting fallback state update');
+              try {
+                if (capturedProjectId && updateProject) {
+                  setLocalProjectMessages(prevMessages => 
+                    prevMessages.map(msg => 
+                      msg.isTyping ? { ...companionMessage, id: msg.id } : msg
+                    )
+                  );
+                } else {
+                  setCurrentChat(prevChat => {
+                    if (!prevChat) return prevChat;
+                    return {
+                      ...prevChat,
+                      messages: prevChat.messages.map(msg => 
+                        msg.isTyping ? { ...companionMessage, id: msg.id } : msg
+                      ),
+                      updatedAt: new Date().toISOString()
+                    };
+                  });
+                }
+                console.log('[ChatView] 🎤 ✅ Fallback state update succeeded');
+              } catch (fallbackError) {
+                console.error('[ChatView] 🎤 ❌ Fallback state update also failed:', fallbackError);
+              }
+            }
+          }).catch(error => {
+            console.error('[ChatView] 🎤 ❌ Voice promise rejected or state update failed:', error);
+            console.error('[ChatView] 🎤 Error details:', {
+              errorMessage: error?.message,
+              errorStack: error?.stack,
+              errorName: error?.name,
+              errorString: String(error)
+            });
+            
+            // Still show text even if voice failed - use fallback message creation
+            const fallbackMessage = {
+              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+              role: 'assistant',
+              content: typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.'),
+              timestamp: new Date().toISOString(),
+              isCompanion: true,
+              ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
+                imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
+              })
+            };
+
+            console.log('[ChatView] 🎤 Replacing typing message with fallback after voice error');
+            try {
+              if (capturedProjectId && updateProject) {
+                setLocalProjectMessages(prevMessages => {
+                  const updatedMessages = prevMessages.map(msg => 
+                    msg.isTyping ? { ...fallbackMessage, id: msg.id } : msg
+                  );
+                  console.log('[ChatView] 🎤 Fallback: Project messages updated, total:', updatedMessages.length);
+                  
+                  // Schedule project update after state update completes
+                  setTimeout(() => {
+                    updateProject(capturedProjectId, { 
+                      messages: updatedMessages,
+                      lastUpdated: new Date().toISOString()
+                    });
+                  }, 0);
+                  
+                  return updatedMessages;
+                });
+              } else {
+                setCurrentChat(prevChat => {
+                  if (!prevChat) {
+                    console.warn('[ChatView] 🎤 Fallback: No current chat for fallback message');
+                    return prevChat;
+                  }
+                  
+                  const updatedChat = {
+                    ...prevChat,
+                    messages: prevChat.messages.map(msg => 
+                      msg.isTyping ? { ...fallbackMessage, id: msg.id } : msg
+                    ),
+                    updatedAt: new Date().toISOString()
+                  };
+                  
+                  console.log('[ChatView] 🎤 Fallback: Chat messages updated, total:', updatedChat.messages.length);
+                  
+                  if (setChats) {
+                    setChats(prevChats => 
+                      prevChats.map(chat => 
+                        chat.id === prevChat.id ? updatedChat : chat
+                      )
+                    );
+                  }
+                  
+                  return updatedChat;
+                });
+              }
+              console.log('[ChatView] 🎤 ✅ Fallback message successfully added');
+            } catch (fallbackError) {
+              console.error('[ChatView] 🎤 ❌ Even fallback message addition failed:', fallbackError);
+            }
+          });
+
+          return; // Exit early for voice-first mode
+        }
+
+        // Regular mode: Create companion response normally
         const companionMessage = {
           id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           role: 'assistant',
@@ -668,15 +961,79 @@ const ChatView = React.memo(({ projectId }) => {
           }
         }
         
+        console.log('[ChatView] 🤖 COMPANION MODE COMPLETE - EXITING (no normal processing)');
         return; // Don't continue with normal AI processing
         
       } catch (error) {
         console.error('[ChatView] Companion error:', error);
-        // Fall through to normal chat processing if companion fails
+        
+        // Don't fall through to normal chat processing - show error in companion mode
+        const userMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'user',
+          content: messageText.trim(),
+          timestamp: new Date().toISOString()
+        };
+        
+        const errorMessage = {
+          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          role: 'assistant',
+          content: `I apologize, but I encountered an error processing your request: ${error.message}. Please try again.`,
+          timestamp: new Date().toISOString(),
+          isCompanion: true,
+          isError: true
+        };
+        
+        // Handle project context or regular chat
+        if (projectId && updateProject) {
+          const currentMessages = Array.isArray(messages) ? messages : [];
+          const updatedMessages = [...currentMessages, userMessage, errorMessage];
+          setLocalProjectMessages(updatedMessages);
+          updateProject(projectId, { 
+            messages: updatedMessages,
+            lastUpdated: new Date().toISOString()
+          });
+        } else {
+          // Handle regular chat context
+          if (!currentChat) {
+            const newChat = createNewChat('Chat with Aria', theme?.name || 'dark', messageText.trim());
+            const chatWithMessages = {
+              ...newChat,
+              messages: [userMessage, errorMessage],
+              updatedAt: new Date().toISOString()
+            };
+            setCurrentChat(chatWithMessages);
+            if (setChats) {
+              setChats(prevChats => 
+                prevChats.map(chat => 
+                  chat.id === newChat.id ? chatWithMessages : chat
+                )
+              );
+            }
+          } else {
+            const updatedChat = {
+              ...currentChat,
+              messages: [...currentChat.messages, userMessage, errorMessage],
+              updatedAt: new Date().toISOString()
+            };
+            setCurrentChat(updatedChat);
+            if (setChats) {
+              setChats(prevChats => 
+                prevChats.map(chat => 
+                  chat.id === currentChat.id ? updatedChat : chat
+                )
+              );
+            }
+          }
+        }
+        
+        console.log('[ChatView] 🤖 COMPANION ERROR HANDLED - EXITING (no normal processing)');
+        return; // Don't continue with normal AI processing even on error
       }
     }
     
     // Check for @ commands (when not in companion mode or starts with @)
+    console.log('[ChatView] 💻 NORMAL MODE: Not companion mode, checking for @ commands');
     if (messageText.trim().startsWith('@')) {
       console.log('[ChatView] Detected @ command:', messageText);
       try {
@@ -807,7 +1164,7 @@ const ChatView = React.memo(({ projectId }) => {
       }
     }
     
-    console.log('handleSendMessage: Starting message processing');
+    console.log('[ChatView] 💻 NORMAL STREAMING MODE: Starting message processing (no companion/commands)');
     
     // Create message IDs first
     const assistantMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
@@ -1408,24 +1765,54 @@ const ChatView = React.memo(({ projectId }) => {
             // And once more after longer delay
             setTimeout(focusInput, 300);
             
-            // Auto-speak the response if enabled
-            setTimeout(() => {
-              const savedSettings = localStorage.getItem('sephia_voice_settings');
-              if (savedSettings) {
-                try {
-                  const voiceSettings = JSON.parse(savedSettings);
-                  if (voiceSettings.autoSpeak && voiceSettings.voiceEnabled) {
-                    console.log('[ChatView] Auto-speak enabled, triggering voice synthesis');
+            // Auto-speak the response if enabled (but NOT in companion mode - CompanionService handles voice)
+            console.log('[ChatView] 🔊 Checking auto-speak for normal mode. companionMode:', companionMode);
+            if (!companionMode) {
+              setTimeout(() => {
+                const savedSettings = localStorage.getItem('sephia_voice_settings');
+                if (savedSettings) {
+                  try {
+                    const voiceSettings = JSON.parse(savedSettings);
+                    if (voiceSettings.autoSpeak && voiceSettings.voiceEnabled) {
+                      console.log('[ChatView] Auto-speak enabled, triggering voice synthesis (non-companion mode)');
                     
-                    // Import voice service dynamically
-                    import('../../services/VoiceService').then(({ default: voiceService }) => {
-                      // Set the voice provider based on user settings BEFORE speaking
+                      // Import voice service dynamically
+                      import('../../services/VoiceService').then(({ default: voiceService }) => {
+                      // VoiceService automatically detects provider from user settings
                       const provider = voiceSettings.voiceSynthesisProvider || 'browser';
-                      console.log('[ChatView] Setting voice provider to:', provider);
-                      voiceService.setProvider(provider);
+                      console.log('[ChatView] Using voice provider:', provider);
                       
+                      // CRITICAL: Apply Aria identity filtering BEFORE voice generation
+                      let identityCleanedContent = finalContent
+                        // ULTRA-AGGRESSIVE identity replacement for voice
+                        .replace(/I'm Qwen/gi, "I'm Aria")
+                        .replace(/I am Qwen/gi, "I am Aria") 
+                        .replace(/My name is Qwen/gi, "My name is Aria")
+                        .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+                        .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
+                        .replace(/I'm Qwen3/gi, "I'm Aria")
+                        .replace(/I am Qwen3/gi, "I am Aria")
+                        .replace(/My name is Qwen3/gi, "My name is Aria")
+                        .replace(/Hello! I'm Qwen3/gi, "Hello! I'm Aria")
+                        .replace(/Hi! I'm Qwen3/gi, "Hi! I'm Aria")
+                        .replace(/I'm Monica/gi, "I'm Aria")
+                        .replace(/I am Monica/gi, "I am Aria")
+                        .replace(/My name is Monica/gi, "My name is Aria")
+                        .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+                        .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+                        .replace(/\bQwen\b/gi, "Aria")
+                        .replace(/\bQwen3\b/gi, "Aria")
+                        .replace(/\bMonica\b/gi, "Aria");
+
+                      // Nuclear option for voice: If any wrong identity remains, replace with clean Aria intro
+                      if (identityCleanedContent.toLowerCase().includes('qwen') || 
+                          identityCleanedContent.toLowerCase().includes('monica') ||
+                          identityCleanedContent.toLowerCase().match(/i('m| am) (?!aria)/i)) {
+                        identityCleanedContent = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations.";
+                      }
+
                       // Clean content for speaking (remove thinking process and markdown)
-                      const cleanContent = finalContent
+                      const cleanContent = identityCleanedContent
                         .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove tagged thinking process
                         // Remove exposed thinking patterns (common AI reasoning patterns)
                         .replace(/^(Okay, the user asked me to|First, I should|Let me think about|I should|Maybe|Wait, did I|I think|Okay, I think)[\s\S]*?(?=Hello!|Hi!|I'm|My name|Welcome)/i, '') 
@@ -1448,17 +1835,18 @@ const ChatView = React.memo(({ projectId }) => {
                       } else {
                         console.warn('[ChatView] ⚠️ No content to speak after cleaning');
                       }
-                    }).catch(error => {
-                      console.error('[ChatView] ❌ Failed to load voice service:', error);
-                    });
-                  } else {
-                    console.log('[ChatView] Auto-speak disabled in settings');
-                  }
+                      }).catch(error => {
+                        console.error('[ChatView] ❌ Failed to load voice service:', error);
+                      });
+                    } else {
+                      console.log('[ChatView] Auto-speak disabled in settings');
+                    }
                 } catch (error) {
                   console.error('[ChatView] ❌ Error checking auto-speak settings:', error);
                 }
-              }
-            }, 300); // Small delay to ensure message is saved
+              } // Close if (savedSettings)
+              }, 300); // Small delay to ensure message is saved
+            }
             
             // Clear streaming content AFTER everything is saved
             setTimeout(() => {

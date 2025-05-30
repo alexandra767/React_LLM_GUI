@@ -54,7 +54,7 @@ class OllamaAdapter extends LLMAdapter {
   async sendMessage(message, options = {}) {
     try {
       // Clean model name - remove any extra info like "(Unknown size)"
-      const rawModel = options.model || 'deepseek-r1:8b-m4';
+      const rawModel = options.model || 'qwen3:14b';
       const modelName = rawModel.split(' ')[0].trim();
       const isM4Model = modelName.includes('-m4');
       const isCoderModel = modelName.includes('coder');
@@ -221,7 +221,7 @@ class OllamaAdapter extends LLMAdapter {
   async streamMessage(message, options = {}, onChunk) {
     try {
       // Clean model name - remove any extra info
-      const rawModel = options.model || 'deepseek-r1:8b-m4';
+      const rawModel = options.model || 'qwen3:14b';
       const modelName = rawModel.split(' ')[0].trim();
       console.log(`Terminal message to ${modelName} (raw: ${rawModel})`);
       
@@ -618,6 +618,7 @@ class OllamaAdapter extends LLMAdapter {
   getFallbackModels() {
     console.log('Using fallback model list');
     return [
+      { id: 'qwen3:14b', name: 'Qwen3 (14B)' },
       { id: 'deepseek-r1:32b', name: 'DeepSeek (32B)' },
       { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4' },
       { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4' },
