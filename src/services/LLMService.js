@@ -618,20 +618,168 @@ class OllamaAdapter extends LLMAdapter {
   getFallbackModels() {
     console.log('Using fallback model list');
     return [
-      { id: 'qwen3:14b', name: 'Qwen3 (14B)' },
-      { id: 'deepseek-r1:32b', name: 'DeepSeek (32B)' },
-      { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4' },
-      { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4' },
-      { id: 'deepseek-r1:8b', name: 'DeepSeek 8B' },
-      { id: 'deepseek-r1:14b', name: 'DeepSeek 14B' },
-      { id: 'llama3', name: 'Llama 3 (8B)' },
-      { id: 'mistral', name: 'Mistral (7B)' }
+      { id: 'qwen3:14B', name: 'Qwen3 (14B)', size: 'Large', type: 'local' }, // User's actual model
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', size: 'Large', type: 'cloud' }, // Cloud model
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', size: 'Medium', type: 'cloud' } // Cloud model
     ];
   }
 
   // Add the missing getModels method that the base class expects
   async getModels() {
     return this.getAvailableModels();
+  }
+}
+
+class ClaudeAdapter extends LLMAdapter {
+  constructor(config) {
+    super(config);
+    this.baseUrl = 'https://api.anthropic.com/v1/messages';
+    this.apiKey = config.apiKey;
+    if (!this.apiKey) {
+      throw new Error('Claude API key is required');
+    }
+  }
+
+  async sendMessage(message, options = {}) {
+    try {
+      console.log('[ClaudeAdapter] Sending message to Claude API');
+      
+      const model = options.model || 'claude-3-5-sonnet-20241022';
+      const maxTokens = options.max_tokens || 4096;
+      
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: maxTokens,
+          messages: [
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: options.temperature || 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[ClaudeAdapter] API Error:', response.status, errorText);
+        throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('[ClaudeAdapter] Response received from Claude');
+      
+      return {
+        response: data.content[0].text,
+        usage: {
+          input_tokens: data.usage.input_tokens,
+          output_tokens: data.usage.output_tokens
+        }
+      };
+    } catch (error) {
+      console.error('[ClaudeAdapter] Error:', error);
+      throw error;
+    }
+  }
+
+  async streamMessage(message, options = {}, onChunk) {
+    try {
+      console.log('[ClaudeAdapter] Starting streaming message to Claude API');
+      
+      const model = options.model || 'claude-3-5-sonnet-20241022';
+      const maxTokens = options.max_tokens || 4096;
+      
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: maxTokens,
+          messages: [
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: options.temperature || 0.7,
+          stream: true
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[ClaudeAdapter] Streaming API Error:', response.status, errorText);
+        throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log('[ClaudeAdapter] Streaming complete');
+            if (onChunk) {
+              onChunk(JSON.stringify({ done: true }));
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                continue;
+              }
+              
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  if (onChunk) {
+                    onChunk(JSON.stringify({ 
+                      response: parsed.delta.text,
+                      done: false 
+                    }));
+                  }
+                }
+              } catch (parseError) {
+                console.warn('[ClaudeAdapter] Failed to parse streaming chunk:', parseError);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error('[ClaudeAdapter] Streaming error:', error);
+      throw error;
+    }
+  }
+
+  async getModels() {
+    return [
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', size: 'Large', type: 'cloud' },
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', size: 'Medium', type: 'cloud' }
+    ];
   }
 }
 
@@ -751,16 +899,49 @@ class LLMService {
 // Create and configure service instance
 const llmService = new LLMService();
 
-// Register adapters
-llmService.registerAdapter('ollama', new OllamaAdapter({
-  baseUrl: 'http://localhost:11434'
-}));
+// Function to initialize adapters based on available configuration
+function initializeAdapters() {
+  // Always register Ollama adapter for local models
+  llmService.registerAdapter('ollama', new OllamaAdapter({
+    baseUrl: 'http://localhost:11434'
+  }));
 
-llmService.registerAdapter('terminal', new TerminalAdapter({
-  command: 'ollama'
-}));
+  llmService.registerAdapter('terminal', new TerminalAdapter({
+    command: 'ollama'
+  }));
 
-// Set default adapter
-llmService.setAdapter('ollama');
+  // Check for Claude API key and register Claude adapter if available
+  try {
+    const settings = localStorage.getItem('sephia_settings');
+    if (settings) {
+      const parsedSettings = JSON.parse(settings);
+      if (parsedSettings.claudeApiKey) {
+        console.log('[LLMService] Claude API key found, registering Claude adapter');
+        llmService.registerAdapter('claude', new ClaudeAdapter({
+          apiKey: parsedSettings.claudeApiKey
+        }));
+        
+        // Check current model to determine which adapter to use
+        const currentModel = localStorage.getItem('sephia_current_model');
+        if (currentModel && currentModel.startsWith('claude-')) {
+          console.log('[LLMService] Setting Claude as active adapter for model:', currentModel);
+          llmService.setAdapter('claude');
+          return;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[LLMService] Error checking Claude configuration:', error);
+  }
+
+  // Default to Ollama if Claude not available or not preferred
+  llmService.setAdapter('ollama');
+}
+
+// Initialize adapters
+initializeAdapters();
+
+// Export function to reinitialize when settings change
+llmService.reinitialize = initializeAdapters;
 
 export default llmService;

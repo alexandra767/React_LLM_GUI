@@ -394,7 +394,7 @@ const SettingsView = () => {
     synthesis: false
   });
   
-  const updateSetting = (key, value) => {
+  const updateSetting = async (key, value) => {
     setSettings(prev => {
       const updated = {
         ...prev,
@@ -404,6 +404,19 @@ const SettingsView = () => {
       localStorage.setItem('sephia_settings', JSON.stringify(updated));
       return updated;
     });
+    
+    // Reinitialize LLM service when Claude settings change
+    if (key === 'claudeApiKey' || key === 'preferredAIModel') {
+      try {
+        console.log('[Settings] Reinitializing LLM service due to', key, 'change');
+        const llmService = await import('../../services/LLMService');
+        if (llmService.default.reinitialize) {
+          llmService.default.reinitialize();
+        }
+      } catch (error) {
+        console.warn('[Settings] Error reinitializing LLM service:', error);
+      }
+    }
   };
   
   const updateVoiceSetting = (key, value) => {

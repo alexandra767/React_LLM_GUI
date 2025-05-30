@@ -17,9 +17,9 @@ import voiceService from '../../services/VoiceService';
 
 // Keyframe animation for pulse effect
 const pulse = keyframes`
-  0% { transform: scale(1); }
-  50% { transform: scale(1.2); }
-  100% { transform: scale(1); }
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.05); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
 `;
 
 // Styled component for thinking section
@@ -217,6 +217,7 @@ const Message = React.memo(({ message, onDelete }) => {
   const [downloadStatus, setDownloadStatus] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isAutoSpeaking, setIsAutoSpeaking] = useState(false);
   
   // Ensure message has required properties
   const safeMessage = React.useMemo(() => ({
@@ -251,7 +252,14 @@ const Message = React.memo(({ message, onDelete }) => {
   
   // Use streaming content if this is the actively streaming message, otherwise use message content
   // Also check if message has isStreaming flag set
-  const displayContent = (isStreamingMessage || safeMessage.isStreaming) ? (streamingContent || safeMessage.content) : safeMessage.content;
+  const displayContent = React.useMemo(() => {
+    if (isStreamingMessage || safeMessage.isStreaming) {
+      // For streaming messages, use the streaming content or fall back to message content
+      return streamingContent || safeMessage.content || '';
+    }
+    // For non-streaming messages, use the message content
+    return safeMessage.content || '';
+  }, [isStreamingMessage, safeMessage.isStreaming, streamingContent, safeMessage.content]);
   
   // Debug what we're displaying
   React.useEffect(() => {
@@ -267,6 +275,74 @@ const Message = React.memo(({ message, onDelete }) => {
       });
     }
   }, [displayContent, isStreamingMessage, safeMessage.id, safeMessage.role, safeMessage.isStreaming, streamingContent, safeMessage.content]);
+  
+  // Auto-speak for assistant messages in companion mode
+  React.useEffect(() => {
+    // Only trigger voice for assistant messages in companion mode
+    if (safeMessage.role === 'assistant' && companionMode && displayContent && !isAutoSpeaking) {
+      // Only start voice when streaming is complete or content has enough words
+      const wordCount = displayContent.split(/\s+/).filter(word => word.length > 0).length;
+      const isStreamingComplete = !isStreamingMessage && !safeMessage.isStreaming;
+      
+      // Trigger voice if streaming is complete OR if we have enough content (10+ words)
+      if (isStreamingComplete || wordCount >= 10) {
+        console.log('[Message] Auto-speaking for companion mode:', {
+          messageId: safeMessage.id,
+          isStreamingComplete,
+          wordCount,
+          contentPreview: displayContent.substring(0, 100)
+        });
+        
+        setIsAutoSpeaking(true);
+        
+        // Clean text for speech
+        let textToSpeak = displayContent;
+        
+        // Remove thinking tags
+        textToSpeak = textToSpeak.replace(/<think>[\s\S]*?<\/think>/g, '');
+        
+        // If it's HTML content, extract text
+        if (textToSpeak.includes('<') && textToSpeak.includes('>')) {
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = textToSpeak;
+          textToSpeak = tempDiv.textContent || tempDiv.innerText || '';
+        }
+        
+        // Clean up markdown syntax
+        textToSpeak = textToSpeak
+          .replace(/```[\s\S]*?```/g, 'code block') // Replace code blocks
+          .replace(/`([^`]+)`/g, '$1') // Remove inline code backticks
+          .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold
+          .replace(/\*([^*]+)\*/g, '$1') // Remove italic
+          .replace(/#+\s/g, '') // Remove headers
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Convert links to text
+          .trim();
+        
+        if (textToSpeak && textToSpeak.length > 0) {
+          console.log('[Message] Starting auto-speak for text:', textToSpeak.substring(0, 100));
+          
+          voiceService.speak(textToSpeak, {
+            onStart: () => {
+              console.log('[Message] Auto-speak started');
+            },
+            onEnd: () => {
+              console.log('[Message] Auto-speak ended');
+              setIsAutoSpeaking(false);
+            },
+            onError: (error) => {
+              console.error('[Message] Auto-speak error:', error);
+              setIsAutoSpeaking(false);
+            }
+          }).catch(error => {
+            console.error('[Message] Auto-speak failed:', error);
+            setIsAutoSpeaking(false);
+          });
+        } else {
+          setIsAutoSpeaking(false);
+        }
+      }
+    }
+  }, [displayContent, safeMessage.role, companionMode, isStreamingMessage, safeMessage.isStreaming, safeMessage.id, isAutoSpeaking]);
   
   const isUser = safeMessage.role === 'user';
   
@@ -1273,10 +1349,33 @@ const Message = React.memo(({ message, onDelete }) => {
                   display: 'inline-block',
                   width: '8px',
                   height: '16px',
-                  backgroundColor: '#a855f7',
+                  backgroundColor: isAutoSpeaking ? '#10B981' : '#a855f7', // Green for voice, purple for text
                   marginLeft: '4px',
                   animation: 'blink 1s infinite'
                 }} />
+              )}
+              {isAutoSpeaking && (
+                <span style={{
+                  display: 'inline-block',
+                  marginLeft: '8px',
+                  fontSize: '12px',
+                  color: '#10B981',
+                  fontWeight: '500',
+                  animation: 'pulse 1.5s ease-in-out infinite'
+                }}>
+                  🎤 Aria is speaking...
+                </span>
+              )}
+              {companionMode && safeMessage.role === 'assistant' && !isAutoSpeaking && !(isStreamingMessage || safeMessage.isStreaming) && (
+                <span style={{
+                  display: 'inline-block',
+                  marginLeft: '8px',
+                  fontSize: '12px',
+                  color: '#888',
+                  fontWeight: '400'
+                }}>
+                  ✓ Voice ready
+                </span>
               )}
             </div>
           </div>

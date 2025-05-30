@@ -174,12 +174,12 @@ class NetworkStatusService {
   getRecommendedModel() {
     const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
     const preferredModel = settings.preferredAIModel || 'ollama';
-    const currentModel = localStorage.getItem('sephia_current_model') || 'deepseek-r1:14b-m4';
+    const currentModel = localStorage.getItem('sephia_current_model') || 'qwen3:14B';
 
     // If offline, always use local Ollama
     if (!this.isOnline) {
       return {
-        model: currentModel.includes('deepseek') ? currentModel : 'deepseek-r1:14b-m4',
+        model: currentModel.includes('qwen3') ? currentModel : 'qwen3:14B',
         type: 'local',
         reason: 'offline'
       };
@@ -197,7 +197,7 @@ class NetworkStatusService {
         }
         // Fallback to local if Claude unavailable
         return {
-          model: currentModel.includes('deepseek') ? currentModel : 'deepseek-r1:14b-m4',
+          model: currentModel.includes('qwen3') ? currentModel : 'qwen3:14B',
           type: 'local',
           reason: 'cloud_unavailable'
         };
@@ -212,7 +212,7 @@ class NetworkStatusService {
         }
         // Fallback to local if Claude unavailable
         return {
-          model: currentModel.includes('deepseek') ? currentModel : 'deepseek-r1:14b-m4',
+          model: currentModel.includes('qwen3') ? currentModel : 'qwen3:14B',
           type: 'local',
           reason: 'cloud_unavailable'
         };
@@ -220,7 +220,7 @@ class NetworkStatusService {
       default:
         // Default to local Ollama
         return {
-          model: currentModel.includes('deepseek') ? currentModel : 'deepseek-r1:14b-m4',
+          model: currentModel.includes('qwen3') ? currentModel : 'qwen3:14B',
           type: 'local',
           reason: 'preferred_local'
         };

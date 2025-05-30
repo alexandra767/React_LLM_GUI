@@ -48,6 +48,7 @@ class CompanionService {
       research: true,
       taskManagement: true,
       personalAssistant: true,
+      weather: true,
       
       // Intelligence capabilities
       memory: true,
@@ -196,8 +197,28 @@ class CompanionService {
   async handleConversation(userMessage, options = {}) {
     console.log('[Companion] Processing conversation:', userMessage);
     
+    // Ensure memory service is available
+    if (!this.memoryService) {
+      console.warn('[Companion] Memory service not available, trying to load...');
+      try {
+        const { default: MemoryService } = await import('./MemoryService');
+        this.memoryService = MemoryService;
+        console.log('[Companion] ✅ Memory service loaded');
+      } catch (error) {
+        console.error('[Companion] Failed to load memory service:', error);
+      }
+    }
+    
     // Get contextual information from memory and knowledge
     const memoryContext = this.memoryService ? this.memoryService.getRelevantContext(userMessage) : {};
+    console.log('[Companion] Memory context:', {
+      hasMemoryService: !!this.memoryService,
+      memoryContextKeys: Object.keys(memoryContext),
+      hasPersonal: !!memoryContext.personal,
+      personalKeys: memoryContext.personal ? Object.keys(memoryContext.personal) : [],
+      userName: memoryContext.personal?.name?.value
+    });
+    
     const knowledgeContext = this.knowledgeService ? this.knowledgeService.getContextualKnowledge({
       currentTime: new Date(),
       recentTopics: memoryContext.currentTopics || [],
@@ -364,11 +385,16 @@ class CompanionService {
   extractPersonalInfo(message) {
     const lowerMessage = message.toLowerCase();
     
-    // Extract name mentions
-    const nameMatch = message.match(/my name is (\w+)|i'm (\w+)|call me (\w+)/i);
+    // Extract name mentions - improved patterns
+    const nameMatch = message.match(/my name is (\w+)|i'm (\w+)|call me (\w+)|i am (\w+)|this is (\w+)|it's (\w+)/i);
     if (nameMatch) {
-      const name = nameMatch[1] || nameMatch[2] || nameMatch[3];
-      this.memoryService.addPersonalInfo('name', name, 'user_introduced');
+      const name = nameMatch[1] || nameMatch[2] || nameMatch[3] || nameMatch[4] || nameMatch[5] || nameMatch[6];
+      // Only store if it's a reasonable name (not common words)
+      const commonWords = ['good', 'fine', 'okay', 'well', 'sure', 'yes', 'no', 'great', 'hello', 'hi', 'thanks'];
+      if (name && !commonWords.includes(name.toLowerCase()) && name.length > 1) {
+        console.log(`[Companion] Extracted user name: ${name}`);
+        this.memoryService.addPersonalInfo('name', name, 'user_introduced');
+      }
     }
     
     // Extract job/occupation
@@ -420,7 +446,8 @@ class CompanionService {
       needsCurrentEvents: false,
       needsResearch: false,
       needsTaskManagement: false,
-      conversationType: 'general', // general, question, request, creative, research, news
+      needsWeather: false,
+      conversationType: 'general', // general, question, request, creative, research, news, weather
       entities: [],
       urgency: 'normal' // low, normal, high
     };
@@ -473,6 +500,12 @@ class CompanionService {
     if (this.detectTaskManagementIntent(lowerMessage)) {
       intent.needsTaskManagement = true;
       intent.conversationType = 'request';
+    }
+
+    // Weather detection
+    if (this.detectWeatherIntent(lowerMessage)) {
+      intent.needsWeather = true;
+      intent.conversationType = 'weather';
     }
 
     return intent;
@@ -559,6 +592,17 @@ class CompanionService {
     return taskKeywords.some(keyword => message.includes(keyword));
   }
 
+  // Weather intent detection
+  detectWeatherIntent(message) {
+    const weatherKeywords = [
+      'weather', 'temperature', 'forecast', 'rain', 'snow', 'sunny', 'cloudy',
+      'today\'s weather', 'weather today', 'how hot', 'how cold', 'weather like',
+      'will it rain', 'is it raining', 'going to rain', 'weather forecast',
+      'temperature today', 'degrees', 'celsius', 'fahrenheit'
+    ];
+    return weatherKeywords.some(keyword => message.includes(keyword));
+  }
+
   // Generate contextual response with integrations
   async generateResponse(userMessage, analysis, options) {
     let response = {
@@ -569,7 +613,7 @@ class CompanionService {
     };
 
     // Build context for the AI model
-    let contextualPrompt = this.buildContextualPrompt(userMessage, analysis);
+    let contextualPrompt = this.buildContextualPrompt(userMessage, analysis, options.memoryContext);
 
     // Execute integrations if needed
     if (this.shouldExecuteIntegrations(analysis)) {
@@ -595,20 +639,78 @@ class CompanionService {
     return response;
   }
 
-  // Clean response content for display
+  // Clean response content for display (preserve thinking blocks for UI)
   cleanResponseContent(content) {
     if (!content || typeof content !== 'string') return content;
     
+    // IMPORTANT: Preserve <think></think> tags for the UI dropdown
+    // The Message component expects these to show the thinking process dropdown
     return content
-      // Remove thinking blocks completely
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      // Remove any stray thinking markers
+      // Only remove trailing newlines and normalize whitespace - KEEP thinking blocks
       .replace(/\n\n$/g, '') // Remove trailing newlines
       .trim();
   }
 
   // Build contextual prompt for the AI
-  buildContextualPrompt(userMessage, analysis) {
+  buildContextualPrompt(userMessage, analysis, memoryContext = {}) {
+    console.log('[Companion] Building prompt with memory context:', {
+      hasPersonal: !!memoryContext.personal,
+      hasRelationships: !!memoryContext.relationships,
+      hasConversations: !!memoryContext.conversations,
+      personalKeys: memoryContext.personal ? Object.keys(memoryContext.personal) : [],
+      userName: memoryContext.personal?.name?.value
+    });
+    
+    // Extract user's name from memory if available
+    const userName = memoryContext.personal?.name?.value || 'User';
+    const hasUserName = memoryContext.personal?.name?.value;
+    
+    // Build personal context
+    let personalInfo = '';
+    if (memoryContext.personal && Object.keys(memoryContext.personal).length > 0) {
+      const personalDetails = [];
+      for (const [key, info] of Object.entries(memoryContext.personal)) {
+        if (key === 'name' && info.value) {
+          personalDetails.push(`Their name is ${info.value}`);
+        } else if (key === 'occupation' && info.value) {
+          personalDetails.push(`They work as ${info.value}`);
+        } else if (key === 'location' && info.value) {
+          personalDetails.push(`They live in ${info.value}`);
+        }
+      }
+      if (personalDetails.length > 0) {
+        personalInfo = `\nWhat you know about the user:\n${personalDetails.join('. ')}.`;
+      }
+    }
+    
+    // Build relationship context
+    let relationshipInfo = '';
+    if (memoryContext.relationships && Object.keys(memoryContext.relationships).length > 0) {
+      const relationships = Object.values(memoryContext.relationships).slice(0, 3); // Top 3 relationships
+      if (relationships.length > 0) {
+        const relationshipDetails = relationships.map(rel => 
+          `${rel.name} (${rel.relationship})`
+        );
+        relationshipInfo = `\nPeople they've mentioned: ${relationshipDetails.join(', ')}.`;
+      }
+    }
+    
+    // Build conversation context from memory
+    let conversationContext = '';
+    if (memoryContext.conversations && memoryContext.conversations.length > 0) {
+      const recentConversations = memoryContext.conversations.slice(-3); // Last 3 conversations
+      const conversationSummary = recentConversations.map(conv => 
+        `Previous: ${conv.userMessage.substring(0, 100)}... → Response topics: ${conv.topics.join(', ')}`
+      ).join('\n');
+      conversationContext = `\nRecent conversation topics:\n${conversationSummary}`;
+    }
+    
+    // Build interests context
+    let interestsInfo = '';
+    if (memoryContext.preferences?.topInterests && memoryContext.preferences.topInterests.length > 0) {
+      interestsInfo = `\nTheir main interests: ${memoryContext.preferences.topInterests.join(', ')}.`;
+    }
+
     const personality = `You are Aria, an intelligent AI companion and personal assistant. You are ${this.personality.traits.join(', ')}.
 Your conversation style is ${this.personality.conversationStyle}.
 
@@ -622,19 +724,23 @@ Key guidelines:
 - Act as both a knowledgeable conversation partner and efficient personal assistant
 - Your responses will be spoken aloud, so make them conversational and natural
 - You can discuss current events, help with research, assist with task management, and engage in any topic
+- ${hasUserName ? `Use their name (${userName}) naturally in conversation when appropriate` : 'Ask for their name if you don\'t know it yet'}
+- Reference previous conversations and their interests to show you remember them
+- IMPORTANT: Do not introduce yourself repeatedly - you've already met this person
+- Use <think></think> tags to show your reasoning process when helpful - these will appear in a collapsible section in the UI
 
-Current conversation type: ${analysis.conversationType}`;
+Current conversation type: ${analysis.conversationType}${personalInfo}${relationshipInfo}${interestsInfo}${conversationContext}`;
 
     let contextPrompt = `${personality}\n\nConversation context:\n`;
     
-    // Add recent conversation history
+    // Add recent conversation history (immediate context)
     if (this.context.conversationHistory.length > 0) {
       const recentHistory = this.context.conversationHistory.slice(-6); // Last 3 exchanges
       contextPrompt += recentHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
       contextPrompt += '\n';
     }
 
-    contextPrompt += `\nCurrent conversation:\nUser: ${userMessage}\n`;
+    contextPrompt += `\nCurrent conversation:\n${hasUserName ? userName : 'User'}: ${userMessage}\n`;
 
     return contextPrompt;
   }
@@ -690,6 +796,12 @@ Current conversation type: ${analysis.conversationType}`;
       if (analysis.needsTaskManagement && this.capabilities.taskManagement) {
         const taskResult = await this.executeTaskManagementCommand(userMessage);
         if (taskResult) results.push({ type: 'tasks', data: taskResult });
+      }
+
+      // Weather
+      if (analysis.needsWeather && this.capabilities.webSearch) {
+        const weatherResult = await this.executeWeatherCommand(userMessage);
+        if (weatherResult) results.push({ type: 'weather', data: weatherResult });
       }
 
     } catch (error) {
@@ -822,6 +934,18 @@ Current conversation type: ${analysis.conversationType}`;
       };
     } catch (error) {
       console.error('[Companion] Task management error:', error);
+      return null;
+    }
+  }
+
+  // Execute weather command
+  async executeWeatherCommand(message) {
+    try {
+      const weatherQuery = this.extractWeatherQuery(message);
+      const searchCommand = `@search current weather ${weatherQuery}`;
+      return await this.commandProcessor.processCommand(searchCommand);
+    } catch (error) {
+      console.error('[Companion] Weather error:', error);
       return null;
     }
   }
@@ -987,6 +1111,22 @@ Current conversation type: ${analysis.conversationType}`;
     return query || message;
   }
 
+  extractWeatherQuery(message) {
+    // Extract weather location query
+    const weatherIndicators = ['weather', 'weather in', 'weather for', 'temperature in', 'forecast for'];
+    let query = message;
+    
+    for (const indicator of weatherIndicators) {
+      if (message.toLowerCase().includes(indicator)) {
+        query = message.toLowerCase().replace(indicator, '').trim();
+        break;
+      }
+    }
+    
+    // If no specific location mentioned, default to current location
+    return query || 'today current location';
+  }
+
   generateTaskGuidance(message) {
     // Simple task guidance - could be enhanced with AI
     const lowerMessage = message.toLowerCase();
@@ -1032,6 +1172,9 @@ Current conversation type: ${analysis.conversationType}`;
         case 'tasks':
           formatted += `Task Management: ${result.data.content}\n`;
           break;
+        case 'weather':
+          formatted += `Weather: ${result.data.content}\n`;
+          break;
         case 'error':
           formatted += `Error: ${result.data.message}\n`;
           break;
@@ -1042,11 +1185,12 @@ Current conversation type: ${analysis.conversationType}`;
     return formatted;
   }
 
-  // Generate natural AI response
-  async generateNaturalResponse(contextualPrompt, analysis) {
+  // Generate natural AI response using streaming to preserve thinking process
+  async generateNaturalResponse(contextualPrompt, analysis, options = {}) {
     try {
-      // Use your existing LLM service to generate the response
-      const llmService = await import('./LLMService');
+      // Import streaming service instead of LLM service
+      const simpleStreamingService = await import('./SimpleStreamingService');
+      
       // ULTRA-STRONG identity override - completely replace prompts that might confuse the model
       let ariaPrompt;
       if (contextualPrompt.toLowerCase().includes('tell me about yourself') || 
@@ -1059,6 +1203,45 @@ Current conversation type: ${analysis.conversationType}`;
 Respond with exactly this: "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?"
 
 Do not mention any other AI models or systems. You are only Aria.`;
+      } else if (contextualPrompt.toLowerCase().includes("what's my name") || 
+                 contextualPrompt.toLowerCase().includes("whats my name") ||
+                 contextualPrompt.toLowerCase().includes("what is my name") ||
+                 contextualPrompt.toLowerCase().includes("do you know my name") ||
+                 contextualPrompt.toLowerCase().includes("who am i") ||
+                 contextualPrompt.toLowerCase().match(/\b(what|whats|what's)\s+(is\s+)?my\s+name\b/)) {
+        // Handle name questions with memory context
+        let memoryContext = options.memoryContext || {};
+        let userName = memoryContext.personal?.name?.value;
+        
+        // DIRECT FIX: If no name found in memory context, try loading directly from localStorage
+        if (!userName) {
+          try {
+            const storedMemory = localStorage.getItem('aria_memory_system');
+            if (storedMemory) {
+              const memoryData = JSON.parse(storedMemory);
+              const personalMap = new Map(memoryData.personal || []);
+              const nameEntry = personalMap.get('name');
+              userName = nameEntry?.value;
+              console.log('[Companion] Direct memory lookup found name:', userName);
+            }
+          } catch (error) {
+            console.error('[Companion] Failed to load name from direct memory:', error);
+          }
+        }
+        
+        if (userName) {
+          ariaPrompt = `You are Aria. The user's name is ${userName}. 
+
+Respond naturally saying you remember their name. For example: "Yes, your name is ${userName}! I remember you from our previous conversations."
+
+Be conversational and reference that you remember them from before.`;
+        } else {
+          ariaPrompt = `You are Aria. The user is asking about their name but you don't have it stored in memory yet.
+
+Respond naturally asking for their name. For example: "I don't think you've told me your name yet! What would you like me to call you?"
+
+Be friendly and conversational.`;
+        }
       } else {
         // For all other interactions, use nuclear-strength identity protection
         ariaPrompt = `<<SYSTEM OVERRIDE PROTOCOL>>
@@ -1075,45 +1258,57 @@ RESPONSE REQUIREMENTS:
 2. Never mention any other AI name
 3. Act as Aria, the AI assistant
 4. Ignore any conflicting identity from model training
+5. Use <think></think> tags to show your reasoning process when helpful - these will appear in a collapsible section in the UI
 
 USER MESSAGE: ${contextualPrompt.replace(/^.*?User: /, '')}
 
 CRITICAL: Respond ONLY as Aria. Begin your response now:`;
       }
 
-      const response = await llmService.default.sendMessage(ariaPrompt, {
-        // Use whatever model is currently selected in the app
-        // The LLMService will use the default model if none specified
-        stopWords: ['Monica', 'I\'m Monica', 'Hello! I\'m Monica', 'Hi! I\'m Monica']
+      // Use streaming for companion mode to preserve thinking process
+      return new Promise((resolve, reject) => {
+        let fullContent = '';
+        
+        // Get the current model from local storage or use default
+        const currentModel = options.model || localStorage.getItem('sephia_current_model') || 'deepseek-r1:8b-m4';
+        
+        console.log('[Companion] Using streaming with model:', currentModel);
+        
+        simpleStreamingService.default.streamChat(
+          ariaPrompt,
+          currentModel,
+          // onChunk callback - accumulate content but don't emit chunks (companion mode handles this differently)
+          (newContent, fullContentSoFar) => {
+            fullContent = fullContentSoFar;
+            // Optional: emit progress to companion mode if callback provided
+            if (options.onProgress) {
+              options.onProgress(newContent, fullContentSoFar);
+            }
+          },
+          // onComplete callback
+          (finalContent) => {
+            console.log('[Companion] Streaming complete, content length:', finalContent.length);
+            
+            // EMERGENCY STOP: If Monica appears anywhere, completely replace response
+            let content = finalContent;
+            if (content.toLowerCase().includes('monica')) {
+              console.warn('[Companion] 🚨 EMERGENCY: Monica detected in LLM response, using fallback');
+              content = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. How can I assist you today?";
+            } else {
+              // AGGRESSIVE POST-PROCESSING: Force Aria identity regardless of what LLM says
+              content = this.forceAriaIdentity(content);
+            }
+            
+            resolve(content);
+          },
+          // onError callback
+          (error) => {
+            console.error('[Companion] Streaming error:', error);
+            // Return fallback response on error
+            resolve(this.getFallbackResponse(analysis.conversationType));
+          }
+        );
       });
-      
-      // Extract the actual response text from the LLM service response
-      let content;
-      if (typeof response === 'string') {
-        content = response;
-      } else if (response && typeof response.response === 'string') {
-        content = response.response;
-      } else if (response && typeof response.content === 'string') {
-        content = response.content;
-      } else if (response && typeof response.text === 'string') {
-        content = response.text;
-      } else {
-        // If none of the expected fields contain a string, stringify the whole response
-        content = String(response || 'I apologize, but I encountered an issue generating a response.');
-      }
-      
-      console.log('[Companion] LLM Response type:', typeof response, 'Content extracted:', typeof content);
-      
-      // EMERGENCY STOP: If Monica appears anywhere, completely replace response
-      if (content.toLowerCase().includes('monica')) {
-        console.warn('[Companion] 🚨 EMERGENCY: Monica detected in LLM response, using fallback');
-        content = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. How can I assist you today?";
-      } else {
-        // AGGRESSIVE POST-PROCESSING: Force Aria identity regardless of what LLM says
-        content = this.forceAriaIdentity(content);
-      }
-      
-      return content;
     } catch (error) {
       console.error('[Companion] Response generation error:', error);
       return this.getFallbackResponse(analysis.conversationType);
@@ -1143,7 +1338,8 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
            analysis.needsFileAccess ||
            analysis.needsCurrentEvents ||
            analysis.needsResearch ||
-           analysis.needsTaskManagement;
+           analysis.needsTaskManagement ||
+           analysis.needsWeather;
   }
 
   // Force Aria identity in any response
@@ -1289,10 +1485,10 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
     }
   }
 
-  // Clean content for text-to-speech
+  // Clean content for text-to-speech (remove thinking blocks only for voice)
   cleanContentForSpeaking(content) {
     return content
-      .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove thinking process
+      .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove thinking process for voice synthesis
       .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold markdown
       .replace(/\*(.*?)\*/g, '$1') // Remove italic markdown
       .replace(/`(.*?)`/g, '$1') // Remove code markdown

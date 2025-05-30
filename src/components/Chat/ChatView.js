@@ -338,6 +338,21 @@ const ChatView = React.memo(({ projectId }) => {
     return window.__streamingContent || '';
   });
   
+  // Auto-enable voice-first mode on component mount
+  useEffect(() => {
+    const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+    if (!voiceSettings.autoSpeak) {
+      const updatedSettings = {
+        ...voiceSettings,
+        autoSpeak: true,
+        voiceEnabled: true,
+        voiceSynthesisProvider: 'bark'
+      };
+      localStorage.setItem('sephia_voice_settings', JSON.stringify(updatedSettings));
+      console.log('[ChatView] 🎤 Auto-enabled voice-first mode');
+    }
+  }, []);
+  
   // State for project messages to ensure UI updates
   const [localProjectMessages, setLocalProjectMessages] = useState(() => {
     // Check if there's an active streaming buffer for this project
@@ -617,15 +632,16 @@ const ChatView = React.memo(({ projectId }) => {
     
     // Check if companion mode is enabled OR memory is force-enabled
     const forceMemory = localStorage.getItem('sephia_force_memory') === 'true';
+    const useCompanionMode = companionMode || forceMemory; // Use actual companion mode setting
     console.log('[ChatView] 🔍 Mode detection:', {
       companionMode, 
       forceMemory, 
-      forceMemoryRaw: localStorage.getItem('sephia_force_memory'),
+      useCompanionMode,
       messageStartsWithAt: messageText.trim().startsWith('@'),
-      willUseCompanion: (companionMode || forceMemory) && !messageText.trim().startsWith('@')
+      willUseCompanion: useCompanionMode && !messageText.trim().startsWith('@')
     });
     
-    if ((companionMode || forceMemory) && !messageText.trim().startsWith('@')) {
+    if (useCompanionMode && !messageText.trim().startsWith('@')) {
       console.log('[ChatView] 🤖 COMPANION MODE ACTIVE: Processing natural conversation');
       console.log('[ChatView] 🤖 companionMode:', companionMode, 'forceMemory:', forceMemory);
       try {
@@ -638,6 +654,17 @@ const ChatView = React.memo(({ projectId }) => {
           // Connect voice service for auto-speaking
           const voiceService = await import('../../services/VoiceService');
           companionService.setVoiceService(voiceService.default);
+          
+          // Ensure memory service is loaded
+          if (!companionService.memoryService) {
+            try {
+              const { default: MemoryService } = await import('../../services/MemoryService');
+              companionService.memoryService = MemoryService;
+              console.log('[ChatView] ✅ Memory service loaded for Aria');
+            } catch (memoryError) {
+              console.error('[ChatView] Failed to load memory service:', memoryError);
+            }
+          }
         }
         
         // Process through companion service
@@ -665,21 +692,23 @@ const ChatView = React.memo(({ projectId }) => {
           const capturedCurrentChat = currentChat;
           const capturedTheme = theme;
           
-          // Create typing message for voice-first mode
-          const typingMessage = {
-            id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          // Create streaming message for voice-first mode - show actual content while speaking
+          const streamingMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+          const streamingMessage = {
+            id: streamingMessageId,
             role: 'assistant',
-            content: 'Aria is speaking...',
+            content: companionResult.content || '',  // Show the actual content immediately
             timestamp: new Date().toISOString(),
             isCompanion: true,
-            isTyping: true
+            isStreaming: true,  // Mark as streaming instead of typing
+            isVoicePlaying: true  // Indicate voice is playing
           };
           
-          // Add user message and typing indicator immediately
+          // Add user message and streaming response immediately
           if (capturedProjectId && updateProject) {
             setLocalProjectMessages(prevMessages => {
-              const updatedMessages = [...(prevMessages || []), userMessage, typingMessage];
-              console.log('[ChatView] 🎤 Project: Added user message + typing indicator, total messages:', updatedMessages.length);
+              const updatedMessages = [...(prevMessages || []), userMessage, streamingMessage];
+              console.log('[ChatView] 🎤 Project: Added user message + streaming response, total messages:', updatedMessages.length);
               return updatedMessages;
             });
           } else {
@@ -688,10 +717,10 @@ const ChatView = React.memo(({ projectId }) => {
               const newChat = createNewChat('Chat with Aria', capturedTheme?.name || 'dark', messageText.trim());
               const chatWithMessages = {
                 ...newChat,
-                messages: [userMessage, typingMessage],
+                messages: [userMessage, streamingMessage],
                 updatedAt: new Date().toISOString()
               };
-              console.log('[ChatView] 🎤 Chat: Created new chat with user message + typing indicator');
+              console.log('[ChatView] 🎤 Chat: Created new chat with user message + streaming response');
               setCurrentChat(chatWithMessages);
               if (setChats) {
                 setChats(prevChats => 
@@ -703,10 +732,10 @@ const ChatView = React.memo(({ projectId }) => {
             } else {
               const updatedChat = {
                 ...capturedCurrentChat,
-                messages: [...capturedCurrentChat.messages, userMessage, typingMessage],
+                messages: [...capturedCurrentChat.messages, userMessage, streamingMessage],
                 updatedAt: new Date().toISOString()
               };
-              console.log('[ChatView] 🎤 Chat: Added user message + typing indicator, total messages:', updatedChat.messages.length);
+              console.log('[ChatView] 🎤 Chat: Added user message + streaming response, total messages:', updatedChat.messages.length);
               setCurrentChat(updatedChat);
               if (setChats) {
                 setChats(prevChats => 
@@ -718,36 +747,35 @@ const ChatView = React.memo(({ projectId }) => {
             }
           }
 
-          // Wait for voice to complete, then add assistant message
+          // Wait for voice to complete, then mark streaming as complete
           console.log('[ChatView] 🎤 Setting up voice completion handler');
           companionResult.voicePromise.then((voiceResult) => {
             console.log('[ChatView] 🎤 Voice promise resolved with result:', voiceResult);
-            console.log('[ChatView] 🎤 Voice completed, now showing text');
+            console.log('[ChatView] 🎤 Voice completed, marking message as complete');
             
-            const companionMessage = {
-              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-              role: 'assistant',
-              content: typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.'),
-              timestamp: new Date().toISOString(),
-              isCompanion: true,
-              ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
-                imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
-              })
-            };
+            // No need to create a new message - just update the existing one to mark voice as complete
+            const finalContent = typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.');
+            const imageData = companionResult.integrationResults?.find(r => r.type === 'image');
 
-            console.log('[ChatView] 🎤 Created companion message:', {
-              id: companionMessage.id,
-              contentLength: companionMessage.content.length,
-              contentPreview: companionMessage.content.substring(0, 100)
+            console.log('[ChatView] 🎤 Updating message to mark voice complete:', {
+              id: streamingMessageId,
+              contentLength: finalContent.length,
+              contentPreview: finalContent.substring(0, 100)
             });
 
             try {
               if (capturedProjectId && updateProject) {
-                console.log('[ChatView] 🎤 Replacing typing message with actual content');
+                console.log('[ChatView] 🎤 Marking streaming message as voice complete');
                 setLocalProjectMessages(prevMessages => {
-                  // Replace the typing message with the actual companion message
+                  // Update the streaming message to mark voice as complete
                   const finalMessages = prevMessages.map(msg => 
-                    msg.isTyping ? { ...companionMessage, id: msg.id } : msg
+                    msg.id === streamingMessageId ? { 
+                      ...msg, 
+                      content: finalContent,
+                      isStreaming: false,
+                      isVoicePlaying: false,
+                      ...(imageData && { imageUrl: imageData.data.imageUrl })
+                    } : msg
                   );
                   console.log('[ChatView] 🎤 Project: Final messages after voice:', finalMessages.length);
                   
@@ -764,7 +792,7 @@ const ChatView = React.memo(({ projectId }) => {
                   return finalMessages;
                 });
               } else {
-                console.log('[ChatView] 🎤 Replacing typing message with actual content');
+                console.log('[ChatView] 🎤 Marking chat streaming message as voice complete');
                 // Use functional update to get latest state
                 setCurrentChat(prevChat => {
                   // Ensure we have a chat to update
@@ -776,7 +804,13 @@ const ChatView = React.memo(({ projectId }) => {
                   const updatedChat = {
                     ...prevChat,
                     messages: prevChat.messages.map(msg => 
-                      msg.isTyping ? { ...companionMessage, id: msg.id } : msg
+                      msg.id === streamingMessageId ? { 
+                        ...msg, 
+                        content: finalContent,
+                        isStreaming: false,
+                        isVoicePlaying: false,
+                        ...(imageData && { imageUrl: imageData.data.imageUrl })
+                      } : msg
                     ),
                     updatedAt: new Date().toISOString()
                   };

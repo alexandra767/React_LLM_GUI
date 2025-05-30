@@ -43,8 +43,15 @@ class ImageGenerationService {
           try {
             const message = JSON.parse(event.data);
             
-            // Debug all message types to see what ComfyUI sends
-            console.log('[ImageGen] WS Message Type:', message.type, 'Data keys:', Object.keys(message.data || {}));
+            // Enhanced debugging for all message types
+            console.log('[ImageGen] WS Message:', {
+              type: message.type,
+              dataKeys: Object.keys(message.data || {}),
+              promptId: message.data?.prompt_id,
+              node: message.data?.node,
+              hasOutput: !!(message.data?.output),
+              hasImages: !!(message.data?.output?.images)
+            });
             
             // More detailed logging for executed messages
             if (message.type === 'executed') {
@@ -195,10 +202,11 @@ class ImageGenerationService {
       }
     } else if (type === 'executed' && data?.prompt_id) {
       // Log all executed messages to debug
-      console.log('[ImageGen] Executed message for node:', data.node, 'output:', data.output);
+      console.log('[ImageGen] Executed message for node:', data.node, 'output:', JSON.stringify(data.output, null, 2));
       
       // Check if this message has image output (can be any node that saves images)
-      if (data.output && data.output.images && Array.isArray(data.output.images)) {
+      // Look for SaveImage node (typically node "9") or any node with images output
+      if (data.output && data.output.images && Array.isArray(data.output.images) && data.output.images.length > 0) {
         const request = this.pendingRequests.get(data.prompt_id);
         if (request && !request.resolved && !request.cancelled) {
           console.log('[ImageGen] Found image output from node:', data.node, 'images:', data.output.images);
@@ -233,16 +241,32 @@ class ImageGenerationService {
       // Some versions send this when fully complete
       const request = this.pendingRequests.get(data.prompt_id);
       if (request && !request.resolved) {
-        console.log('[ImageGen] Execution complete but no images found');
-        request.reject(new Error('Generation completed but no images were produced'));
-        this.pendingRequests.delete(data.prompt_id);
+        console.log('[ImageGen] Execution complete but no images found in WebSocket messages');
+        console.log('[ImageGen] Attempting to find images via API fallback...');
+        
+        // Try to find the latest generated image as a fallback
+        this.findLatestGeneratedImage(data.prompt_id, request);
       }
     } else if (type === 'execution_error' && data?.prompt_id) {
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
         console.error('[ImageGen] Execution error:', data);
-        request.reject(new Error(data.exception_message || data.error || 'Generation failed'));
+        
+        // Handle specific error types
+        let errorMessage = data.exception_message || data.error || 'Generation failed';
+        
+        // Check for common macOS/resource errors
+        if (errorMessage.includes('Operation canceled') || errorMessage.includes('os error 89')) {
+          errorMessage = 'Image generation was canceled due to system resource limits. Try:\n• Reducing image size\n• Closing other apps to free memory\n• Restarting ComfyUI';
+        } else if (errorMessage.includes('CUDA out of memory') || errorMessage.includes('MPS out of memory')) {
+          errorMessage = 'Out of GPU memory. Try reducing image size or using --lowvram mode.';
+        } else if (errorMessage.includes('Model not found') || errorMessage.includes('Missing model')) {
+          errorMessage = 'Required Flux model files are missing. Please check that flux1-dev.safetensors and other model files are properly installed.';
+        }
+        
+        request.reject(new Error(errorMessage));
         this.pendingRequests.delete(data.prompt_id);
+        this.isGenerating = false;
       }
     }
   }
@@ -250,6 +274,19 @@ class ImageGenerationService {
   async generateImage(prompt, options = {}) {
     console.log('[ImageGen] generateImage called with:', { prompt, options });
     console.log('[ImageGen] Using steps:', options.steps, 'for model:', options.model);
+    
+    // Check system resources before generation
+    try {
+      const stats = await fetch(`${this.baseUrl}/system_stats`).then(r => r.json());
+      const freeMemoryGB = stats.system.ram_free / (1024 * 1024 * 1024);
+      console.log('[ImageGen] Available memory:', freeMemoryGB.toFixed(1), 'GB');
+      
+      if (freeMemoryGB < 2) {
+        console.warn('[ImageGen] Low memory warning - may cause generation failures');
+      }
+    } catch (e) {
+      console.log('[ImageGen] Could not check memory status');
+    }
     
     // Check if we have an input image for img2img
     if (options.inputImage) {
@@ -709,6 +746,63 @@ class ImageGenerationService {
     this.pendingRequests.clear();
     this.reconnectAttempts = 0;
     this.isGenerating = false;
+  }
+
+  // Fallback method to find the latest generated image when WebSocket messages are missed
+  async findLatestGeneratedImage(promptId, request) {
+    try {
+      console.log('[ImageGen] Searching for latest generated image...');
+      
+      // Since we know images are being generated with Sephia prefix, try to find the most recent one
+      // by checking the expected output location directly
+      
+      // Try common recent image patterns - start from a reasonable high number and work down
+      for (let i = 100; i >= 1; i--) {
+        const paddedNum = i.toString().padStart(5, '0');
+        const filename = `Sephia_${paddedNum}_.png`;
+        
+        try {
+          const testResponse = await fetch(`${this.baseUrl}/view?filename=${filename}&type=output&subfolder=`, { method: 'HEAD' });
+          if (testResponse.ok) {
+            console.log('[ImageGen] Found recent image:', filename);
+            
+            const image = {
+              filename: filename,
+              subfolder: '',
+              type: 'output',
+              url: `${this.baseUrl}/view?filename=${filename}&subfolder=&type=output`
+            };
+            
+            request.onProgress?.({ 
+              currentStep: request.totalSteps || 12, 
+              totalSteps: request.totalSteps || 12,
+              message: 'Image retrieved!',
+              status: 'complete'
+            });
+            
+            request.resolved = true;
+            request.resolve([image]);
+            this.pendingRequests.delete(promptId);
+            this.isGenerating = false;
+            return;
+          }
+        } catch (e) {
+          // Continue to next number
+        }
+      }
+      
+      // If no Sephia images found, reject
+      console.log('[ImageGen] No recent Sephia images found in fallback search');
+      request.reject(new Error('Generation completed but no images were found in output directory'));
+      this.pendingRequests.delete(promptId);
+      this.isGenerating = false;
+      
+    } catch (error) {
+      console.error('[ImageGen] Error in fallback image search:', error);
+      request.reject(new Error('Generation completed but could not retrieve image'));
+      this.pendingRequests.delete(promptId);
+      this.isGenerating = false;
+    }
   }
 }
 

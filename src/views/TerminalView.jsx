@@ -48,18 +48,8 @@ const TerminalView = () => {
           return;
         }
         
-        // First check if Ollama is running
-        try {
-          const isRunning = await window.electron.ollama.isRunning();
-          if (!isRunning) {
-            throw new Error('Ollama service is not running. Please start Ollama and try again.');
-          }
-        } catch (err) {
-          if (err.message.includes('ENOENT') || err.message.includes('not found')) {
-            throw new Error('Ollama is not installed. Please install Ollama from https://ollama.ai/');
-          }
-          throw err;
-        }
+        // Try to list models directly instead of checking isRunning (which doesn't exist)
+        // This will fail if Ollama isn't running, which we can catch
         
         // Then list models
         const modelList = await window.electron.ollama.listModels();
@@ -108,14 +98,14 @@ const TerminalView = () => {
 
     loadModels();
     
-    // Set up polling to check Ollama status
-    const pollInterval = setInterval(() => {
-      if (error) {
-        loadModels();
-      }
-    }, 10000); // Check every 10 seconds if there was an error
-    
-    return () => clearInterval(pollInterval);
+    // TEMPORARILY DISABLED: Polling was causing console spam
+    // const pollInterval = setInterval(() => {
+    //   if (error) {
+    //     loadModels();
+    //   }
+    // }, 10000);
+    // 
+    // return () => clearInterval(pollInterval);
   }, [error]);
 
   const handleModelChange = (event) => {

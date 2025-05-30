@@ -350,6 +350,15 @@ class VoiceService {
     // Cancel any ongoing speech
     this.synthesis.cancel();
 
+    // Check if text is too long for browser speech synthesis
+    // Different browsers have different limits, typically 4000-32000 characters
+    const maxLength = 12000; // Increased limit to reduce unnecessary chunking
+    
+    if (text.length > maxLength) {
+      console.log('[VoiceService] Text too long for single utterance, chunking...', text.length, 'characters');
+      return this.speakLongText(text, options);
+    }
+
     return new Promise((resolve, reject) => {
       const utterance = new SpeechSynthesisUtterance(text);
       
@@ -387,6 +396,106 @@ class VoiceService {
 
       this.synthesis.speak(utterance);
     });
+  }
+
+  // Handle long text by chunking for browser speech synthesis
+  async speakLongText(text, options = {}) {
+    console.log('[VoiceService] Processing long text in chunks for browser TTS');
+    
+    // Split text into chunks at sentence boundaries
+    const chunks = this.chunkTextAtSentences(text, 10000); // Increased chunk size to match new limit
+    console.log('[VoiceService] Split into', chunks.length, 'chunks');
+    
+    this.isSpeaking = true;
+    
+    try {
+      options.onStart?.();
+      
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        console.log(`[VoiceService] Speaking chunk ${i + 1}/${chunks.length}:`, chunk.substring(0, 50) + '...');
+        
+        // Create utterance for this chunk
+        const utterance = new SpeechSynthesisUtterance(chunk);
+        utterance.voice = options.voice || this.selectedVoice;
+        utterance.rate = options.rate || this.speechRate;
+        utterance.pitch = options.pitch || this.speechPitch;
+        utterance.volume = options.volume || this.speechVolume;
+        utterance.lang = options.lang || 'en-US';
+        
+        // Wait for this chunk to complete before starting next
+        await new Promise((resolve, reject) => {
+          utterance.onend = () => {
+            console.log(`[VoiceService] ✅ Chunk ${i + 1}/${chunks.length} completed`);
+            
+            // Call progress callback if provided
+            if (options.onProgress) {
+              options.onProgress({
+                current: i + 1,
+                total: chunks.length,
+                percentage: Math.round(((i + 1) / chunks.length) * 100)
+              });
+            }
+            
+            resolve();
+          };
+          
+          utterance.onerror = (event) => {
+            console.warn(`[VoiceService] ⚠️ Chunk ${i + 1} failed:`, event.error);
+            // Continue with next chunk instead of stopping
+            resolve();
+          };
+          
+          this.synthesis.speak(utterance);
+        });
+        
+        // Small pause between chunks
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      }
+      
+      console.log('[VoiceService] Long text speech completed');
+      options.onEnd?.();
+      
+    } catch (error) {
+      console.error('[VoiceService] Long text speech failed:', error);
+      options.onError?.(error);
+      throw error;
+    } finally {
+      this.isSpeaking = false;
+    }
+    
+    return Promise.resolve();
+  }
+
+  // Chunk text at sentence boundaries
+  chunkTextAtSentences(text, maxLength) {
+    const chunks = [];
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    let currentChunk = '';
+    
+    for (const sentence of sentences) {
+      // If adding this sentence would exceed max length, save current chunk
+      if (currentChunk.length + sentence.length > maxLength && currentChunk.length > 0) {
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+      } else {
+        currentChunk += (currentChunk ? ' ' : '') + sentence;
+      }
+    }
+    
+    // Add the last chunk if there's content
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+    
+    // If no chunks were created, just add the whole text
+    if (chunks.length === 0 && text.trim()) {
+      chunks.push(text.trim());
+    }
+    
+    return chunks;
   }
 
   stopSpeaking() {
@@ -579,21 +688,23 @@ class VoiceServiceFactory {
 
   // Unified speak method - always respect user's provider choice and prevent conflicts
   async speak(text, options = {}) {
-    // CRITICAL: Stop ALL speech from both providers to prevent dual voices
-    console.log('[VoiceServiceFactory] Stopping all voice services before speaking');
-    await this.stopAllVoices();
+    // Only stop voices if we're switching providers or if explicitly requested
+    const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+    const preferredProvider = voiceSettings.voiceSynthesisProvider || 'bark';
     
-    // Add a small delay to ensure all audio stops before starting new speech
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Only stop all voices if switching providers or if currently speaking with a different provider
+    if (preferredProvider !== this.currentProvider || (this.isSpeaking && this.currentProvider !== preferredProvider)) {
+      console.log('[VoiceServiceFactory] Stopping all voice services due to provider change');
+      await this.stopAllVoices();
+      await new Promise(resolve => setTimeout(resolve, 100));
+    } else {
+      console.log('[VoiceServiceFactory] Keeping current provider, no need to stop');
+    }
 
     // Set speaking flag to prevent concurrent calls
     this.isSpeaking = true;
     
     try {
-      const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
-      
-      // Get the user's preferred provider from settings
-      const preferredProvider = voiceSettings.voiceSynthesisProvider || 'bark';
       
       // Only switch provider if it's different from current
       if (preferredProvider !== this.currentProvider) {

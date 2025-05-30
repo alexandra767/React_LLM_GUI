@@ -48,7 +48,7 @@ class BarkVoiceService {
   async checkServerStatus() {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for server check
       
       const response = await fetch(`${this.baseUrl}/status`, {
         signal: controller.signal,
@@ -172,8 +172,9 @@ class BarkVoiceService {
       // Add feminine context to ensure female voice characteristics  
       const contextualText = this.addFeminineContext(cleanedText, voice);
       
-      // For longer texts, ensure we don't truncate - Bark can handle longer text
-      if (contextualText.length > 1000) {
+      // For longer texts, use chunking but with much higher threshold
+      // Increased threshold to prevent unnecessary chunking that causes cutoffs
+      if (contextualText.length > 8000) {  // Increased to 8000 to allow longer continuous speech
         console.log('[BarkVoiceService] Processing long text:', contextualText.length, 'characters');
         return await this.speakLongText(contextualText, voice, options);
       }
@@ -230,7 +231,7 @@ class BarkVoiceService {
     }
   }
 
-  // Handle long text by chunking intelligently
+  // Handle long text by chunking intelligently with retry mechanism
   async speakLongText(text, voice, options = {}) {
     console.log('[BarkVoiceService] Processing long text in chunks');
     
@@ -238,52 +239,90 @@ class BarkVoiceService {
     const chunks = this.chunkTextIntelligently(text);
     console.log('[BarkVoiceService] Split into', chunks.length, 'chunks');
     
+    let successfulChunks = 0;
+    
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       console.log(`[BarkVoiceService] Speaking chunk ${i + 1}/${chunks.length}:`, chunk.substring(0, 50) + '...');
       
-      const requestBody = {
-        text: chunk,
-        voice: voice,
-        temperature: options.temperature || 0.7,
-        silent: false
-      };
-
-      const response = await fetch(`${this.baseUrl}/tts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody)
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(`TTS generation failed on chunk ${i + 1}: ${errorData.detail || response.statusText}`);
-      }
-
-      const result = await response.json();
+      // Retry mechanism for each chunk
+      let retries = 0;
+      const maxRetries = 2;
+      let chunkSuccess = false;
       
-      if (!result.success) {
-        throw new Error(`TTS generation failed on chunk ${i + 1}: ${result.error || 'Unknown error'}`);
-      }
+      while (!chunkSuccess && retries <= maxRetries) {
+        try {
+          const requestBody = {
+            text: chunk,
+            voice: voice,
+            temperature: options.temperature || 0.7,
+            silent: false
+          };
 
-      // Play each chunk sequentially
-      await this.playAudioData(result.audio_data);
-      
-      // Small pause between chunks if not the last chunk
-      if (i < chunks.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+          const response = await fetch(`${this.baseUrl}/tts`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestBody)
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+            throw new Error(`TTS generation failed: ${errorData.detail || response.statusText}`);
+          }
+
+          const result = await response.json();
+          
+          if (!result.success) {
+            throw new Error(`TTS generation failed: ${result.error || 'Unknown error'}`);
+          }
+
+          // Play chunk and wait for completion
+          await this.playAudioData(result.audio_data);
+          
+          chunkSuccess = true;
+          successfulChunks++;
+          console.log(`[BarkVoiceService] ✅ Chunk ${i + 1}/${chunks.length} completed successfully`);
+          
+          // Call progress callback if provided
+          if (options.onProgress) {
+            options.onProgress({
+              current: i + 1,
+              total: chunks.length,
+              percentage: Math.round(((i + 1) / chunks.length) * 100),
+              successful: successfulChunks
+            });
+          }
+          
+          // Pause between chunks for better flow
+          if (i < chunks.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+          
+        } catch (error) {
+          retries++;
+          console.warn(`[BarkVoiceService] ⚠️ Chunk ${i + 1} failed (attempt ${retries}/${maxRetries + 1}):`, error.message);
+          
+          if (retries <= maxRetries) {
+            console.log(`[BarkVoiceService] 🔄 Retrying chunk ${i + 1} in 1 second...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          } else {
+            console.error(`[BarkVoiceService] ❌ Chunk ${i + 1} failed permanently after ${maxRetries + 1} attempts`);
+            // Continue with next chunk instead of stopping entirely
+            console.log(`[BarkVoiceService] 📢 Continuing with remaining ${chunks.length - i - 1} chunks...`);
+          }
+        }
       }
     }
     
-    console.log('[BarkVoiceService] Long text speech completed');
-    return { success: true, chunks: chunks.length };
+    console.log(`[BarkVoiceService] Long text speech completed: ${successfulChunks}/${chunks.length} chunks successful`);
+    return { success: true, chunks: chunks.length, successfulChunks };
   }
 
   // Intelligently chunk text at sentence boundaries
   chunkTextIntelligently(text) {
-    const maxChunkLength = 800; // Reasonable chunk size for Bark
+    const maxChunkLength = 2000; // Increased chunk size to reduce interruptions
     const chunks = [];
     
     // Split by sentences first, but handle incomplete sentences too
@@ -324,8 +363,9 @@ class BarkVoiceService {
     return new Promise((resolve, reject) => {
       // Declare variables in Promise scope to avoid scope issues
       let isResolved = false;
-      let timeoutId = null;
+      // timeoutId variable removed - no longer using audio timeout
       let audioUrl = null;
+      let audio = null;
       
       try {
         console.log('[BarkVoiceService] Processing audio data:', {
@@ -357,7 +397,10 @@ class BarkVoiceService {
         
         console.log('[BarkVoiceService] Using audio URL:', audioUrl.substring(0, 100) + '...');
         
-        const audio = new Audio(audioUrl);
+        audio = new Audio(audioUrl);
+        
+        // Add protection flag to prevent interruption
+        audio.setAttribute('data-bark-speech', 'true');
         
         // Add more detailed event listeners for debugging
         audio.onloadstart = () => {
@@ -376,30 +419,23 @@ class BarkVoiceService {
           console.log('[BarkVoiceService] Audio playback started');
         };
         
-        // Add timeout to ensure promise always resolves
-        const timeoutDuration = 120000; // 2 minutes max
-        timeoutId = setTimeout(() => {
-          if (!isResolved) {
-            isResolved = true;
-            console.warn('[BarkVoiceService] Audio playback timeout - force resolving');
-            // Clean up blob URL if we created one
-            if (audioData instanceof Blob) {
-              URL.revokeObjectURL(audioUrl);
-            }
-            resolve(); // Force resolve to prevent hanging
-          }
-        }, timeoutDuration);
+        // REMOVED AUDIO PLAYBACK TIMEOUT - Let speech run as long as needed
+        // Previous 5-minute timeout was cutting off long content
+        // Audio will resolve naturally when playback ends
 
         audio.onended = () => {
-          console.log('[BarkVoiceService] Audio playback completed');
+          console.log('[BarkVoiceService] Audio playback completed naturally');
           if (!isResolved) {
             isResolved = true;
-            clearTimeout(timeoutId);
+            // Timeout removed - no need to clear
             // Clean up blob URL if we created one
             if (audioData instanceof Blob) {
               URL.revokeObjectURL(audioUrl);
             }
-            resolve();
+            // Add small delay to ensure audio system has fully finished
+            setTimeout(() => {
+              resolve();
+            }, 100);
           }
         };
         
@@ -414,7 +450,7 @@ class BarkVoiceService {
           
           if (!isResolved) {
             isResolved = true;
-            clearTimeout(timeoutId);
+            // Timeout removed - no need to clear
             // Clean up blob URL if we created one
             if (audioData instanceof Blob) {
               URL.revokeObjectURL(audioUrl);
@@ -451,7 +487,7 @@ class BarkVoiceService {
           
           if (!isResolved) {
             isResolved = true;
-            clearTimeout(timeoutId);
+            // Timeout removed - no need to clear
             // Clean up blob URL if we created one
             if (audioData instanceof Blob) {
               URL.revokeObjectURL(audioUrl);
@@ -469,7 +505,7 @@ class BarkVoiceService {
         console.error('[BarkVoiceService] Error in playAudioData:', error);
         if (!isResolved) {
           isResolved = true;
-          clearTimeout(timeoutId);
+          // Timeout removed - no need to clear
           reject(error);
         }
       }
@@ -522,13 +558,33 @@ class BarkVoiceService {
   }
 
   async stop() {
-    // Stop any currently playing audio
+    // Stop any currently playing audio, but be gentle with ongoing Bark speech
     const audioElements = document.querySelectorAll('audio');
+    let barkAudioCount = 0;
+    
     audioElements.forEach(audio => {
-      audio.pause();
-      audio.currentTime = 0;
+      // Check if this is Bark-generated speech
+      if (audio.getAttribute('data-bark-speech') === 'true') {
+        barkAudioCount++;
+        // Only stop if explicitly requested or if audio is not currently playing
+        if (!audio.currentTime || audio.paused || audio.ended) {
+          audio.pause();
+          audio.currentTime = 0;
+        } else {
+          console.log('[BarkVoiceService] Preserving ongoing Bark speech');
+        }
+      } else {
+        // Stop non-Bark audio immediately
+        audio.pause();
+        audio.currentTime = 0;
+      }
     });
-    console.log('[BarkVoiceService] Stopped all audio playback');
+    
+    console.log('[BarkVoiceService] Audio management:', {
+      totalElements: audioElements.length,
+      barkAudioElements: barkAudioCount,
+      action: 'selective stop'
+    });
   }
 
   async pause() {
@@ -608,15 +664,8 @@ class BarkVoiceService {
           });
         };
         
-        // Fallback timeout
-        setTimeout(() => {
-          console.log('[BarkVoiceService] Audio test timeout');
-          audioContext.close();
-          resolve({
-            success: false,
-            message: 'Audio test timed out - possible audio system issue'
-          });
-        }, 2000);
+        // Removed timeout - let audio test complete naturally
+        // Previous 2-second timeout was too aggressive
         
       } catch (error) {
         console.error('[BarkVoiceService] System audio test failed:', error);

@@ -11,7 +11,12 @@ class SimpleStreamingService {
     
     try {
       // Clean model name - remove any extra info like "(Unknown size)"
-      const cleanModel = (model || 'deepseek-r1:8b-m4').split(' ')[0].trim();
+      const cleanModel = (model || 'qwen3:14B').split(' ')[0].trim();
+      
+      // Check if this is a Claude model and route accordingly
+      if (cleanModel.startsWith('claude-')) {
+        return this.streamClaude(message, cleanModel, onChunk, onComplete, onError);
+      }
       
       // Check if in Electron and use terminal with streaming
       if (window.electron && window.electron.spawnStream) {
@@ -556,6 +561,101 @@ class SimpleStreamingService {
       
     } catch (error) {
       console.error('[SimpleStreaming] Terminal streaming error:', error);
+      if (onError) onError(error);
+    }
+  }
+
+  async streamClaude(message, model, onChunk, onComplete, onError) {
+    console.log('[SimpleStreaming] Using Claude streaming for model:', model);
+    
+    try {
+      // Get Claude API key from settings
+      const settings = localStorage.getItem('sephia_settings');
+      if (!settings) {
+        throw new Error('No settings found for Claude API key');
+      }
+      
+      const parsedSettings = JSON.parse(settings);
+      if (!parsedSettings.claudeApiKey) {
+        throw new Error('Claude API key not configured');
+      }
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': parsedSettings.claudeApiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: 4096,
+          messages: [
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: 0.7,
+          stream: true
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[SimpleStreaming] Claude API Error:', response.status, errorText);
+        throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullContent = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log('[SimpleStreaming] Claude streaming complete');
+            if (onComplete) {
+              onComplete(fullContent);
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                continue;
+              }
+              
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  const chunk = parsed.delta.text;
+                  fullContent += chunk;
+                  
+                  if (onChunk) {
+                    onChunk(chunk, fullContent);
+                  }
+                }
+              } catch (parseError) {
+                console.warn('[SimpleStreaming] Failed to parse Claude streaming chunk:', parseError);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error('[SimpleStreaming] Claude streaming error:', error);
       if (onError) onError(error);
     }
   }

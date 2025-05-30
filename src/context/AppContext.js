@@ -71,8 +71,10 @@ export const AppProvider = ({ children }) => {
   // State declarations first
   const [currentModel, setCurrentModel] = useState(() => {
     const savedModel = localStorage.getItem('sephia_current_model');
-    console.log('[AppContext] Loading saved model:', savedModel || 'deepseek-r1:14b-m4 (default)');
-    return savedModel || 'deepseek-r1:14b-m4';
+    // Use qwen3:14B as default since that's what's actually installed
+    const defaultModel = 'qwen3:14B';
+    console.log('[AppContext] Loading saved model:', savedModel || `${defaultModel} (default)`);
+    return savedModel || defaultModel;
   });
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -680,7 +682,7 @@ export const AppProvider = ({ children }) => {
       lastUpdated: projectData.lastUpdated || new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      model: projectData.model || currentModel || 'deepseek-r1:14b-m4', // Store the model with the project
+      model: projectData.model || currentModel || 'qwen3:14B', // Store the model with the project
       knowledgeFiles: projectData.knowledgeFiles || [], // Initialize knowledge files array
     };
     
@@ -814,6 +816,18 @@ export const AppProvider = ({ children }) => {
       
       console.log(`Loading model: ${modelId}`);
       
+      // Re-initialize adapters to handle model switch
+      llmService.reinitialize();
+      
+      // Switch to appropriate adapter based on model type
+      if (modelId.startsWith('claude-')) {
+        console.log('Switching to Claude adapter for model:', modelId);
+        llmService.setAdapter('claude');
+      } else {
+        console.log('Switching to Ollama adapter for model:', modelId);
+        llmService.setAdapter('ollama');
+      }
+      
       // For M4 Macs, skip the connecting state and just set to connected immediately
       // This prevents the UI from getting stuck in "connecting" state
       setAppState(prev => ({
@@ -824,38 +838,43 @@ export const AppProvider = ({ children }) => {
       // In the background, try to actually warm up the model without blocking UI
       setTimeout(async () => {
         try {
-          // Quick tags check - more reliable than health endpoint
-          const tagsResponse = await fetch('http://localhost:11434/api/tags', { 
-            method: 'GET',
-            signal: AbortSignal.timeout(3000)
-          }).catch(() => null);
-          
-          if (tagsResponse?.ok) {
-            console.log("Ollama is available");
+          if (modelId.startsWith('claude-')) {
+            // For Claude models, just verify the API key is working
+            console.log("Model is Claude, checking API key availability");
+          } else {
+            // For local models, check Ollama availability
+            const tagsResponse = await fetch('http://localhost:11434/api/tags', { 
+              method: 'GET',
+              signal: AbortSignal.timeout(3000)
+            }).catch(() => null);
             
-            // For M4 Mac optimization, setup options for best performance
-            const warmupBody = {
-              model: modelId,
-              prompt: 'Hello',
-              stream: false,
-              max_tokens: 5,
-              num_gpu: 1,          // Use GPU acceleration
-              num_thread: 8,       // Use 8 CPU threads for M4
-              num_keep: 0,         // Don't keep context in memory
-              temperature: 0.7,    // Standard temperature
-              repeat_penalty: 1.1, // Prevent repetition
-              tfs_z: 1.0           // Top frequent sampling
-            };
-            
-            // Start a non-blocking model warmup
-            fetch('http://localhost:11434/api/generate', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify(warmupBody),
-              signal: AbortSignal.timeout(3000) // Short timeout for warmup
-            }).catch(() => {
-              console.log("Model warmup request sent in background");
-            });
+            if (tagsResponse?.ok) {
+              console.log("Ollama is available");
+              
+              // For M4 Mac optimization, setup options for best performance
+              const warmupBody = {
+                model: modelId,
+                prompt: 'Hello',
+                stream: false,
+                max_tokens: 5,
+                num_gpu: 1,          // Use GPU acceleration
+                num_thread: 8,       // Use 8 CPU threads for M4
+                num_keep: 0,         // Don't keep context in memory
+                temperature: 0.7,    // Standard temperature
+                repeat_penalty: 1.1, // Prevent repetition
+                tfs_z: 1.0           // Top frequent sampling
+              };
+              
+              // Start a non-blocking model warmup
+              fetch('http://localhost:11434/api/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(warmupBody),
+                signal: AbortSignal.timeout(3000) // Short timeout for warmup
+              }).catch(() => {
+                console.log("Model warmup request sent in background");
+              });
+            }
           }
         } catch (e) {
           // Silently continue - we don't want to block the UI
@@ -1128,6 +1147,7 @@ export const AppProvider = ({ children }) => {
         
         // Immediately set hard-coded models that match what we know exists
         const hardcodedModels = [
+          { id: 'qwen3:14B', name: 'Qwen3 14B', type: 'local' },
           { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
           { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
           { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
@@ -1140,26 +1160,55 @@ export const AppProvider = ({ children }) => {
         
         // Try to get actual models from Ollama in the background
         try {
+          // Set the appropriate adapter first
+          llmService.reinitialize();
+          
+          // Get local models from Ollama
+          llmService.setAdapter('ollama');
           const ollamaModels = await llmService.getAvailableModels();
+          
+          let allModels = [...hardcodedModels];
           
           // Only update if we got real models back
           if (ollamaModels && ollamaModels.length > 0) {
             // Map to our format
-            const mappedModels = ollamaModels.map(model => ({
+            const mappedOllamaModels = ollamaModels.map(model => ({
               id: model.id || model.name || 'unknown',
               name: model.name || 'Unknown Model',
               type: 'local',
               size: model.size || 'Unknown size',
             }));
             
-            console.log("Loaded models from Ollama:", mappedModels);
-            setModels(mappedModels);
-            
-            setAppState(prev => ({
-              ...prev,
-              connectionStatus: 'connected'
-            }));
+            console.log("Loaded models from Ollama:", mappedOllamaModels);
+            allModels = mappedOllamaModels;
           }
+          
+          // Try to get Claude models if API key is available
+          try {
+            const settings = localStorage.getItem('sephia_settings');
+            if (settings) {
+              const parsedSettings = JSON.parse(settings);
+              if (parsedSettings.claudeApiKey) {
+                llmService.setAdapter('claude');
+                const claudeModels = await llmService.getAvailableModels();
+                if (claudeModels && claudeModels.length > 0) {
+                  console.log("Loaded Claude models:", claudeModels);
+                  allModels = [...allModels, ...claudeModels];
+                }
+              }
+            }
+          } catch (claudeError) {
+            console.warn("Could not fetch Claude models:", claudeError);
+          }
+          
+          // Set final model list
+          setModels(allModels);
+          console.log("Final model list:", allModels);
+          
+          setAppState(prev => ({
+            ...prev,
+            connectionStatus: 'connected'
+          }));
         } catch (apiError) {
           console.error("Error fetching models from API:", apiError);
           // We keep the hardcoded models already set
@@ -1170,8 +1219,9 @@ export const AppProvider = ({ children }) => {
         console.error('Failed in model fetch process:', err);
         setError('Failed to fetch models');
         
-        // Ensure we at least have the hardcoded models
+        // Ensure we at least have the hardcoded models including qwen3:14B
         setModels([
+          { id: 'qwen3:14B', name: 'Qwen3 14B', type: 'local' },
           { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
           { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
           { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
