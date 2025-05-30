@@ -188,6 +188,14 @@ const ChatView = React.memo(({ projectId }) => {
   const abortControllerRef = useRef(null);
   const chatInputRef = useRef(null);
   
+  // Debug: Expose companion service globally for debugging
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.companionService = companionService;
+      console.log('[ChatView] 🐛 CompanionService exposed globally for debugging');
+    }
+  }, []);
+  
   // Clear refs on unmount - Track mount state globally to survive Electron re-renders
   useEffect(() => {
     // Generate unique ID for this component instance
@@ -655,14 +663,16 @@ const ChatView = React.memo(({ projectId }) => {
           const voiceService = await import('../../services/VoiceService');
           companionService.setVoiceService(voiceService.default);
           
-          // Ensure memory service is loaded
+          // Ensure MemoryAdapter is loaded
           if (!companionService.memoryService) {
             try {
-              const { default: MemoryService } = await import('../../services/MemoryService');
-              companionService.memoryService = MemoryService;
-              console.log('[ChatView] ✅ Memory service loaded for Aria');
+              // Load and initialize MemoryAdapter
+              const { default: MemoryAdapter } = await import('../../services/MemoryAdapter');
+              companionService.memoryService = MemoryAdapter;
+              await companionService.memoryService.ensureInitialized();
+              console.log('[ChatView] ✅ MemoryAdapter loaded and initialized');
             } catch (memoryError) {
-              console.error('[ChatView] Failed to load memory service:', memoryError);
+              console.error('[ChatView] Failed to load MemoryAdapter:', memoryError);
             }
           }
         }

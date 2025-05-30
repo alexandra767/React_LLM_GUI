@@ -132,7 +132,7 @@ class CompanionService {
     // Initialize all advanced services
     try {
       // Core intelligence services
-      const { default: MemoryService } = await import('./ExternalMemoryService');
+      const { default: MemoryService } = await import('./MemoryAdapter');
       const { default: KnowledgeService } = await import('./KnowledgeService');
       const { default: ProactiveIntelligenceService } = await import('./ProactiveIntelligenceService');
       
@@ -175,11 +175,26 @@ class CompanionService {
     
     console.log('[Companion] Aria initialized with full capabilities');
     
-    // CRITICAL: Clean any stored identity issues on initialization to remove Monica references
-    if (this.memoryService && this.memoryService.cleanStoredIdentity) {
-      console.log('[Companion] 🧹 Cleaning stored identity confusion from SSD...');
-      await this.memoryService.cleanStoredIdentity();
-      console.log('[Companion] ✅ SSD memory cleaned of identity confusion');
+    // CRITICAL: Set up unified external SSD memory system
+    if (this.memoryService) {
+      console.log('[Companion] 🧹 Setting up unified memory system...');
+      
+      // Migrate from localStorage if needed
+      if (this.memoryService.migrateFromLocalStorage) {
+        await this.memoryService.migrateFromLocalStorage();
+      }
+      
+      // Ensure Alexandra's name is in memory
+      if (this.memoryService.addAlexandraName) {
+        await this.memoryService.addAlexandraName();
+      }
+      
+      // Clean any stored identity issues
+      if (this.memoryService.cleanStoredIdentity) {
+        await this.memoryService.cleanStoredIdentity();
+      }
+      
+      console.log('[Companion] ✅ Unified memory system setup completed');
     }
   }
 
@@ -197,20 +212,23 @@ class CompanionService {
   async handleConversation(userMessage, options = {}) {
     console.log('[Companion] Processing conversation:', userMessage);
     
-    // Ensure memory service is available
+    // Ensure memory service is available - use MemoryAdapter
     if (!this.memoryService) {
-      console.warn('[Companion] Memory service not available, trying to load...');
+      console.warn('[Companion] MemoryAdapter not available, trying to load...');
       try {
-        const { default: MemoryService } = await import('./MemoryService');
-        this.memoryService = MemoryService;
-        console.log('[Companion] ✅ Memory service loaded');
+        // Load and initialize MemoryAdapter
+        const { default: MemoryAdapter } = await import('./MemoryAdapter');
+        this.memoryService = MemoryAdapter;
+        await this.memoryService.ensureInitialized();
+        console.log('[Companion] ✅ MemoryAdapter loaded and initialized');
       } catch (error) {
-        console.error('[Companion] Failed to load memory service:', error);
+        console.error('[Companion] Failed to load MemoryAdapter:', error);
+        return null;
       }
     }
     
     // Get contextual information from memory and knowledge
-    const memoryContext = this.memoryService ? this.memoryService.getRelevantContext(userMessage) : {};
+    const memoryContext = this.memoryService ? await this.memoryService.getRelevantContext(userMessage) : {};
     console.log('[Companion] Memory context:', {
       hasMemoryService: !!this.memoryService,
       memoryContextKeys: Object.keys(memoryContext),
@@ -525,6 +543,15 @@ class CompanionService {
 
   // Search intent detection
   detectSearchIntent(message) {
+    const lowerMessage = message.toLowerCase();
+    
+    // CRITICAL: Don't treat personal name questions as web searches
+    if (lowerMessage.includes('my name') || lowerMessage.includes('what is my name') || 
+        lowerMessage.includes('what\'s my name') || lowerMessage.includes('whats my name') ||
+        lowerMessage.includes('who am i') || lowerMessage.includes('do you know my name')) {
+      return false; // Let this be handled as a general conversation with memory
+    }
+    
     const searchKeywords = [
       'what is', 'who is', 'how to', 'why does', 'where is',
       'tell me about', 'look up', 'find out', 'search for',

@@ -14,6 +14,7 @@ import voiceService from '../../services/VoiceService';
 import integrationService from '../../services/IntegrationService';
 import VoiceStatus from './VoiceStatus';
 import networkStatusService from '../../services/NetworkStatusService';
+import unifiedStorageService from '../../services/UnifiedStorageService';
 
 const SettingsContainer = styled('div')({
   display: 'flex',
@@ -351,18 +352,31 @@ const SettingsView = () => {
   const [testResult, setTestResult] = useState(null);
   // Load settings from localStorage or use defaults
   const loadSettings = () => {
+    console.log('[Settings] Loading settings from storage...');
+    
+    // Try localStorage first
     const saved = localStorage.getItem('sephia_settings');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        console.log('[Settings] Loaded from localStorage:', Object.keys(parsed));
+        return parsed;
       } catch (e) {
-        console.error('Failed to load settings:', e);
+        console.error('[Settings] Failed to parse localStorage settings:', e);
       }
     }
+    
+    // If no localStorage, check if we can load from persistent storage
+    if (window.electron?.storage) {
+      // This will be loaded asynchronously after component mounts
+      console.log('[Settings] Will attempt to load from persistent storage');
+    }
+    
+    console.log('[Settings] Using default settings');
     return {
       ollamaEndpoint: 'http://localhost:11434',
       temperature: 0.7,
-      defaultModel: 'llama2',
+      defaultModel: 'qwen3:14B',
       connectionType: 'ollama',
       syntaxHighlighting: true,
       streamingResponses: true,
@@ -400,8 +414,18 @@ const SettingsView = () => {
         ...prev,
         [key]: value
       };
-      // Save to localStorage
+      
+      // Save to localStorage immediately
       localStorage.setItem('sephia_settings', JSON.stringify(updated));
+      console.log('[Settings] Setting updated and saved:', key, value);
+      
+      // Also save to reliable storage if available
+      if (window.electron?.storage) {
+        window.electron.storage.set('sephia_settings', JSON.stringify(updated))
+          .then(() => console.log('[Settings] Setting saved to persistent storage:', key))
+          .catch(err => console.warn('[Settings] Failed to save to persistent storage:', err));
+      }
+      
       return updated;
     });
     
@@ -428,7 +452,14 @@ const SettingsView = () => {
       
       // Save to localStorage immediately
       localStorage.setItem('sephia_voice_settings', JSON.stringify(updated));
-      console.log('[Settings] Saved voice settings:', updated);
+      console.log('[Settings] Voice setting updated and saved:', key, value);
+      
+      // Also save to reliable storage if available
+      if (window.electron?.storage) {
+        window.electron.storage.set('sephia_voice_settings', JSON.stringify(updated))
+          .then(() => console.log('[Settings] Voice setting saved to persistent storage:', key))
+          .catch(err => console.warn('[Settings] Failed to save voice setting to persistent storage:', err));
+      }
       
       return updated;
     });
@@ -460,8 +491,53 @@ const SettingsView = () => {
     }
   };
   
-  // Load voices and voice settings on mount
+  // Initialize reliable storage and load voices/settings on mount
   useEffect(() => {
+    const initializeStorage = async () => {
+      // Initialize reliable storage service
+      try {
+        await unifiedStorageService.initialize();
+        console.log('[Settings] Reliable storage initialized');
+        
+        // Try to load settings from persistent storage if localStorage is empty
+        const localSettings = localStorage.getItem('sephia_settings');
+        if (!localSettings && window.electron?.storage) {
+          try {
+            const persistentSettings = await window.electron.storage.get('sephia_settings');
+            if (persistentSettings) {
+              console.log('[Settings] Loaded settings from persistent storage');
+              const parsed = JSON.parse(persistentSettings);
+              setSettings(parsed);
+              localStorage.setItem('sephia_settings', persistentSettings);
+            }
+          } catch (err) {
+            console.warn('[Settings] Failed to load from persistent storage:', err);
+          }
+        }
+        
+        // Try to load voice settings from persistent storage if localStorage is empty
+        const localVoiceSettings = localStorage.getItem('sephia_voice_settings');
+        if (!localVoiceSettings && window.electron?.storage) {
+          try {
+            const persistentVoiceSettings = await window.electron.storage.get('sephia_voice_settings');
+            if (persistentVoiceSettings) {
+              console.log('[Settings] Loaded voice settings from persistent storage');
+              const parsed = JSON.parse(persistentVoiceSettings);
+              setVoiceSettings(parsed);
+              localStorage.setItem('sephia_voice_settings', persistentVoiceSettings);
+            }
+          } catch (err) {
+            console.warn('[Settings] Failed to load voice settings from persistent storage:', err);
+          }
+        }
+        
+      } catch (err) {
+        console.error('[Settings] Reliable storage init failed:', err);
+      }
+    };
+    
+    initializeStorage();
+    
     // Check if voice is force enabled
     const forceVoice = localStorage.getItem('sephia_force_voice') === 'true';
     
@@ -552,8 +628,17 @@ const SettingsView = () => {
   const handleModelChange = (e) => {
     const newModel = e.target.value;
     setCurrentModel(newModel);
+    
     // Save current model to localStorage
     localStorage.setItem('sephia_current_model', newModel);
+    console.log('[Settings] Current model updated and saved:', newModel);
+    
+    // Also save to reliable storage if available
+    if (window.electron?.storage) {
+      window.electron.storage.set('sephia_current_model', newModel)
+        .then(() => console.log('[Settings] Current model saved to persistent storage:', newModel))
+        .catch(err => console.warn('[Settings] Failed to save current model to persistent storage:', err));
+    }
   };
   
   const handleLoadModel = async (modelId) => {
@@ -1753,6 +1838,52 @@ const SettingsView = () => {
             <Description2 style={{ fontSize: '12px', marginTop: '4px' }}>
               Get credentials from <a href="https://console.cloud.google.com" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>Google Cloud Console</a>
             </Description2>
+            <Button
+              onClick={async () => {
+                // Validate inputs
+                if (!settings.googleClientId?.trim()) {
+                  alert('Please enter a Google Client ID');
+                  return;
+                }
+                if (!settings.googleApiKey?.trim()) {
+                  alert('Please enter a Google API Key');
+                  return;
+                }
+                
+                try {
+                  // Save the settings using both updateSetting and direct storage
+                  updateSetting('googleClientId', settings.googleClientId);
+                  updateSetting('googleApiKey', settings.googleApiKey);
+                  
+                  // Also save directly to reliable storage if available
+                  if (window.electron?.storage) {
+                    const currentSettings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+                    currentSettings.googleClientId = settings.googleClientId;
+                    currentSettings.googleApiKey = settings.googleApiKey;
+                    
+                    await window.electron.storage.set('sephia_settings', JSON.stringify(currentSettings));
+                    console.log('[Settings] Google Drive credentials saved to persistent storage');
+                  }
+                  
+                  // Show success message
+                  alert(
+                    '✅ Google Drive credentials saved!\n\n' +
+                    '• Google Client ID: ' + settings.googleClientId.substring(0, 20) + '...\n' +
+                    '• Google API Key: ' + (settings.googleApiKey ? 'Set (hidden)' : 'Not set') + '\n\n' +
+                    'Credentials saved to ' + (window.electron?.storage ? 'persistent storage' : 'localStorage') + '.\n' +
+                    'You can now use Google Drive integration features.'
+                  );
+                  
+                  console.log('[Settings] Google Drive credentials saved');
+                } catch (error) {
+                  console.error('[Settings] Failed to save Google Drive credentials:', error);
+                  alert('Failed to save credentials: ' + error.message);
+                }
+              }}
+              style={{ marginTop: '8px' }}
+            >
+              Save Google Drive Credentials
+            </Button>
           </div>
 
         </SettingItem>
@@ -1764,23 +1895,64 @@ const SettingsView = () => {
               Anthropic Claude API key for enhanced AI capabilities
             </Description2>
           </SettingLabel>
-          <InputContainer>
-            <Input 
-              type="password" 
-              value={settings.claudeApiKey || ''} 
-              onChange={(e) => updateSetting('claudeApiKey', e.target.value)}
-              placeholder="sk-ant-..."
-            />
-            <Button 
-              onClick={() => testClaudeConnection()}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+            <InputContainer>
+              <Input 
+                type="password" 
+                value={settings.claudeApiKey || ''} 
+                onChange={(e) => updateSetting('claudeApiKey', e.target.value)}
+                placeholder="sk-ant-..."
+              />
+              <Button 
+                onClick={() => testClaudeConnection()}
+                disabled={!settings.claudeApiKey}
+              >
+                Test
+              </Button>
+            </InputContainer>
+            <Description2 style={{ fontSize: '12px', marginTop: '4px' }}>
+              Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>Anthropic Console</a>. Enables Claude 3.5 Sonnet for Aria conversations.
+            </Description2>
+            <Button
+              onClick={async () => {
+                if (!settings.claudeApiKey?.trim()) {
+                  alert('Please enter a Claude API Key');
+                  return;
+                }
+                
+                try {
+                  // Save the settings using both updateSetting and direct storage
+                  updateSetting('claudeApiKey', settings.claudeApiKey);
+                  
+                  // Also save directly to reliable storage if available
+                  if (window.electron?.storage) {
+                    const currentSettings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+                    currentSettings.claudeApiKey = settings.claudeApiKey;
+                    
+                    await window.electron.storage.set('sephia_settings', JSON.stringify(currentSettings));
+                    console.log('[Settings] Claude API Key saved to persistent storage');
+                  }
+                  
+                  // Show success message
+                  alert(
+                    '✅ Claude API Key saved!\n\n' +
+                    '• API Key: ' + settings.claudeApiKey.substring(0, 15) + '...\n\n' +
+                    'Credentials saved to ' + (window.electron?.storage ? 'persistent storage' : 'localStorage') + '.\n' +
+                    'You can now use Claude 3.5 Sonnet for enhanced AI conversations with Aria.'
+                  );
+                  
+                  console.log('[Settings] Claude API Key saved');
+                } catch (error) {
+                  console.error('[Settings] Failed to save Claude API Key:', error);
+                  alert('Failed to save API key: ' + error.message);
+                }
+              }}
               disabled={!settings.claudeApiKey}
+              style={{ marginTop: '8px' }}
             >
-              Test
+              Save Claude API Key
             </Button>
-          </InputContainer>
-          <Description2 style={{ fontSize: '12px', marginTop: '8px' }}>
-            Get your API key from <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color: '#a855f7' }}>Anthropic Console</a>. Enables Claude 3.5 Sonnet for Aria conversations.
-          </Description2>
+          </div>
         </SettingItem>
         
         <SettingItem>
@@ -1896,6 +2068,97 @@ const SettingsView = () => {
       
       <SettingsSection>
         <SectionTitle>Settings Management</SectionTitle>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Storage Status</Label>
+            <Description2>
+              Check the persistence status of your settings
+            </Description2>
+          </SettingLabel>
+          <Button 
+            onClick={async () => {
+              try {
+                // Check localStorage
+                const localSettings = localStorage.getItem('sephia_settings');
+                const localVoiceSettings = localStorage.getItem('sephia_voice_settings');
+                const localModel = localStorage.getItem('sephia_current_model');
+                
+                let persistentStatus = 'Not available (browser mode)';
+                let persistentCount = 0;
+                
+                // Check persistent storage if available
+                if (window.electron?.storage) {
+                  try {
+                    const stats = unifiedStorageService.getStats();
+                    persistentCount = stats.totalKeys;
+                    persistentStatus = `${persistentCount} items saved`;
+                  } catch (err) {
+                    persistentStatus = 'Error: ' + err.message;
+                  }
+                }
+                
+                alert(`📊 Storage Status:\n\n` +
+                      `localStorage:\n` +
+                      `• Settings: ${localSettings ? '✅ Saved' : '❌ Missing'}\n` +
+                      `• Voice Settings: ${localVoiceSettings ? '✅ Saved' : '❌ Missing'}\n` +
+                      `• Current Model: ${localModel ? '✅ Saved' : '❌ Missing'}\n\n` +
+                      `Persistent Storage:\n` +
+                      `• Status: ${persistentStatus}\n\n` +
+                      `${localSettings && localVoiceSettings ? 'Settings should persist across app restarts.' : 'Some settings may be lost on reload.'}`);
+              } catch (error) {
+                alert('Failed to check storage status: ' + error.message);
+              }
+            }}
+          >
+            Check Storage Status
+          </Button>
+        </SettingItem>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Force Save All Settings</Label>
+            <Description2>
+              Manually save all current settings to persistent storage
+            </Description2>
+          </SettingLabel>
+          <Button 
+            onClick={async () => {
+              try {
+                // Force save current settings
+                const currentSettings = settings;
+                const currentVoiceSettings = voiceSettings;
+                const currentModelValue = currentModel;
+                
+                // Save to localStorage
+                localStorage.setItem('sephia_settings', JSON.stringify(currentSettings));
+                localStorage.setItem('sephia_voice_settings', JSON.stringify(currentVoiceSettings));
+                localStorage.setItem('sephia_current_model', currentModelValue);
+                
+                let persistentResult = 'Skipped (browser mode)';
+                
+                // Save to persistent storage if available
+                if (window.electron?.storage) {
+                  await window.electron.storage.set('sephia_settings', JSON.stringify(currentSettings));
+                  await window.electron.storage.set('sephia_voice_settings', JSON.stringify(currentVoiceSettings));
+                  await window.electron.storage.set('sephia_current_model', currentModelValue);
+                  persistentResult = 'Success';
+                }
+                
+                alert(`✅ All settings saved!\n\n` +
+                      `localStorage: Success\n` +
+                      `Persistent Storage: ${persistentResult}\n\n` +
+                      `Your settings should now persist across app restarts.`);
+                      
+              } catch (error) {
+                alert('Failed to save settings: ' + error.message);
+                console.error('[Settings] Force save failed:', error);
+              }
+            }}
+          >
+            Force Save All
+          </Button>
+        </SettingItem>
         
         <SettingItem>
           <SettingLabel>

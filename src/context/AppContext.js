@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useEffect, useRef, useMemo 
 import { useTheme } from './ThemeContext';
 import llmService from '../services/LLMService';
 import networkStatusService from '../services/NetworkStatusService';
+import unifiedStorageService from '../services/UnifiedStorageService';
 
 export const AppContext = createContext();
 
@@ -14,21 +15,21 @@ export const useApp = () => {
   return context;
 };
 
-// Load chats from localStorage
+// Load chats from unified storage
 const loadChats = () => {
   try {
-    const savedChats = localStorage.getItem('sephia_chats');
+    const savedChats = unifiedStorageService.get('sephia_chats');
     return savedChats ? JSON.parse(savedChats) : [];
   } catch (error) {
-    console.error('Failed to load chats from localStorage:', error);
+    console.error('Failed to load chats from storage:', error);
     return [];
   }
 };
 
-// Load projects from localStorage
+// Load projects from unified storage
 const loadProjects = () => {
   try {
-    const savedProjects = localStorage.getItem('sephia_projects');
+    const savedProjects = unifiedStorageService.get('sephia_projects');
     if (savedProjects) {
       const projects = JSON.parse(savedProjects);
       // Ensure all projects have a model property
@@ -39,15 +40,15 @@ const loadProjects = () => {
     }
     return [];
   } catch (error) {
-    console.error('Failed to load projects from localStorage:', error);
+    console.error('Failed to load projects from storage:', error);
     return [];
   }
 };
 
-// Load profile from localStorage
+// Load profile from unified storage
 const loadProfile = () => {
   try {
-    const savedProfile = localStorage.getItem('sephia_profile');
+    const savedProfile = unifiedStorageService.get('sephia_profile');
     return savedProfile ? JSON.parse(savedProfile) : {
       name: 'User',
       email: '',
@@ -55,7 +56,7 @@ const loadProfile = () => {
       bio: '',
     };
   } catch (error) {
-    console.error('Failed to load profile from localStorage:', error);
+    console.error('Failed to load profile from storage:', error);
     return {
       name: 'User',
       email: '',
@@ -70,7 +71,7 @@ export const AppProvider = ({ children }) => {
   const theme = useTheme();
   // State declarations first
   const [currentModel, setCurrentModel] = useState(() => {
-    const savedModel = localStorage.getItem('sephia_current_model');
+    const savedModel = unifiedStorageService.get('sephia_current_model');
     // Use qwen3:14B as default since that's what's actually installed
     const defaultModel = 'qwen3:14B';
     console.log('[AppContext] Loading saved model:', savedModel || `${defaultModel} (default)`);
@@ -93,13 +94,42 @@ export const AppProvider = ({ children }) => {
   const [messageDuration, setMessageDuration] = useState(0);
   const [imageGenerationProgress, setImageGenerationProgress] = useState(null);
   const [companionMode, setCompanionMode] = useState(() => {
-    // Load companion mode preference from localStorage
-    const saved = localStorage.getItem('sephia_companion_mode');
+    // Load companion mode preference from unified storage
+    const saved = unifiedStorageService.get('sephia_companion_mode');
     return saved ? JSON.parse(saved) : false;
   });
   
   // Network status state
   const [networkStatus, setNetworkStatus] = useState(() => networkStatusService.getStatus());
+  
+  // Initialize unified storage system
+  useEffect(() => {
+    const initializeServices = async () => {
+      try {
+        console.log('[AppContext] 🔧 Initializing unified storage...');
+        
+        // Initialize unified storage service
+        await unifiedStorageService.initialize();
+        
+        // Migrate data from old services
+        await unifiedStorageService.migrateFromOldServices();
+        
+        // Create daily backup
+        await unifiedStorageService.createDailyBackup();
+        
+        console.log('[AppContext] ✅ Unified storage initialized');
+        
+        // Log storage stats
+        const stats = unifiedStorageService.getStats();
+        console.log('[AppContext] 📊 Storage stats:', stats);
+        
+      } catch (error) {
+        console.error('[AppContext] ❌ Failed to initialize storage:', error);
+      }
+    };
+    
+    initializeServices();
+  }, []);
   
   // Debug image generation progress
   useEffect(() => {
@@ -166,12 +196,12 @@ export const AppProvider = ({ children }) => {
   // Auto-switch models based on network status
   const autoSwitchModel = () => {
     const recommendation = networkStatusService.getRecommendedModel();
-    const currentModel = localStorage.getItem('sephia_current_model');
+    const currentModel = unifiedStorageService.get('sephia_current_model');
     
     if (recommendation.model !== currentModel) {
       console.log(`[AppContext] Auto-switching model: ${currentModel} → ${recommendation.model} (${recommendation.reason})`);
       setCurrentModel(recommendation.model);
-      localStorage.setItem('sephia_current_model', recommendation.model);
+      unifiedStorageService.set('sephia_current_model', recommendation.model);
       
       // Update connection status based on model type
       setAppState(prev => ({
@@ -225,8 +255,8 @@ export const AppProvider = ({ children }) => {
     try {
       // Apply the chat's theme if it has one
       if (chat.theme) {
-        // Update the theme in localStorage
-        localStorage.setItem('sephia_theme', chat.theme);
+        // Update the theme in unified storage
+        unifiedStorageService.set('sephia_theme', chat.theme);
         
         // Update the document attribute for CSS variables
         document.documentElement.setAttribute('data-theme', chat.theme);
@@ -456,8 +486,8 @@ export const AppProvider = ({ children }) => {
       setChats(finalChats);
       setCurrentChat(finalChat);
 
-      // Save to localStorage
-      localStorage.setItem('sephia_chats', JSON.stringify(finalChats));
+      // Save to unified storage
+      unifiedStorageService.set('sephia_chats', JSON.stringify(finalChats));
 
       return aiMessage;
     } catch (error) {
@@ -583,8 +613,8 @@ export const AppProvider = ({ children }) => {
             };
           });
 
-          // Save to localStorage when streaming is complete
-          localStorage.setItem('sephia_chats', JSON.stringify(updatedChats));
+          // Save to unified storage when streaming is complete
+          unifiedStorageService.set('sephia_chats', JSON.stringify(updatedChats));
           
           // Update current chat if it's the one being streamed to
           setCurrentChat(prev => 
@@ -742,12 +772,12 @@ export const AppProvider = ({ children }) => {
         return project;
       });
       
-      // Debounce localStorage save to prevent too many writes
+      // Debounce storage save to prevent too many writes
       projectUpdateTimerRef.current = setTimeout(() => {
         try {
-          localStorage.setItem('sephia_projects', JSON.stringify(updatedProjects));
+          unifiedStorageService.set('sephia_projects', JSON.stringify(updatedProjects));
         } catch (e) {
-          console.error('Failed to save projects to localStorage:', e);
+          console.error('Failed to save projects to storage:', e);
         }
       }, 500);
       
@@ -793,7 +823,7 @@ export const AppProvider = ({ children }) => {
           
           // Apply the chat's theme if it has one
           if (mostRecentChat.theme) {
-            localStorage.setItem('sephia_theme', mostRecentChat.theme);
+            unifiedStorageService.set('sephia_theme', mostRecentChat.theme);
             document.documentElement.setAttribute('data-theme', mostRecentChat.theme);
           }
         } else {
@@ -1012,15 +1042,15 @@ export const AppProvider = ({ children }) => {
     autoSwitchModel
   };
   
-  // Save chats to localStorage whenever they change
+  // Save chats to unified storage whenever they change
   useEffect(() => {
     try {
       if (chats && Array.isArray(chats)) {
-        localStorage.setItem('sephia_chats', JSON.stringify(chats));
+        unifiedStorageService.set('sephia_chats', JSON.stringify(chats));
         // Don't save current chat ID - app should always start fresh
       }
     } catch (error) {
-      console.error('Failed to save chats to localStorage:', error);
+      console.error('Failed to save chats to storage:', error);
     }
   }, [chats, currentChat]);
   
@@ -1038,18 +1068,18 @@ export const AppProvider = ({ children }) => {
       // Users can manually select previous chats from the sidebar
       
       // Only load theme from the most recent chat if available
-      const savedChatId = localStorage.getItem('sephia_current_chat_id');
+      const savedChatId = unifiedStorageService.get('sephia_current_chat_id');
       if (savedChatId && chats.length > 0) {
         const chat = chats.find(c => c.id === savedChatId);
         if (chat && chat.theme) {
           // Apply the theme from the last chat but don't select it
-          localStorage.setItem('sephia_theme', chat.theme);
+          unifiedStorageService.set('sephia_theme', chat.theme);
           document.documentElement.setAttribute('data-theme', chat.theme);
         }
       }
       
       // Clear the saved chat ID so we start fresh
-      localStorage.removeItem('sephia_current_chat_id');
+      unifiedStorageService.remove('sephia_current_chat_id');
       setCurrentChat(null);
       
       initialLoad.current = false;
@@ -1068,27 +1098,27 @@ export const AppProvider = ({ children }) => {
     }
   }, [currentChat?.id]);
   
-  // Save projects to localStorage whenever they change
+  // Save projects to unified storage whenever they change
   useEffect(() => {
-    localStorage.setItem('sephia_projects', JSON.stringify(projects));
+    unifiedStorageService.set('sephia_projects', JSON.stringify(projects));
   }, [projects]);
   
-  // Save profile to localStorage whenever it changes
+  // Save profile to unified storage whenever it changes
   useEffect(() => {
-    localStorage.setItem('sephia_profile', JSON.stringify(profile));
+    unifiedStorageService.set('sephia_profile', JSON.stringify(profile));
   }, [profile]);
   
-  // Save current model to localStorage whenever it changes
+  // Save current model to unified storage whenever it changes
   useEffect(() => {
     if (currentModel) {
       console.log('[AppContext] Saving current model:', currentModel);
-      localStorage.setItem('sephia_current_model', currentModel);
+      unifiedStorageService.set('sephia_current_model', currentModel);
     }
   }, [currentModel]);
   
-  // Save companion mode to localStorage whenever it changes
+  // Save companion mode to unified storage whenever it changes
   useEffect(() => {
-    localStorage.setItem('sephia_companion_mode', JSON.stringify(companionMode));
+    unifiedStorageService.set('sephia_companion_mode', JSON.stringify(companionMode));
     console.log('[AppContext] Companion mode saved:', companionMode);
   }, [companionMode]);
 
@@ -1185,7 +1215,7 @@ export const AppProvider = ({ children }) => {
           
           // Try to get Claude models if API key is available
           try {
-            const settings = localStorage.getItem('sephia_settings');
+            const settings = unifiedStorageService.get('sephia_settings');
             if (settings) {
               const parsedSettings = JSON.parse(settings);
               if (parsedSettings.claudeApiKey) {

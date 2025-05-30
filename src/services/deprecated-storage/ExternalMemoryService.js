@@ -2,10 +2,12 @@
 
 class ExternalMemoryService {
   constructor(storagePath = null) {
-    // Use Mac internal storage - better performance and reliability
-    this.storagePath = storagePath || '/Users/alexandratitus767/.aria-memory';
+    // Use external SSD for unified memory storage
+    this.storagePath = storagePath || '/Volumes/Alexandra-External-SSD-Storge/Aria-Memory';
     this.isElectron = !!(window.electron || (window.process && window.process.type));
     this.fallbackToLocal = false;
+    this.isInitialized = false;
+    this.initPromise = null;
     
     // Memory structure
     this.memories = {
@@ -21,32 +23,60 @@ class ExternalMemoryService {
       preferences: new Map()
     };
     
-    this.initializeStorage();
+    // Start initialization but don't block constructor
+    this.initPromise = this.initializeStorage();
   }
 
   async initializeStorage() {
     try {
+      console.log('[ExternalMemory] 🚀 Starting initialization...');
+      console.log('[ExternalMemory] Target storage path:', this.storagePath);
+      console.log('[ExternalMemory] Is Electron environment:', this.isElectron);
+      
       if (!this.isElectron) {
         console.warn('[ExternalMemory] Not in Electron, falling back to localStorage');
         this.fallbackToLocal = true;
+        await this.loadFromLocalStorage();
+        await this.addAlexandraName(); // Ensure name is added even in fallback mode
         return;
       }
 
-      // Check if internal storage is accessible
+      // Check if external SSD is accessible
+      console.log('[ExternalMemory] 🔍 Checking external SSD access...');
       const storageExists = await this.checkStorageAccess();
       if (!storageExists) {
-        console.warn('[Memory] Internal storage not accessible, falling back to localStorage');
+        console.warn('[Memory] External SSD not accessible, falling back to localStorage');
         this.fallbackToLocal = true;
+        await this.loadFromLocalStorage();
+        await this.addAlexandraName(); // Ensure name is added even in fallback mode
         return;
       }
 
-      console.log('[Memory] ✅ Internal storage initialized:', this.storagePath);
+      console.log('[Memory] ✅ External SSD storage initialized:', this.storagePath);
       await this.loadMemoriesFromStorage();
+      
+      // Ensure Alexandra's name is in memory after loading
+      await this.addAlexandraName();
+      
+      this.isInitialized = true;
+      console.log('[ExternalMemory] ✅ Initialization completed successfully');
       
     } catch (error) {
       console.error('[ExternalMemory] Initialization failed:', error);
       this.fallbackToLocal = true;
+      await this.loadFromLocalStorage();
+      await this.addAlexandraName(); // Ensure name is added even in fallback mode
+      this.isInitialized = true;
+      console.log('[ExternalMemory] ✅ Fallback initialization completed');
     }
+  }
+
+  // Ensure initialization is complete before using memory
+  async ensureInitialized() {
+    if (!this.isInitialized && this.initPromise) {
+      await this.initPromise;
+    }
+    return this.isInitialized;
   }
 
   async checkStorageAccess() {
@@ -69,7 +99,7 @@ class ExternalMemoryService {
         return this.loadFromLocalStorage();
       }
 
-      // Load from individual JSON files on internal storage
+      // Load from individual JSON files on external SSD
       const files = {
         conversations: `${this.storagePath}/conversations/recent.json`,
         personal: `${this.storagePath}/personal-facts/facts.json`,
@@ -91,14 +121,14 @@ class ExternalMemoryService {
         }
       }
 
-      console.log('[ExternalMemory] ✅ Loaded memories from Internal Storage:', {
+      console.log('[ExternalMemory] ✅ Loaded memories from External SSD:', {
         conversations: this.memories.conversations.length,
         personal: this.memories.personal.size,
         projects: this.memories.projects.size
       });
 
     } catch (error) {
-      console.error('[ExternalMemory] Failed to load from Internal Storage:', error);
+      console.error('[ExternalMemory] Failed to load from External SSD:', error);
       this.fallbackToLocal = true;
       this.loadFromLocalStorage();
     }
@@ -114,6 +144,14 @@ class ExternalMemoryService {
         this.memories.projects = new Map(data.projects || []);
         this.memories.conversations = data.conversations || [];
         console.log('[ExternalMemory] 📱 Loaded memories from localStorage');
+        console.log('[ExternalMemory] 📱 Personal facts loaded:', Array.from(this.memories.personal.keys()));
+        
+        // Log name specifically
+        const nameValue = this.memories.personal.get('name')?.value;
+        const userNameValue = this.memories.personal.get('user_name')?.value;
+        console.log('[ExternalMemory] 📱 Name values after load:', { name: nameValue, user_name: userNameValue });
+      } else {
+        console.log('[ExternalMemory] 📱 No localStorage data found');
       }
     } catch (error) {
       console.error('[ExternalMemory] Failed to load from localStorage:', error);
@@ -126,7 +164,7 @@ class ExternalMemoryService {
     }
 
     try {
-      // Save to organized files on internal storage
+      // Save to organized files on external SSD
       const saves = [
         this.saveConversations(),
         this.savePersonalFacts(),
@@ -135,10 +173,10 @@ class ExternalMemoryService {
       ];
 
       await Promise.all(saves);
-      console.log('[ExternalMemory] ✅ Saved all memories to Internal Storage');
+      console.log('[ExternalMemory] ✅ Saved all memories to External SSD');
 
     } catch (error) {
-      console.error('[ExternalMemory] Failed to save to Internal Storage:', error);
+      console.error('[ExternalMemory] Failed to save to External SSD:', error);
       // Fallback to localStorage
       this.saveToLocalStorage();
     }
@@ -230,7 +268,9 @@ class ExternalMemoryService {
   }
 
   // Add personal fact
-  addPersonalInfo(key, value, source = 'conversation') {
+  async addPersonalInfo(key, value, source = 'conversation') {
+    await this.ensureInitialized();
+    
     const fact = {
       value,
       timestamp: new Date().toISOString(),
@@ -240,7 +280,7 @@ class ExternalMemoryService {
     };
 
     this.memories.personal.set(key, fact);
-    this.saveMemories();
+    await this.saveMemories();
     
     console.log('[ExternalMemory] 👤 Added personal fact:', key);
     return fact;
@@ -305,26 +345,51 @@ class ExternalMemoryService {
   }
 
   // Get relevant context for current conversation
-  getRelevantContext(currentMessage) {
+  async getRelevantContext(currentMessage) {
     try {
+      // Ensure memory is initialized before accessing
+      await this.ensureInitialized();
+      
       // Clean conversations to remove identity confusion
       const cleanConversations = this.memories.conversations
         .slice(-10)
         .map(conv => this.sanitizeConversation(conv));
 
+      // Build personal facts object in the format CompanionService expects
+      const personal = {};
+      for (const [key, fact] of this.memories.personal.entries()) {
+        personal[key] = fact;
+      }
+
+      // Build relationships object
+      const relationships = {};
+      for (const [name, relationshipData] of this.memories.relationships.entries()) {
+        relationships[name] = relationshipData;
+      }
+
+      // Build interests/preferences
+      const topInterests = Array.from(this.memories.interests.entries())
+        .sort((a, b) => b[1].frequency - a[1].frequency)
+        .slice(0, 5)
+        .map(([topic]) => topic);
+
       const context = {
-        recentConversations: cleanConversations,
-        personalFacts: Array.from(this.memories.personal.entries()).slice(-20),
-        activeProjects: Array.from(this.memories.projects.entries())
-          .filter(([_, project]) => project.status === 'active'),
+        personal: personal,
+        relationships: relationships,
+        conversations: cleanConversations,
+        preferences: {
+          topInterests: topInterests
+        },
         currentTopics: this.extractTopics(currentMessage),
         conversationCount: this.memories.conversations.length
       };
 
       console.log('[ExternalMemory] 🧠 Retrieved context:', {
-        conversations: context.recentConversations.length,
-        facts: context.personalFacts.length,
-        projects: context.activeProjects.length
+        conversations: context.conversations.length,
+        personalKeys: Object.keys(context.personal),
+        relationshipCount: Object.keys(context.relationships).length,
+        userName: context.personal.name?.value || context.personal.user_name?.value,
+        personalData: context.personal
       });
 
       return context;
@@ -433,6 +498,95 @@ class ExternalMemoryService {
     console.log('[ExternalMemory] ✅ Identity cleanup completed');
   }
 
+  // Migrate existing localStorage memory to external SSD
+  async migrateFromLocalStorage() {
+    try {
+      console.log('[ExternalMemory] 🚛 Starting migration from localStorage...');
+      
+      const stored = localStorage.getItem('aria_memory_system');
+      if (!stored) {
+        console.log('[ExternalMemory] No localStorage data to migrate');
+        return false;
+      }
+
+      const data = JSON.parse(stored);
+      
+      // Merge with existing memory (don't overwrite)
+      if (data.personal) {
+        for (const [key, fact] of data.personal) {
+          if (!this.memories.personal.has(key)) {
+            this.memories.personal.set(key, fact);
+          }
+        }
+      }
+      
+      if (data.relationships) {
+        for (const [name, rel] of data.relationships) {
+          if (!this.memories.relationships.has(name)) {
+            this.memories.relationships.set(name, rel);
+          }
+        }
+      }
+      
+      if (data.conversations) {
+        // Add conversations that aren't already there
+        const existingIds = new Set(this.memories.conversations.map(c => c.id));
+        for (const conv of data.conversations) {
+          if (!existingIds.has(conv.id)) {
+            this.memories.conversations.push(conv);
+          }
+        }
+      }
+
+      // Save migrated data
+      await this.saveMemories();
+      
+      console.log('[ExternalMemory] ✅ Migration completed successfully');
+      return true;
+    } catch (error) {
+      console.error('[ExternalMemory] Migration failed:', error);
+      return false;
+    }
+  }
+
+  // Add Alexandra's name to memory if not already present
+  async addAlexandraName() {
+    console.log('[ExternalMemory] 🔍 Checking if user name exists...');
+    console.log('[ExternalMemory] Current personal facts:', Array.from(this.memories.personal.keys()));
+    
+    const hasName = this.memories.personal.has('name') || this.memories.personal.has('user_name');
+    console.log('[ExternalMemory] Has name in memory:', hasName);
+    
+    if (!hasName) {
+      console.log('[ExternalMemory] 👤 Adding Alexandra\'s name to memory...');
+      await this.addPersonalInfo('name', 'Alexandra', 'system_setup');
+      await this.addPersonalInfo('user_name', 'Alexandra', 'system_setup');
+      console.log('[ExternalMemory] ✅ Alexandra\'s name added to memory');
+      return true;
+    } else {
+      console.log('[ExternalMemory] ✅ User name already exists in memory');
+      // Log existing name values
+      const nameValue = this.memories.personal.get('name')?.value;
+      const userNameValue = this.memories.personal.get('user_name')?.value;
+      console.log('[ExternalMemory] Existing names:', { name: nameValue, user_name: userNameValue });
+      return false;
+    }
+  }
+
+  // Force reload memory from localStorage (useful for debugging)
+  async forceReloadFromLocalStorage() {
+    console.log('[ExternalMemory] 🔄 Force reloading from localStorage...');
+    this.fallbackToLocal = true;
+    await this.loadFromLocalStorage();
+    console.log('[ExternalMemory] ✅ Force reload completed');
+    
+    // Log current state
+    console.log('[ExternalMemory] Current personal facts:', Array.from(this.memories.personal.keys()));
+    const nameValue = this.memories.personal.get('name')?.value;
+    const userNameValue = this.memories.personal.get('user_name')?.value;
+    console.log('[ExternalMemory] Name values:', { name: nameValue, user_name: userNameValue });
+  }
+
   // Get memory statistics
   getMemoryStats() {
     return {
@@ -443,7 +597,7 @@ class ExternalMemoryService {
         .filter(p => p.status === 'active').length,
       totalProjects: this.memories.projects.size,
       interests: this.memories.interests.size,
-      memoryCapacity: this.fallbackToLocal ? '~10MB (localStorage)' : 'Unlimited (Internal Storage)',
+      memoryCapacity: this.fallbackToLocal ? '~10MB (localStorage)' : 'Unlimited (External SSD)',
       lastSaved: new Date().toISOString()
     };
   }
