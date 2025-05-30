@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Drive API Setup</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+        .step { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .code { background: #e8e8e8; padding: 10px; font-family: monospace; white-space: pre-wrap; }
+        .success { color: green; }
+        .error { color: red; }
+        button { background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #45a049; }
+        input[type="text"] { width: 100%; padding: 8px; margin: 5px 0; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+    <h1>🔑 Google Drive API Setup</h1>
+    
+    <div class="step">
+        <h3>Step 1: Get Google Cloud Credentials</h3>
+        <p>1. Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a></p>
+        <p>2. Create a new project or select existing</p>
+        <p>3. Enable Google Drive API</p>
+        <p>4. Create OAuth 2.0 Client ID credentials</p>
+        <p>5. Add these authorized redirect URIs:</p>
+        <div class="code">http://localhost:3000
+https://developers.google.com/oauthplayground</div>
+    </div>
+
+    <div class="step">
+        <h3>Step 2: Enter Your Credentials</h3>
+        <label>Client ID:</label>
+        <input type="text" id="clientId" placeholder="Your Google Client ID">
+        
+        <label>Client Secret:</label>
+        <input type="text" id="clientSecret" placeholder="Your Google Client Secret">
+        
+        <button onclick="setCredentials()">Save Credentials</button>
+        <div id="credStatus"></div>
+    </div>
+
+    <div class="step">
+        <h3>Step 3: Get Access Tokens</h3>
+        <p>After saving credentials, you'll need to get access and refresh tokens:</p>
+        <p>1. Go to <a href="https://developers.google.com/oauthplayground/" target="_blank">OAuth 2.0 Playground</a></p>
+        <p>2. Click the gear icon (top right) and enter your Client ID and Secret</p>
+        <p>3. In Step 1, select these scopes:</p>
+        <div class="code">https://www.googleapis.com/auth/drive.readonly
+https://www.googleapis.com/auth/drive.file</div>
+        <p>4. Authorize APIs → Exchange authorization code for tokens</p>
+        <p>5. Copy the Access Token and Refresh Token below:</p>
+        
+        <label>Access Token:</label>
+        <input type="text" id="accessToken" placeholder="Your Access Token">
+        
+        <label>Refresh Token:</label>
+        <input type="text" id="refreshToken" placeholder="Your Refresh Token">
+        
+        <button onclick="setTokens()">Save Tokens</button>
+        <div id="tokenStatus"></div>
+    </div>
+
+    <div class="step">
+        <h3>Step 4: Test Google Drive</h3>
+        <button onclick="testGoogleDrive()">Test Google Drive Connection</button>
+        <div id="testStatus"></div>
+    </div>
+
+    <div class="step">
+        <h3>Current Status</h3>
+        <button onclick="checkStatus()">Check Current Status</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        function setCredentials() {
+            const clientId = document.getElementById('clientId').value.trim();
+            const clientSecret = document.getElementById('clientSecret').value.trim();
+            
+            if (!clientId || !clientSecret) {
+                document.getElementById('credStatus').innerHTML = '<span class="error">❌ Please fill in both fields</span>';
+                return;
+            }
+            
+            localStorage.setItem('google_client_id', clientId);
+            localStorage.setItem('google_client_secret', clientSecret);
+            
+            document.getElementById('credStatus').innerHTML = '<span class="success">✅ Credentials saved!</span>';
+        }
+        
+        function setTokens() {
+            const accessToken = document.getElementById('accessToken').value.trim();
+            const refreshToken = document.getElementById('refreshToken').value.trim();
+            
+            if (!refreshToken) {
+                document.getElementById('tokenStatus').innerHTML = '<span class="error">❌ Refresh token is required</span>';
+                return;
+            }
+            
+            localStorage.setItem('google_access_token', accessToken);
+            localStorage.setItem('google_refresh_token', refreshToken);
+            
+            // Also set for multi-account support
+            localStorage.setItem('google_access_token_default', accessToken);
+            localStorage.setItem('google_refresh_token_default', refreshToken);
+            
+            // Set token expiry (1 hour from now)
+            const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+            localStorage.setItem('google_token_expires_at_default', expiresAt);
+            
+            document.getElementById('tokenStatus').innerHTML = '<span class="success">✅ Tokens saved!</span>';
+        }
+        
+        function testGoogleDrive() {
+            const accessToken = localStorage.getItem('google_access_token');
+            if (!accessToken) {
+                document.getElementById('testStatus').innerHTML = '<span class="error">❌ No access token found</span>';
+                return;
+            }
+            
+            fetch('https://www.googleapis.com/drive/v3/files?pageSize=5', {
+                headers: {
+                    'Authorization': 'Bearer ' + accessToken
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('testStatus').innerHTML = '<span class="error">❌ Error: ' + data.error.message + '</span>';
+                } else {
+                    document.getElementById('testStatus').innerHTML = '<span class="success">✅ Google Drive connection successful! Found ' + (data.files ? data.files.length : 0) + ' files</span>';
+                }
+            })
+            .catch(error => {
+                document.getElementById('testStatus').innerHTML = '<span class="error">❌ Test failed: ' + error.message + '</span>';
+            });
+        }
+        
+        function checkStatus() {
+            const keys = ['google_client_id', 'google_client_secret', 'google_access_token', 'google_refresh_token'];
+            let status = '<h4>Stored Keys:</h4>';
+            
+            keys.forEach(key => {
+                const value = localStorage.getItem(key);
+                const preview = value ? value.substring(0, 20) + '...' : 'Not set';
+                const statusIcon = value ? '✅' : '❌';
+                status += `<div>${statusIcon} ${key}: ${preview}</div>`;
+            });
+            
+            document.getElementById('status').innerHTML = status;
+        }
+        
+        // Check status on page load
+        checkStatus();
+    </script>
+</body>
+</html>
