@@ -677,8 +677,40 @@ const ChatView = React.memo(({ projectId }) => {
           }
         }
         
-        // Process through companion service
+        // Process through companion service with voice callbacks
         const companionResult = await companionService.handleConversation(messageText.trim(), {
+          voiceCallbacks: {
+            onStart: () => {
+              console.log('[ChatView] 🎤 Voice started, showing text content');
+              // Update the message to show content and hide "preparing" state
+              if (capturedProjectId && updateProject) {
+                setLocalProjectMessages(prevMessages => {
+                  return prevMessages.map(msg => 
+                    msg.id === streamingMessageId ? { 
+                      ...msg, 
+                      isPreparingVoice: false,  // Hide preparing state
+                      showContentNow: true  // Show content now
+                    } : msg
+                  );
+                });
+              } else {
+                // Handle regular chat context
+                setCurrentChat(prevChat => {
+                  if (!prevChat) return prevChat;
+                  return {
+                    ...prevChat,
+                    messages: prevChat.messages.map(msg => 
+                      msg.id === streamingMessageId ? { 
+                        ...msg, 
+                        isPreparingVoice: false,
+                        showContentNow: true
+                      } : msg
+                    )
+                  };
+                });
+              }
+            }
+          },
           setImageGenerationProgress,
           attachments
         });
@@ -702,16 +734,25 @@ const ChatView = React.memo(({ projectId }) => {
           const capturedCurrentChat = currentChat;
           const capturedTheme = theme;
           
-          // Create streaming message for voice-first mode - show actual content while speaking
+          // Separate thinking process from final response
+          const fullContent = companionResult.content || '';
+          const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>/);
+          const thinkingContent = thinkMatch ? thinkMatch[1].trim() : '';
+          const responseContent = fullContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          
+          // Create streaming message for voice-first mode - show thinking immediately, response when voice starts
           const streamingMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
           const streamingMessage = {
             id: streamingMessageId,
             role: 'assistant',
-            content: companionResult.content || '',  // Show the actual content immediately
+            content: responseContent || 'Generating response...',  // The actual response content
+            thinkingProcess: thinkingContent,  // Thinking process for dropdown
             timestamp: new Date().toISOString(),
             isCompanion: true,
             isStreaming: true,  // Mark as streaming instead of typing
-            isVoicePlaying: true  // Indicate voice is playing
+            isVoicePlaying: true,  // Indicate voice is playing
+            isPreparingVoice: true,  // Special flag for voice preparation
+            showContentOnVoiceStart: true  // Flag to show content when voice starts
           };
           
           // Add user message and streaming response immediately

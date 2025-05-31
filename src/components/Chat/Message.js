@@ -948,6 +948,28 @@ const Message = React.memo(({ message, onDelete }) => {
       const renderMainContent = () => {
         console.log('Message.renderMainContent - isHtml:', isHtml, 'answer preview:', answer.substring(0, 100));
         
+        // Handle voice-first mode display logic
+        if (safeMessage.isPreparingVoice && !safeMessage.showContentNow) {
+          return (
+            <div style={{ 
+              color: '#10B981', 
+              fontStyle: 'italic',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span style={{
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                backgroundColor: '#10B981',
+                animation: 'pulse 1.5s ease-in-out infinite'
+              }} />
+              🎤 Preparing to speak...
+            </div>
+          );
+        }
+        
         // If answer is empty after removing thinking tags, show a placeholder
         if (!answer || answer.trim() === '') {
           if (isStreamingMessage) {

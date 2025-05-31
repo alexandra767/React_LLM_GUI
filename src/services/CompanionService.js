@@ -229,13 +229,22 @@ class CompanionService {
     
     // Get contextual information from memory and knowledge
     const memoryContext = this.memoryService ? await this.memoryService.getRelevantContext(userMessage) : {};
-    console.log('[Companion] Memory context:', {
+    console.log('[Companion] 🧠 Memory context loaded:', {
       hasMemoryService: !!this.memoryService,
       memoryContextKeys: Object.keys(memoryContext),
       hasPersonal: !!memoryContext.personal,
       personalKeys: memoryContext.personal ? Object.keys(memoryContext.personal) : [],
-      userName: memoryContext.personal?.name?.value
+      userName: memoryContext.personal?.name?.value,
+      conversationCount: memoryContext.conversations ? memoryContext.conversations.length : 0,
+      interests: memoryContext.preferences?.topInterests || [],
+      relationshipCount: memoryContext.relationships ? Object.keys(memoryContext.relationships).length : 0
     });
+    
+    // Log detailed memory stats
+    if (this.memoryService) {
+      const stats = this.memoryService.getMemoryStats();
+      console.log('[Companion] 📊 Memory statistics:', stats);
+    }
     
     const knowledgeContext = this.knowledgeService ? this.knowledgeService.getContextualKnowledge({
       currentTime: new Date(),
@@ -325,7 +334,7 @@ class CompanionService {
             // Start voice synthesis and track the promise
             const voiceStartTime = Date.now();
             console.log('[Companion] 🎤 Creating voice promise at:', voiceStartTime);
-            response.voicePromise = this.speakResponse(response.content).then(() => {
+            response.voicePromise = this.speakResponse(response.content, options.voiceCallbacks || {}).then(() => {
               const voiceEndTime = Date.now();
               const voiceDuration = voiceEndTime - voiceStartTime;
               console.log('[Companion] ✅ Voice synthesis completed successfully after', voiceDuration, 'ms');
@@ -755,6 +764,14 @@ Key guidelines:
 - Reference previous conversations and their interests to show you remember them
 - IMPORTANT: Do not introduce yourself repeatedly - you've already met this person
 - Use <think></think> tags to show your reasoning process when helpful - these will appear in a collapsible section in the UI
+- CRITICAL: Use the memory context below to make your responses personal and contextual - avoid generic responses
+
+Memory-based conversation guidance:
+${memoryContext.conversations && memoryContext.conversations.length > 0 ? 
+  '- You have conversation history with this person - reference it naturally' : 
+  '- This appears to be an early conversation - focus on getting to know them'}
+${personalInfo ? '- Use the personal information you know about them' : '- Learn more about them personally'}
+${interestsInfo ? '- Reference their interests when relevant' : '- Discover their interests and remember them'}
 
 Current conversation type: ${analysis.conversationType}${personalInfo}${relationshipInfo}${interestsInfo}${conversationContext}`;
 
@@ -1220,10 +1237,15 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
       
       // ULTRA-STRONG identity override - completely replace prompts that might confuse the model
       let ariaPrompt;
-      if (contextualPrompt.toLowerCase().includes('tell me about yourself') || 
-          contextualPrompt.toLowerCase().includes('who are you') ||
-          contextualPrompt.toLowerCase().includes('what is your name') ||
-          contextualPrompt.toLowerCase().includes('introduce yourself')) {
+      // Only trigger identity protection for ACTUAL identity questions, not introductions
+      const isActualIdentityQuestion = (
+        contextualPrompt.toLowerCase().includes('tell me about yourself') || 
+        (contextualPrompt.toLowerCase().includes('who are you') && !contextualPrompt.toLowerCase().includes('i am')) ||
+        (contextualPrompt.toLowerCase().includes('what is your name') && !contextualPrompt.toLowerCase().includes('my name')) ||
+        contextualPrompt.toLowerCase().includes('introduce yourself')
+      ) && !contextualPrompt.toLowerCase().includes('i am') && !contextualPrompt.toLowerCase().includes('my name');
+      
+      if (isActualIdentityQuestion) {
         // Complete replacement for identity questions
         ariaPrompt = `You are Aria. Your name is Aria. You are a helpful AI assistant. 
 
@@ -1417,14 +1439,21 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
       .replace(/\bQwen3\b/gi, "Aria")
       .replace(/\bDeepSeek\b/gi, "Aria");
     
-    // Nuclear option: If ANY reference to wrong identity remains, replace entirely
-    if (fixed.toLowerCase().includes('monica') ||
-        fixed.toLowerCase().includes('qwen') || 
-        fixed.toLowerCase().includes('qwen3') ||
-        fixed.toLowerCase().includes('deepseek') ||
-        fixed.toLowerCase().includes('alibaba') ||
-        fixed.toLowerCase().includes('tongyi') ||
-        fixed.toLowerCase().match(/i('m| am) (?!aria)/i)) {
+    // Nuclear option: Only trigger for ACTUAL AI identity confusion, not user introductions
+    const hasActualIdentityConfusion = (
+      fixed.toLowerCase().includes('monica') ||
+      fixed.toLowerCase().includes('qwen') || 
+      fixed.toLowerCase().includes('qwen3') ||
+      fixed.toLowerCase().includes('deepseek') ||
+      fixed.toLowerCase().includes('alibaba') ||
+      fixed.toLowerCase().includes('tongyi') ||
+      // Only flag AI identity claims, not user statements
+      fixed.toLowerCase().match(/^(hi|hello).*i('m| am) (?!aria)/i) ||
+      fixed.toLowerCase().match(/my name is (?!aria)/i)
+    );
+    
+    if (hasActualIdentityConfusion) {
+      console.warn('[Companion] 🚨 AI identity confusion detected, using fallback response');
       fixed = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?";
     }
     
@@ -1432,7 +1461,7 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
   }
 
   // Auto-speak response with Aria's voice personality
-  async speakResponse(content) {
+  async speakResponse(content, customCallbacks = {}) {
     if (!content) {
       console.warn('[Companion] No content to speak');
       return;
@@ -1503,9 +1532,21 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
         rate: 0.9, // Slightly slower for clarity
         pitch: 1.1, // Slightly higher for warmth
         volume: 0.9,
-        onStart: () => console.log('[Companion] ✅ Aria speaking'),
-        onEnd: () => console.log('[Companion] ✅ Aria finished speaking'),
-        onError: (error) => console.error('[Companion] ❌ Speech error:', error)
+        onStart: () => {
+          console.log('[Companion] ✅ Aria speaking');
+          if (customCallbacks.onStart) {
+            console.log('[Companion] 🎤 Calling custom onStart callback');
+            customCallbacks.onStart();
+          }
+        },
+        onEnd: () => {
+          console.log('[Companion] ✅ Aria finished speaking');
+          if (customCallbacks.onEnd) customCallbacks.onEnd();
+        },
+        onError: (error) => {
+          console.error('[Companion] ❌ Speech error:', error);
+          if (customCallbacks.onError) customCallbacks.onError(error);
+        }
       });
     } catch (error) {
       console.error('[Companion] Speaking error:', error);

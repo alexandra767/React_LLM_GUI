@@ -211,7 +211,7 @@ class BarkVoiceService {
       }
 
       // Play the audio
-      await this.playAudioData(result.audio_data);
+      await this.playAudioData(result.audio_data, options.onStart);
       
       console.log('[BarkVoiceService] Speech completed successfully:', {
         duration: result.duration,
@@ -279,7 +279,7 @@ class BarkVoiceService {
           }
 
           // Play chunk and wait for completion
-          await this.playAudioData(result.audio_data);
+          await this.playAudioData(result.audio_data, options.onStart);
           
           chunkSuccess = true;
           successfulChunks++;
@@ -359,7 +359,7 @@ class BarkVoiceService {
     return chunks;
   }
 
-  async playAudioData(audioData) {
+  async playAudioData(audioData, onStart = null) {
     return new Promise((resolve, reject) => {
       // Declare variables in Promise scope to avoid scope issues
       let isResolved = false;
@@ -482,6 +482,11 @@ class BarkVoiceService {
         // Check browser autoplay policy
         audio.play().then(() => {
           console.log('[BarkVoiceService] Audio play() promise resolved successfully');
+          // Call onStart callback when audio actually starts playing
+          if (onStart && typeof onStart === 'function') {
+            console.log('[BarkVoiceService] 🎤 Audio started, calling onStart callback');
+            onStart();
+          }
         }).catch((playError) => {
           console.error('[BarkVoiceService] Audio play() failed:', playError);
           
