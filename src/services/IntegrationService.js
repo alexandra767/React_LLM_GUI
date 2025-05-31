@@ -432,6 +432,43 @@ class IntegrationService {
       return eventStr;
     }).join('\n\n');
   }
+
+  // Google Drive file operations (stub methods for web compatibility)
+  async uploadGoogleDriveFile(fileDetails) {
+    return {
+      content: `❌ File upload not supported in web mode. Please use the Electron version for full Google Drive functionality.`
+    };
+  }
+
+  async downloadGoogleDriveFile(fileDetails) {
+    return {
+      content: `❌ File download not supported in web mode. Please use the Electron version for full Google Drive functionality.`
+    };
+  }
+
+  async shareGoogleDriveFile(shareDetails) {
+    return {
+      content: `❌ File sharing not supported in web mode. Please use the Electron version for full Google Drive functionality.`
+    };
+  }
+
+  async deleteGoogleDriveFile(fileDetails) {
+    return {
+      content: `❌ File deletion not supported in web mode. Please use the Electron version for full Google Drive functionality.`
+    };
+  }
+
+  async createGoogleDriveFolder(folderDetails) {
+    return {
+      content: `❌ Folder creation not supported in web mode. Please use the Electron version for full Google Drive functionality.`
+    };
+  }
+
+  async moveGoogleDriveFile(moveDetails) {
+    return {
+      content: `❌ File moving not supported in web mode. Please use the Electron version for full Google Drive functionality.`
+    };
+  }
 }
 
 export default new IntegrationService();

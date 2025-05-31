@@ -872,6 +872,170 @@ class ElectronIntegrationService {
     }
   }
 
+  // Share file from Google Drive
+  async shareGoogleDriveFile(shareDetails) {
+    console.log('[ElectronIntegrationService] Sharing file from Drive:', shareDetails);
+    
+    try {
+      // Parse the share details (file name and optional email)
+      const parts = shareDetails.split(' ');
+      const fileName = parts[0];
+      const email = parts.slice(1).join(' ').trim() || null;
+      
+      if (!fileName) {
+        return {
+          content: `❌ Please provide a file name. Examples:\n• @drive-share report.pdf\n• @drive-share document.pdf john@example.com`
+        };
+      }
+      
+      // First search for the file
+      const files = await this.googleDriveService.listFiles(fileName, 10);
+      
+      if (files.length === 0) {
+        return {
+          content: `❌ No Google Drive files found matching "${fileName}"`
+        };
+      }
+      
+      const file = files[0]; // Use the most recently modified match
+      console.log('[ElectronIntegrationService] Sharing file:', file.name, file.id);
+      
+      // Share the file
+      const permissionResult = await this.googleDriveService.shareFile(file.id, email);
+      
+      let shareMessage = `✅ Successfully shared "${file.name}" from Google Drive!\n\n`;
+      
+      if (email) {
+        shareMessage += `📧 **Shared with:** ${email}\n`;
+        shareMessage += `🔗 **Access:** The user will receive an email notification\n`;
+      } else {
+        shareMessage += `🌐 **Public access:** Anyone with the link can view\n`;
+        shareMessage += `🔗 **Share link:** https://drive.google.com/file/d/${file.id}/view\n`;
+      }
+      
+      shareMessage += `📊 **File Info:**\n`;
+      shareMessage += `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n`;
+      shareMessage += `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n`;
+      shareMessage += `• Modified: ${new Date(file.modifiedTime).toLocaleString()}`;
+      
+      return {
+        content: shareMessage
+      };
+      
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to share file:', error);
+      
+      if (error.message.includes('not configured')) {
+        return {
+          content: `❌ Google Drive not configured. Please add your Google Client ID in Settings.`
+        };
+      }
+      
+      return {
+        content: `❌ Share failed: ${error.message}`
+      };
+    }
+  }
+
+  // Create folder in Google Drive
+  async createGoogleDriveFolder(folderDetails) {
+    console.log('[ElectronIntegrationService] Creating folder in Drive:', folderDetails);
+    
+    try {
+      // Parse folder details (remove 'folder' keyword and quotes)
+      let folderName = folderDetails.replace(/^folder\s+/i, '').trim();
+      
+      // Remove quotes if present
+      if ((folderName.startsWith('"') && folderName.endsWith('"')) ||
+          (folderName.startsWith("'") && folderName.endsWith("'"))) {
+        folderName = folderName.slice(1, -1);
+      }
+      
+      if (!folderName) {
+        return {
+          content: `❌ Please provide a folder name. Example: @drive-create folder "My Project"`
+        };
+      }
+      
+      // Create the folder
+      const createdFolder = await this.googleDriveService.createFolder(folderName);
+      
+      return {
+        content: `✅ Successfully created folder "${createdFolder.name}" in Google Drive!\n\n📁 **Folder Info:**\n• ID: ${createdFolder.id}\n• Created: ${new Date().toLocaleString()}\n🔗 **View:** https://drive.google.com/drive/folders/${createdFolder.id}`
+      };
+      
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to create folder:', error);
+      
+      if (error.message.includes('not configured')) {
+        return {
+          content: `❌ Google Drive not configured. Please add your Google Client ID in Settings.`
+        };
+      }
+      
+      return {
+        content: `❌ Folder creation failed: ${error.message}`
+      };
+    }
+  }
+
+  // Move file to folder in Google Drive
+  async moveGoogleDriveFile(moveDetails) {
+    console.log('[ElectronIntegrationService] Moving file in Drive:', moveDetails);
+    
+    try {
+      // Parse move details (file and folder names in quotes)
+      const quoteMatches = moveDetails.match(/"([^"]+)"/g);
+      
+      if (!quoteMatches || quoteMatches.length < 2) {
+        return {
+          content: `❌ Please provide file and folder names in quotes. Example: @drive-move "report.pdf" "Projects"`
+        };
+      }
+      
+      const fileName = quoteMatches[0].slice(1, -1); // Remove quotes
+      const folderName = quoteMatches[1].slice(1, -1); // Remove quotes
+      
+      // Search for the file
+      const files = await this.googleDriveService.listFiles(fileName, 10);
+      if (files.length === 0) {
+        return {
+          content: `❌ No files found matching "${fileName}"`
+        };
+      }
+      
+      // Search for the folder
+      const folders = await this.googleDriveService.listFiles(`name:'${folderName}' and mimeType:'application/vnd.google-apps.folder'`, 10);
+      if (folders.length === 0) {
+        return {
+          content: `❌ No folders found matching "${folderName}"`
+        };
+      }
+      
+      const file = files[0];
+      const folder = folders[0];
+      
+      // Note: Moving files requires updating the file's parents in Google Drive API
+      // This would need a new method in GoogleDriveService
+      return {
+        content: `📋 **Move Request:** "${file.name}" → "${folder.name}"\n\n⚠️ **Note:** File moving functionality requires additional Google Drive API implementation.\n\n🔗 **Manual Option:**\n• File: https://drive.google.com/file/d/${file.id}/view\n• Folder: https://drive.google.com/drive/folders/${folder.id}\n\n💡 *You can manually move the file using the Google Drive web interface*`
+      };
+      
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to move file:', error);
+      
+      if (error.message.includes('not configured')) {
+        return {
+          content: `❌ Google Drive not configured. Please add your Google Client ID in Settings.`
+        };
+      }
+      
+      return {
+        content: `❌ Move failed: ${error.message}`
+      };
+    }
+  }
+
   // Parse event details from natural language
   parseEventDetails(eventDetails) {
     const now = new Date();

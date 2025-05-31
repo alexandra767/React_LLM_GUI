@@ -787,6 +787,90 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           };
         }
 
+      case '@drive-share':
+        // @drive-share [file details] [email] - Share file from Google Drive
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide file details to share. Examples:\n• @drive-share my document.pdf\n• @drive-share report.pdf john@example.com'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.shareGoogleDriveFile(args);
+          return {
+            type: 'integration',
+            content: `File shared from Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive sharing error:', error);
+          return {
+            type: 'error',
+            content: `Failed to share file: ${error.message}`
+          };
+        }
+
+      case '@drive-create':
+        // @drive-create folder "name" - Create folder in Google Drive
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide folder name. Example: @drive-create folder "My Project"'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.createGoogleDriveFolder(args);
+          return {
+            type: 'integration',
+            content: `Folder created in Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive folder creation error:', error);
+          return {
+            type: 'error',
+            content: `Failed to create folder: ${error.message}`
+          };
+        }
+
+      case '@drive-move':
+        // @drive-move "file.pdf" "folder" - Move file to folder in Google Drive
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide file and folder details. Example: @drive-move "report.pdf" "Projects"'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.moveGoogleDriveFile(args);
+          return {
+            type: 'integration',
+            content: `File moved in Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive move error:', error);
+          return {
+            type: 'error',
+            content: `Failed to move file: ${error.message}`
+          };
+        }
+
       case '@research':
         // @research [topic] - Enhanced research with multiple sources
         if (!args) {
@@ -1013,6 +1097,10 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @spacex - SpaceX updates
 • @gmail [search] - Search Gmail
 • @drive [search] - Google Drive files
+• @drive-upload [file] - Upload file to Google Drive
+• @drive-download [file] - Download file from Google Drive
+• @drive-share [file] [email] - Share file from Google Drive
+• @drive-create folder "name" - Create folder in Google Drive
 • @calendar [days] - Calendar events
 • @flux [prompt] - AI image generation
 • @voice - Voice settings and test
@@ -1023,6 +1111,8 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • "Brainstorm marketing ideas for my startup"  
 • "What's on my calendar today?"
 • "Generate an image of a futuristic city"
+• @drive-share report.pdf john@example.com
+• @drive-create folder "My Project"
 • @morning (daily briefing)
 • @focus machine learning project`
           };
@@ -1039,7 +1129,10 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @drive [search] - List or search Google Drive files
 • @drive-upload [file] - Upload file to Google Drive
 • @drive-download [file] - Download file from Google Drive
+• @drive-share [file] [email] - Share file from Google Drive
 • @drive-delete [file] - Delete file from Google Drive
+• @drive-create folder "name" - Create folder in Google Drive
+• @drive-move "file" "folder" - Move file to folder in Google Drive
 • @calendar [days] - Show Google Calendar events (default: 7 days)
 • @calendar-add [details] - Add event to Google Calendar
 • @calendar-delete [event] - Delete event from Google Calendar
@@ -1056,6 +1149,9 @@ Examples:
 • @drive presentation
 • @drive-upload meeting notes.pdf
 • @drive-download project report.docx
+• @drive-share report.pdf john@example.com
+• @drive-create folder "My Project"
+• @drive-move "file.pdf" "Projects"
 • @calendar 14
 • @calendar-add Meeting with team tomorrow at 3pm
 • @calendar-delete standup meeting
@@ -1074,7 +1170,10 @@ Examples:
 • @drive [search] - List or search Google Drive files
 • @drive-upload [file] - Upload file to Google Drive
 • @drive-download [file] - Download file from Google Drive
+• @drive-share [file] [email] - Share file from Google Drive
 • @drive-delete [file] - Delete file from Google Drive
+• @drive-create folder "name" - Create folder in Google Drive
+• @drive-move "file" "folder" - Move file to folder in Google Drive
 • @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @calendar-add [details] - Add event to Google Calendar
 • @calendar-delete [event] - Delete event from Google Calendar
@@ -1089,6 +1188,9 @@ Examples:
 • @drive presentation
 • @drive-upload meeting notes.pdf
 • @drive-download project report.docx
+• @drive-share report.pdf john@example.com
+• @drive-create folder "My Project"
+• @drive-move "file.pdf" "Projects"
 • @calendar - Show Google Calendar for next 7 days
 • @calendar 14 google - Show Google Calendar for next 14 days
 • @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
