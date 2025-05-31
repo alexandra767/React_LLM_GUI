@@ -328,6 +328,154 @@ class MemoryAdapter {
     return Math.min(importance, 1.0);
   }
   
+  // Add interest information
+  addInterest(topic, action = 'discussed', metadata = {}) {
+    try {
+      const timestamp = new Date().toISOString();
+      const existing = this.memories.interests.get(topic) || {
+        frequency: 0,
+        lastDiscussion: null,
+        contexts: []
+      };
+      
+      existing.frequency += 1;
+      existing.lastDiscussion = timestamp;
+      existing.contexts.push({
+        action,
+        metadata,
+        timestamp
+      });
+      
+      // Keep only last 10 contexts to prevent memory bloat
+      if (existing.contexts.length > 10) {
+        existing.contexts = existing.contexts.slice(-10);
+      }
+      
+      this.memories.interests.set(topic, existing);
+      this.saveMemories();
+      
+      console.log(`[MemoryAdapter] Added interest: ${topic} (${action})`);
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to add interest:', error);
+    }
+  }
+  
+  // Add personal information
+  addPersonalInfo(key, value, source = 'conversation') {
+    try {
+      const timestamp = new Date().toISOString();
+      this.memories.personal.set(key, {
+        value,
+        timestamp,
+        source,
+        confidence: 0.8
+      });
+      
+      this.saveMemories();
+      console.log(`[MemoryAdapter] Added personal info: ${key} = ${value}`);
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to add personal info:', error);
+    }
+  }
+  
+  // Add relationship information
+  addRelationship(name, type, metadata = {}) {
+    try {
+      const timestamp = new Date().toISOString();
+      this.memories.relationships.set(name, {
+        type,
+        metadata,
+        timestamp,
+        source: 'conversation'
+      });
+      
+      this.saveMemories();
+      console.log(`[MemoryAdapter] Added relationship: ${name} (${type})`);
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to add relationship:', error);
+    }
+  }
+  
+  // Add conversation to memory
+  addConversation(userMessage, assistantMessage, metadata = {}) {
+    try {
+      const timestamp = new Date().toISOString();
+      const importance = this.calculateImportance(userMessage, assistantMessage);
+      
+      // Clean messages to prevent identity confusion
+      const cleanedAssistantMessage = this.sanitizeMessage(assistantMessage);
+      
+      const conversation = {
+        timestamp,
+        userMessage: userMessage.substring(0, 1000), // Limit length
+        assistantMessage: cleanedAssistantMessage.substring(0, 1000),
+        importance,
+        metadata
+      };
+      
+      this.memories.conversations.push(conversation);
+      
+      // Keep only last 100 conversations to prevent memory bloat
+      if (this.memories.conversations.length > 100) {
+        this.memories.conversations = this.memories.conversations.slice(-100);
+      }
+      
+      this.saveMemories();
+      console.log(`[MemoryAdapter] Added conversation (importance: ${importance.toFixed(2)})`);
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to add conversation:', error);
+    }
+  }
+  
+  // Migration methods for compatibility
+  async migrateFromLocalStorage() {
+    try {
+      console.log('[MemoryAdapter] Migration from localStorage already handled by UnifiedStorageService');
+      return true;
+    } catch (error) {
+      console.error('[MemoryAdapter] Migration failed:', error);
+      return false;
+    }
+  }
+  
+  async addAlexandraName() {
+    try {
+      if (!this.memories.personal.has('name') && !this.memories.personal.has('user_name')) {
+        this.addPersonalInfo('name', 'Alexandra', 'default');
+        this.addPersonalInfo('user_name', 'Alexandra', 'default');
+        console.log('[MemoryAdapter] Added Alexandra name to memory');
+      }
+      return true;
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to add Alexandra name:', error);
+      return false;
+    }
+  }
+  
+  async cleanStoredIdentity() {
+    try {
+      // Clean any stored identity confusion in conversations
+      let cleanedCount = 0;
+      this.memories.conversations = this.memories.conversations.map(conv => {
+        const cleaned = this.sanitizeConversation(conv);
+        if (cleaned.assistantMessage !== conv.assistantMessage) {
+          cleanedCount++;
+        }
+        return cleaned;
+      });
+      
+      if (cleanedCount > 0) {
+        await this.saveMemories();
+        console.log(`[MemoryAdapter] Cleaned ${cleanedCount} conversations with identity confusion`);
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to clean stored identity:', error);
+      return false;
+    }
+  }
+
   // Get memory statistics
   getMemoryStats() {
     return {
