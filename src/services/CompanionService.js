@@ -625,9 +625,10 @@ class CompanionService {
       'today\'s weather', 'weather today', 'how hot', 'how cold', 'weather like',
       'will it rain', 'is it raining', 'going to rain', 'weather forecast',
       'temperature today', 'degrees', 'celsius', 'fahrenheit', 'weather for',
-      'weather in', 'my location', 'current weather', 'local weather'
+      'weather in', 'my location', 'current weather', 'local weather',
+      'gt the weather', 'get the weather'  // Handle common typos
     ];
-    return weatherKeywords.some(keyword => message.includes(keyword));
+    return weatherKeywords.some(keyword => message.toLowerCase().includes(keyword.toLowerCase()));
   }
 
   // Generate contextual response with integrations
@@ -1220,7 +1221,15 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     const lowerMessage = message.toLowerCase();
     let query = '';
     
-    // Handle "my location" or "here" requests
+    // FIRST: Check if "my location" is followed by a specific address
+    const myLocationWithAddress = message.match(/my location\s+(.+)/i);
+    if (myLocationWithAddress && myLocationWithAddress[1]?.trim()) {
+      const address = myLocationWithAddress[1].trim();
+      console.log('[Companion] Found specific address after "my location":', address);
+      return address;
+    }
+    
+    // THEN: Handle generic "my location" or "here" requests (no specific address)
     if (lowerMessage.includes('my location') || lowerMessage.includes(' here') || 
         lowerMessage.includes('where i am') || lowerMessage.includes('current location')) {
       return ''; // Will trigger location detection
@@ -1228,6 +1237,7 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     
     // Extract location from various weather patterns
     const weatherPatterns = [
+      /(?:get|gt)\s+(?:the\s+)?weather (?:for|in) (.+)/i,  // Handle "get/gt the weather for [location]"
       /weather (?:in|for) (.+)/i,
       /temperature (?:in|for) (.+)/i,
       /forecast (?:in|for) (.+)/i,
