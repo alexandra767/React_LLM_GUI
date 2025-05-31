@@ -2,7 +2,7 @@
 
 Advanced AI Assistant with Voice Synthesis and Multi-Modal Capabilities
 
-**Current Version:** 1.0.1  
+**Current Version:** 1.0.2  
 **Last Updated:** 5/30/2025  
 **Repository:** [https://github.com/alexandra767/React_LLM_GUI](https://github.com/alexandra767/React_LLM_GUI)  
 
@@ -77,11 +77,13 @@ First stable release with comprehensive voice synthesis, memory optimization, an
 ## 📊 Development Info
 
 **Current Branch:** feature/M4  
-**Latest Commit:** e4ac060  
-**Total Commits:** 79  
+**Latest Commit:** d2c853d  
+**Total Commits:** 81  
 
 ### Recent Commits
 
+- `d2c853d` fix: improve memory context loading and reduce identity protection aggressiveness
+- `37678df` chore: bump version to 1.0.1 and update changelog
 - `e4ac060` feat: enhance Google Drive integration with comprehensive file operations
 - `883c825` fix: resolve weather detection for "my location [address]" pattern
 - `65ca3f4` fix: improve weather detection and location handling
@@ -90,8 +92,6 @@ First stable release with comprehensive voice synthesis, memory optimization, an
 - `5af2dc3` debug: add context debugging and prompt improvements
 - `5479231` fix: resolve undefined variable scope in voice callback
 - `1892ed1` feat: sync text display with voice playback timing
-- `f16b37c` feat: consolidate storage architecture and fix memory issues
-- `4d10336` feat: add Google Drive OAuth setup utilities
 
 ---
 
