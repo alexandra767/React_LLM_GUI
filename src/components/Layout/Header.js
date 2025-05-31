@@ -3,6 +3,7 @@ import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
 import ProgressBar from '../Chat/ProgressBar';
+import VersionInfo from '../Common/VersionInfo';
 
 const HeaderContainer = styled('header')({
   backgroundColor: '#1E1E1E',
@@ -27,6 +28,14 @@ const HeaderTitle = styled('h1')({
   color: '#FFFFFF',
   margin: 0,
   opacity: 0.9
+});
+
+const VersionSelector = styled('div')({
+  position: 'absolute',
+  left: '24px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px'
 });
 
 const ModelSelector = styled('div')({
@@ -92,6 +101,10 @@ const Header = ({ selectedModel, onModelChange, models = [] }) => {
   return (
     <HeaderContainer>
       <HeaderContent>
+        <VersionSelector>
+          <VersionInfo />
+        </VersionSelector>
+        
         <HeaderTitle>Sephia</HeaderTitle>
         
         <ModelSelector>

@@ -4,6 +4,12 @@ const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const isDev = require('electron-is-dev');
+
+// Version Info
+const VERSION = '1.0.0';
+console.log(`[Main] Sephia v${VERSION} starting...`);
+console.log(`[Main] Build date: 2025-05-31T01:13:28.296Z`);
+console.log(`[Main] Platform: ${process.platform} ${process.arch}`);
 const electronLog = require('electron-log');
 const https = require('https');
 
@@ -23,8 +29,11 @@ app.commandLine.appendSwitch('ignore-ssl-errors'); // Allow HTTPS connections to
 app.commandLine.appendSwitch('allow-insecure-localhost'); // Allow local connections
 app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor,RendererCodeIntegrity'); // Disable restrictions
 
-// Terminal process management
+// Process management
 let terminalProcess = null;
+const childProcesses = new Set();
+const backgroundServices = new Set();
+let isQuitting = false;
 
 // Configure logging
 electronLog.transports.file.level = 'debug';
@@ -168,7 +177,18 @@ function createWindow() {
     });
 
     mainWindow.on('closed', () => {
+      console.log('[Main] Main window closed');
       mainWindow = null;
+    });
+    
+    // Handle window close request for proper cleanup
+    mainWindow.on('close', (event) => {
+      console.log('[Main] Window close requested');
+      if (!isQuitting) {
+        console.log('[Main] Preventing immediate close for cleanup');
+        event.preventDefault();
+        cleanupAndQuit();
+      }
     });
   } catch (err) {
     console.error('Failed to create BrowserWindow:', err);
@@ -230,10 +250,7 @@ function createWindow() {
 
 
 
-  // Emitted when the window is closed
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  // Additional cleanup on window events handled above
 }
 
 // Speech Recognition IPC Handlers
@@ -300,10 +317,14 @@ function setupTerminalHandlers() {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, FORCE_COLOR: '1' }
       });
+      
+      // Track this process for cleanup
+      addChildProcess(terminalProcess);
 
       // Handle process exit
       terminalProcess.on('exit', (code) => {
         console.log(`Terminal process exited with code ${code}`);
+        removeChildProcess(terminalProcess);
         if (mainWindow) {
           mainWindow.webContents.send('terminal:exit', { code });
         }
@@ -492,9 +513,157 @@ function setupAppleScriptHandlers() {
   });
 }
 
+// Process cleanup functions
+function addChildProcess(process) {
+  if (process && process.pid) {
+    childProcesses.add(process);
+    console.log('[Main] Added child process:', process.pid);
+  }
+}
+
+function removeChildProcess(process) {
+  if (process) {
+    childProcesses.delete(process);
+    console.log('[Main] Removed child process:', process.pid);
+  }
+}
+
+function addBackgroundService(serviceInfo) {
+  backgroundServices.add(serviceInfo);
+  console.log('[Main] Added background service:', serviceInfo.name);
+}
+
+function killAllChildProcesses() {
+  console.log('[Main] Killing all child processes...', childProcesses.size);
+  
+  for (const process of childProcesses) {
+    try {
+      if (process && process.pid && !process.killed) {
+        console.log('[Main] Killing child process:', process.pid);
+        process.kill('SIGTERM');
+        
+        // Force kill after 2 seconds if still running
+        setTimeout(() => {
+          if (!process.killed) {
+            console.log('[Main] Force killing process:', process.pid);
+            process.kill('SIGKILL');
+          }
+        }, 2000);
+      }
+    } catch (error) {
+      console.error('[Main] Error killing process:', error);
+    }
+  }
+  
+  childProcesses.clear();
+}
+
+function killBackgroundServices() {
+  console.log('[Main] Killing background services...', backgroundServices.size);
+  const { exec } = require('child_process');
+  
+  for (const service of backgroundServices) {
+    try {
+      console.log('[Main] Killing background service:', service.name, service.pattern);
+      
+      if (service.port) {
+        // Kill by port
+        exec(`lsof -ti:${service.port} | xargs kill -9 2>/dev/null || true`, (error) => {
+          if (!error) {
+            console.log('[Main] Killed service on port:', service.port);
+          }
+        });
+      }
+      
+      if (service.pattern) {
+        // Kill by process pattern
+        exec(`pkill -f "${service.pattern}" 2>/dev/null || true`, (error) => {
+          if (!error) {
+            console.log('[Main] Killed service matching:', service.pattern);
+          }
+        });
+      }
+      
+      if (service.command) {
+        // Execute custom kill command
+        exec(service.command, (error) => {
+          if (!error) {
+            console.log('[Main] Executed custom kill command for:', service.name);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('[Main] Error killing background service:', service.name, error);
+    }
+  }
+  
+  backgroundServices.clear();
+}
+
+function cleanupAndQuit() {
+  if (isQuitting) {
+    console.log('[Main] Already quitting, ignoring additional cleanup requests');
+    return;
+  }
+  
+  console.log('[Main] Starting cleanup process...');
+  isQuitting = true;
+  
+  // Hide window immediately to give impression of quick close
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.hide();
+  }
+  
+  // Start cleanup process
+  Promise.race([
+    // Cleanup process with timeout
+    new Promise((resolve) => {
+      // Kill terminal process
+      if (terminalProcess) {
+        console.log('[Main] Killing terminal process');
+        terminalProcess.kill();
+        terminalProcess = null;
+      }
+      
+      // Kill all child processes
+      killAllChildProcesses();
+      
+      // Kill background services
+      killBackgroundServices();
+      
+      // Wait a bit for processes to die gracefully
+      setTimeout(() => {
+        console.log('[Main] Cleanup completed');
+        resolve();
+      }, 3000);
+    }),
+    
+    // Timeout to force quit if cleanup takes too long
+    new Promise((resolve) => {
+      setTimeout(() => {
+        console.log('[Main] Cleanup timeout reached, forcing quit');
+        resolve();
+      }, 5000);
+    })
+  ]).then(() => {
+    console.log('[Main] Cleanup finished, quitting app');
+    app.quit();
+  }).catch((error) => {
+    console.error('[Main] Error during cleanup:', error);
+    app.quit();
+  });
+}
+
 // System Process Handler
 function setupSystemHandlers() {
   const { exec } = require('child_process');
+  
+  // Register background service for tracking
+  ipcMain.handle('system:registerService', async (event, serviceInfo) => {
+    console.log('[Main] Registering background service:', serviceInfo);
+    addBackgroundService(serviceInfo);
+    return true;
+  });
   
   // Kill process by name pattern
   ipcMain.handle('system:killProcess', async (event, processPattern) => {
@@ -530,6 +699,13 @@ function setupSystemHandlers() {
         resolve(true);
       });
     });
+  });
+  
+  // Force cleanup and quit
+  ipcMain.handle('system:forceQuit', async (event) => {
+    console.log('[Main] Force quit requested');
+    cleanupAndQuit();
+    return true;
   });
 }
 
@@ -628,6 +804,76 @@ function setupFileSystemHandlers() {
     }
   });
 
+  // Get userData directory path
+  ipcMain.handle('fs:getUserDataPath', async (event) => {
+    try {
+      return app.getPath('userData');
+    } catch (error) {
+      console.error('[Main] Failed to get userData path:', error);
+      throw error;
+    }
+  });
+
+  // Storage API for userData directory
+  ipcMain.handle('storage:set', async (event, key, value) => {
+    try {
+      const userDataPath = app.getPath('userData');
+      const storageDir = path.join(userDataPath, 'sephia-storage');
+      await fs.promises.mkdir(storageDir, { recursive: true });
+      
+      const filePath = path.join(storageDir, `${key}.json`);
+      const data = {
+        key: key,
+        value: value,
+        timestamp: new Date().toISOString()
+      };
+      
+      await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf8');
+      console.log(`[Main] Stored ${key} in userData`);
+      return true;
+    } catch (error) {
+      console.error(`[Main] Failed to store ${key}:`, error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('storage:get', async (event, key) => {
+    try {
+      const userDataPath = app.getPath('userData');
+      const storageDir = path.join(userDataPath, 'sephia-storage');
+      const filePath = path.join(storageDir, `${key}.json`);
+      
+      const data = await fs.promises.readFile(filePath, 'utf8');
+      const parsed = JSON.parse(data);
+      console.log(`[Main] Retrieved ${key} from userData`);
+      return parsed.value;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return null; // File doesn't exist
+      }
+      console.error(`[Main] Failed to retrieve ${key}:`, error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('storage:remove', async (event, key) => {
+    try {
+      const userDataPath = app.getPath('userData');
+      const storageDir = path.join(userDataPath, 'sephia-storage');
+      const filePath = path.join(storageDir, `${key}.json`);
+      
+      await fs.promises.unlink(filePath);
+      console.log(`[Main] Removed ${key} from userData`);
+      return true;
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        return true; // File doesn't exist, consider it removed
+      }
+      console.error(`[Main] Failed to remove ${key}:`, error);
+      throw error;
+    }
+  });
+
   // Delete file
   ipcMain.handle('fs:deleteFile', async (event, filePath) => {
     try {
@@ -699,11 +945,29 @@ app.whenReady().then(() => {
   app.quit();
 });
 
-// Quit when all windows are closed, except on macOS
+// App event handlers for proper shutdown
+app.on('before-quit', (event) => {
+  console.log('[Main] App before-quit event');
+  if (!isQuitting) {
+    console.log('[Main] Preventing quit for cleanup');
+    event.preventDefault();
+    cleanupAndQuit();
+  }
+});
+
 app.on('window-all-closed', () => {
-  console.log('All windows closed, quitting...');
-  if (process.platform !== 'darwin') {
-    app.quit();
+  console.log('[Main] All windows closed');
+  if (!isQuitting) {
+    cleanupAndQuit();
+  }
+});
+
+app.on('will-quit', (event) => {
+  console.log('[Main] App will-quit event');
+  if (!isQuitting) {
+    console.log('[Main] Preventing will-quit for cleanup');
+    event.preventDefault();
+    cleanupAndQuit();
   }
 });
 

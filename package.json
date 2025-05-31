@@ -1,6 +1,6 @@
 {
   "name": "sephia",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "main": "electron/main.js",
   "homepage": "./",
@@ -37,7 +37,13 @@
     "eject": "react-scripts eject",
     "electron:start": "electron .",
     "electron:dev": "cross-env DEBUG=electron:*,concurrently,wait-on concurrently -k \"cross-env BROWSER=none PORT=3000 react-scripts start\" \"wait-on http://localhost:3000 && electron .\"",
-    "electron:build": "node scripts/generate-icons.js && npm run build && electron-builder build --mac --publish never"
+    "electron:build": "node scripts/generate-icons.js && npm run build && electron-builder build --mac --publish never",
+    "version:patch": "npm version patch --no-git-tag-version && npm run version:update",
+    "version:minor": "npm version minor --no-git-tag-version && npm run version:update",
+    "version:major": "npm version major --no-git-tag-version && npm run version:update",
+    "version:update": "node scripts/update-version.js",
+    "version:display": "node scripts/show-version.js",
+    "changelog": "node scripts/generate-changelog.js"
   },
   "eslintConfig": {
     "extends": [

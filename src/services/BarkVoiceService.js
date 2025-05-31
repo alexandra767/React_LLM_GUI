@@ -11,9 +11,14 @@ class BarkVoiceService {
     this.voices = [];
     this.currentVoice = this.getUserSelectedVoice() || 'v2/en_speaker_9'; // Default to Speaker 9 (Gentle, soft-spoken)
     this.isServerRunning = false;
+    this.activeAudioElements = new Set();
+    this.audioCleanupInterval = null;
     
     // Initialize service
     this.init();
+    
+    // Register shutdown handlers
+    this.registerShutdownHandlers();
   }
 
   // Get user's selected Bark voice from settings
@@ -368,6 +373,11 @@ class BarkVoiceService {
       let audio = null;
       
       try {
+        // Ensure activeAudioElements is initialized
+        if (!this.activeAudioElements) {
+          this.activeAudioElements = new Set();
+        }
+        
         console.log('[BarkVoiceService] Processing audio data:', {
           type: typeof audioData,
           length: audioData?.length || 'unknown',
@@ -402,6 +412,9 @@ class BarkVoiceService {
         // Add protection flag to prevent interruption
         audio.setAttribute('data-bark-speech', 'true');
         
+        // Track this audio element for cleanup
+        this.activeAudioElements.add(audio);
+        
         // Add more detailed event listeners for debugging
         audio.onloadstart = () => {
           console.log('[BarkVoiceService] Audio loading started');
@@ -427,11 +440,12 @@ class BarkVoiceService {
           console.log('[BarkVoiceService] Audio playback completed naturally');
           if (!isResolved) {
             isResolved = true;
-            // Timeout removed - no need to clear
             // Clean up blob URL if we created one
             if (audioData instanceof Blob) {
               URL.revokeObjectURL(audioUrl);
             }
+            // Remove from active elements tracking
+            this.activeAudioElements.delete(audio);
             // Add small delay to ensure audio system has fully finished
             setTimeout(() => {
               resolve();
@@ -450,11 +464,12 @@ class BarkVoiceService {
           
           if (!isResolved) {
             isResolved = true;
-            // Timeout removed - no need to clear
             // Clean up blob URL if we created one
             if (audioData instanceof Blob) {
               URL.revokeObjectURL(audioUrl);
             }
+            // Remove from active elements tracking
+            this.activeAudioElements.delete(audio);
             reject(new Error(`Audio playback failed: ${audio.error?.message || 'Unknown error'}`));
           }
         };
@@ -563,32 +578,43 @@ class BarkVoiceService {
   }
 
   async stop() {
-    // Stop any currently playing audio, but be gentle with ongoing Bark speech
+    // Stop any currently playing audio, but be extremely conservative with ongoing Bark speech
     const audioElements = document.querySelectorAll('audio');
     let barkAudioCount = 0;
+    let preservedAudioCount = 0;
     
     audioElements.forEach(audio => {
       // Check if this is Bark-generated speech
       if (audio.getAttribute('data-bark-speech') === 'true') {
         barkAudioCount++;
-        // Only stop if explicitly requested or if audio is not currently playing
-        if (!audio.currentTime || audio.paused || audio.ended) {
+        
+        // Only stop Bark audio if it's clearly finished or has problems
+        if (audio.ended || (audio.paused && audio.currentTime === 0)) {
+          // Audio is clearly finished, safe to clean up
           audio.pause();
           audio.currentTime = 0;
-        } else {
-          console.log('[BarkVoiceService] Preserving ongoing Bark speech');
+          console.log('[BarkVoiceService] Cleaned up finished Bark audio');
+        } else if (!audio.paused && audio.currentTime > 0) {
+          // Audio is actively playing - preserve it completely
+          preservedAudioCount++;
+          console.log('[BarkVoiceService] Preserving active Bark speech (playing for', audio.currentTime.toFixed(1), 'seconds)');
+        } else if (audio.paused && audio.currentTime > 0) {
+          // Audio is paused but has content - might be temporarily paused, preserve it
+          preservedAudioCount++;
+          console.log('[BarkVoiceService] Preserving paused Bark speech');
         }
       } else {
-        // Stop non-Bark audio immediately
+        // Stop non-Bark audio immediately (browser TTS, etc.)
         audio.pause();
         audio.currentTime = 0;
       }
     });
     
-    console.log('[BarkVoiceService] Audio management:', {
+    console.log('[BarkVoiceService] Conservative audio management:', {
       totalElements: audioElements.length,
       barkAudioElements: barkAudioCount,
-      action: 'selective stop'
+      preservedAudioElements: preservedAudioCount,
+      action: 'preserve active speech'
     });
   }
 
@@ -705,6 +731,167 @@ class BarkVoiceService {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  // MEMORY FIX: Audio cleanup methods
+  startAudioCleanupRoutine() {
+    // Clean up audio elements every 30 seconds
+    this.audioCleanupInterval = setInterval(() => {
+      this.cleanupOldAudioElements();
+    }, 30000);
+    
+    console.log('[BarkVoiceService] 🧹 Audio cleanup routine started');
+  }
+
+  cleanupAudioElement(audio, audioUrl, isBlobUrl) {
+    try {
+      // Remove from tracking
+      this.activeAudioElements.delete(audio);
+      
+      // Clean up blob URL if we created one
+      if (isBlobUrl && audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+      
+      // Remove audio element from DOM if it was added
+      if (audio.parentNode) {
+        audio.parentNode.removeChild(audio);
+      }
+      
+      // Clear all event listeners by cloning and replacing
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onplay = null;
+      audio.onpause = null;
+      audio.onloadstart = null;
+      audio.oncanplay = null;
+      
+      console.log('[BarkVoiceService] 🧹 Audio element cleaned up');
+    } catch (error) {
+      console.warn('[BarkVoiceService] Error during audio cleanup:', error);
+    }
+  }
+
+  cleanupOldAudioElements() {
+    let cleanedCount = 0;
+    
+    // Only clean up truly finished audio elements, never interrupt active speech
+    this.activeAudioElements.forEach(audio => {
+      try {
+        // Only clean up if audio is completely finished (ended) and not currently playing
+        if (audio.ended && audio.currentTime > 0) {
+          this.activeAudioElements.delete(audio);
+          
+          // Clean up blob URLs
+          if (audio.src && audio.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audio.src);
+          }
+          
+          cleanedCount++;
+        } else if (audio.currentTime === 0 && audio.paused && audio.readyState === 0) {
+          // Only clean up if audio never started playing (failed to load)
+          this.activeAudioElements.delete(audio);
+          
+          if (audio.src && audio.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audio.src);
+          }
+          
+          cleanedCount++;
+        }
+        // Never clean up paused or actively playing audio
+      } catch (error) {
+        // Only remove audio elements that throw errors (broken references)
+        this.activeAudioElements.delete(audio);
+        cleanedCount++;
+      }
+    });
+    
+    if (cleanedCount > 0) {
+      console.log(`[BarkVoiceService] 🧹 Safely cleaned up ${cleanedCount} finished audio elements (preserved active speech)`);
+    }
+  }
+
+  // Register shutdown handlers for proper cleanup
+  registerShutdownHandlers() {
+    // Register Bark TTS server as a background service for cleanup
+    if (window.electron?.registerBackgroundService) {
+      window.electron.registerBackgroundService({
+        name: 'Bark TTS Server',
+        port: 8189,
+        pattern: 'bark_tts_server.py',
+        command: 'pkill -f "bark.*server" 2>/dev/null || pkill -f "python.*bark" 2>/dev/null || true'
+      }).catch(error => {
+        console.warn('[BarkVoiceService] Failed to register for cleanup:', error);
+      });
+    }
+    
+    // Handle page unload/refresh
+    window.addEventListener('beforeunload', () => {
+      this.destroy();
+    });
+    
+    // Handle visibility change (app minimized/hidden)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        // Don't stop audio when app is hidden, just cleanup finished audio
+        this.cleanupOldAudioElements();
+      }
+    });
+  }
+  
+  // Clean up all audio elements and stop cleanup routine
+  destroy() {
+    console.log('[BarkVoiceService] 🧹 Destroying service and cleaning up all audio');
+    
+    // Stop cleanup routine
+    if (this.audioCleanupInterval) {
+      clearInterval(this.audioCleanupInterval);
+      this.audioCleanupInterval = null;
+    }
+    
+    // Clean up all active audio elements
+    if (this.activeAudioElements) {
+      this.activeAudioElements.forEach(audio => {
+        try {
+          audio.pause();
+          if (audio.src && audio.src.startsWith('blob:')) {
+            URL.revokeObjectURL(audio.src);
+          }
+        } catch (error) {
+          console.warn('[BarkVoiceService] Error cleaning up audio element:', error);
+        }
+      });
+      
+      this.activeAudioElements.clear();
+    }
+    
+    console.log('[BarkVoiceService] 🧹 Service destroyed and audio cleaned up');
+  }
+  
+  // Force cleanup of Bark server processes
+  async forceCleanupServer() {
+    console.log('[BarkVoiceService] Force cleaning up Bark TTS server...');
+    
+    if (window.electron?.killProcess && window.electron?.killPort) {
+      try {
+        // Kill by port
+        await window.electron.killPort(8189);
+        console.log('[BarkVoiceService] Killed processes on port 8189');
+        
+        // Kill by process pattern
+        await window.electron.killProcess('bark_tts_server.py');
+        await window.electron.killProcess('python.*bark');
+        console.log('[BarkVoiceService] Killed Bark processes by pattern');
+        
+        return true;
+      } catch (error) {
+        console.error('[BarkVoiceService] Failed to cleanup server:', error);
+        return false;
+      }
+    } else {
+      console.warn('[BarkVoiceService] Electron process management not available');
+      return false;
     }
   }
 

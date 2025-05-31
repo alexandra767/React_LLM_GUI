@@ -15,6 +15,7 @@ import integrationService from '../../services/IntegrationService';
 import VoiceStatus from './VoiceStatus';
 import networkStatusService from '../../services/NetworkStatusService';
 import unifiedStorageService from '../../services/UnifiedStorageService';
+import VersionInfo from '../Common/VersionInfo';
 
 const SettingsContainer = styled('div')({
   display: 'flex',
@@ -2493,6 +2494,11 @@ const SettingsView = () => {
             Refresh Status
           </ModelButton>
         </SettingItem>
+      </SettingsSection>
+
+      <SettingsSection>
+        <SectionTitle>📋 Application Information</SectionTitle>
+        <VersionInfo detailed={true} />
       </SettingsSection>
     </SettingsContainer>
   );

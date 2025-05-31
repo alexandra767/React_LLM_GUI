@@ -129,51 +129,21 @@ class CompanionService {
     this.commandProcessor = commandProcessor;
     this.voiceService = null; // Will be set when needed
     
-    // Initialize all advanced services
+    // MEMORY FIX: Load only essential services at startup, defer others until needed
     try {
-      // Core intelligence services
+      // Load only core memory service at startup to reduce memory usage
       const { default: MemoryService } = await import('./MemoryAdapter');
-      const { default: KnowledgeService } = await import('./KnowledgeService');
-      const { default: ProactiveIntelligenceService } = await import('./ProactiveIntelligenceService');
-      
-      // Advanced capability services
-      const { default: MultiModalService } = await import('./MultiModalService');
-      const { default: CreativeAssistantService } = await import('./CreativeAssistantService');
-      const { default: WorkflowAutomationService } = await import('./WorkflowAutomationService');
-      const { default: EnhancedIntegrationsService } = await import('./EnhancedIntegrationsService');
-      const { default: PrivacySecurityService } = await import('./PrivacySecurityService');
-      const { default: AdvancedFeaturesService } = await import('./AdvancedFeaturesService');
-      const { default: ExperimentalCapabilitiesService } = await import('./ExperimentalCapabilitiesService');
-      
-      // Assign services
       this.memoryService = MemoryService;
-      this.knowledgeService = KnowledgeService;
-      this.proactiveIntelligence = ProactiveIntelligenceService;
-      this.multiModalService = MultiModalService;
-      this.creativeAssistant = CreativeAssistantService;
-      this.workflowAutomation = WorkflowAutomationService;
-      this.enhancedIntegrations = EnhancedIntegrationsService;
-      this.privacySecurity = PrivacySecurityService;
-      this.advancedFeatures = AdvancedFeaturesService;
-      this.experimentalCapabilities = ExperimentalCapabilitiesService;
       
-      console.log('[Companion] Aria initialized with comprehensive capabilities:', {
-        memory: !!this.memoryService,
-        knowledge: !!this.knowledgeService,
-        proactiveIntelligence: !!this.proactiveIntelligence,
-        multiModal: !!this.multiModalService,
-        creative: !!this.creativeAssistant,
-        workflow: !!this.workflowAutomation,
-        integrations: !!this.enhancedIntegrations,
-        security: !!this.privacySecurity,
-        advanced: !!this.advancedFeatures,
-        experimental: !!this.experimentalCapabilities
-      });
+      console.log('[Companion] Aria initialized with core capabilities (memory). Other services will load on-demand to conserve memory.');
     } catch (error) {
-      console.error('[Companion] Failed to initialize advanced services:', error);
+      console.error('[Companion] Failed to initialize core memory service:', error);
     }
     
-    console.log('[Companion] Aria initialized with full capabilities');
+    console.log('[Companion] Aria initialized with core capabilities');
+    
+    // MEMORY FIX: Set up memory cleanup routine
+    this.startMemoryCleanupRoutine();
     
     // CRITICAL: Set up unified external SSD memory system
     if (this.memoryService) {
@@ -246,21 +216,37 @@ class CompanionService {
       console.log('[Companion] 📊 Memory statistics:', stats);
     }
     
-    const knowledgeContext = this.knowledgeService ? this.knowledgeService.getContextualKnowledge({
-      currentTime: new Date(),
-      recentTopics: memoryContext.currentTopics || [],
-      currentProject: this.context.currentProject
-    }) : {};
+    // MEMORY FIX: Only load knowledge service if needed
+    let knowledgeContext = {};
+    if (this.capabilities.research || this.capabilities.currentEvents) {
+      try {
+        const knowledgeService = await this.getKnowledgeService();
+        knowledgeContext = knowledgeService ? knowledgeService.getContextualKnowledge({
+          currentTime: new Date(),
+          recentTopics: memoryContext.currentTopics || [],
+          currentProject: this.context.currentProject
+        }) : {};
+      } catch (error) {
+        console.warn('[Companion] Could not load knowledge service:', error);
+      }
+    }
     
-    // Analyze user behavior for proactive intelligence
-    if (this.proactiveIntelligence) {
-      this.proactiveIntelligence.analyzeUserBehavior('conversation', {
-        messageLength: userMessage.length,
-        topics: memoryContext.currentTopics || [],
-        mood: this.detectEmotionalState(userMessage),
-        time: new Date().getHours(),
-        project: this.context.currentProject
-      });
+    // MEMORY FIX: Only load proactive intelligence if needed
+    if (this.capabilities.proactiveAssistance) {
+      try {
+        const proactiveIntelligence = await this.getProactiveIntelligence();
+        if (proactiveIntelligence) {
+          proactiveIntelligence.analyzeUserBehavior('conversation', {
+            messageLength: userMessage.length,
+            topics: memoryContext.currentTopics || [],
+            mood: this.detectEmotionalState(userMessage),
+            time: new Date().getHours(),
+            project: this.context.currentProject
+          });
+        }
+      } catch (error) {
+        console.warn('[Companion] Could not load proactive intelligence:', error);
+      }
     }
     
     // Store user message in context and memory
@@ -293,16 +279,20 @@ class CompanionService {
     // Learn from conversation patterns
     this.learnFromConversation(userMessage, response, analysis);
     
-    // Check for proactive suggestions
+    // MEMORY FIX: Only check proactive suggestions if service is already loaded
     if (this.proactiveIntelligence) {
-      const suggestions = this.proactiveIntelligence.getActiveSuggestions({
-        currentAction: 'conversation',
-        project: this.context.currentProject,
-        topics: memoryContext.currentTopics || []
-      });
-      
-      if (suggestions.length > 0) {
-        response.suggestions = suggestions;
+      try {
+        const suggestions = this.proactiveIntelligence.getActiveSuggestions({
+          currentAction: 'conversation',
+          project: this.context.currentProject,
+          topics: memoryContext.currentTopics || []
+        });
+        
+        if (suggestions.length > 0) {
+          response.suggestions = suggestions;
+        }
+      } catch (error) {
+        console.warn('[Companion] Could not get proactive suggestions:', error);
       }
     }
     
@@ -648,8 +638,9 @@ class CompanionService {
       conversationType: analysis.conversationType
     };
 
-    // Build context for the AI model
-    let contextualPrompt = this.buildContextualPrompt(userMessage, analysis, options.memoryContext);
+    // Use simplified prompt for better question answering
+    // The complex buildContextualPrompt was causing generic responses instead of specific answers
+    let contextualPrompt = this.buildSimpleContextualPrompt(userMessage, analysis, options.memoryContext);
 
     // Execute integrations if needed
     if (this.shouldExecuteIntegrations(analysis)) {
@@ -685,6 +676,39 @@ class CompanionService {
       // Only remove trailing newlines and normalize whitespace - KEEP thinking blocks
       .replace(/\n\n$/g, '') // Remove trailing newlines
       .trim();
+  }
+
+  // Build simplified contextual prompt that focuses on the actual question
+  buildSimpleContextualPrompt(userMessage, analysis, memoryContext = {}) {
+    console.log('[Companion] Building simplified prompt for:', userMessage.substring(0, 100));
+    
+    // Extract user's name from memory if available
+    const userName = memoryContext.personal?.name?.value || 'User';
+    const hasUserName = memoryContext.personal?.name?.value;
+    
+    // Keep only essential personal context
+    let essentialContext = '';
+    if (hasUserName) {
+      essentialContext = `\nUser's name: ${userName}`;
+    }
+    
+    // Simple, focused prompt that prioritizes the actual question
+    const personality = `You are Aria, an intelligent AI companion. You are helpful, knowledgeable, and conversational.
+
+Key guidelines:
+- Focus on answering the user's specific question directly and thoroughly
+- Provide informative, detailed responses when asked about topics
+- Be conversational and natural in your explanations
+- ${hasUserName ? 'The user\'s name is ' + userName + ' - use it naturally when appropriate' : 'Ask for their name if you don\'t know it yet'}
+- Use <think></think> tags to show your reasoning process when helpful
+- CRITICAL: Answer the specific question being asked - don't give generic greetings unless specifically greeted${essentialContext}`;
+
+    let contextPrompt = `${personality}\n\nUser question: ${userMessage}\n\nIMPORTANT: The user asked a specific question. Focus on answering what they actually asked about. If they asked about quantum computing, explain quantum computing. If they asked about cooking, explain cooking. Be direct and informative.\n\nAria:`;
+    
+    console.log('[Companion] 📝 Simplified prompt length:', contextPrompt.length);
+    console.log('[Companion] 📝 Focus: Direct answer to:', userMessage);
+    
+    return contextPrompt;
   }
 
   // Build contextual prompt for the AI
@@ -1584,9 +1608,9 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
       timestamp: new Date().toISOString()
     });
 
-    // Keep only recent history (last 20 messages)
-    if (this.context.conversationHistory.length > 20) {
-      this.context.conversationHistory = this.context.conversationHistory.slice(-20);
+    // MEMORY FIX: Keep only last 10 conversations (20 messages total) to reduce memory usage
+    if (this.context.conversationHistory.length > 10) {
+      this.context.conversationHistory = this.context.conversationHistory.slice(-10);
     }
 
     this.context.lastInteractionTime = new Date().toISOString();
@@ -1602,6 +1626,82 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
     this.context.conversationHistory = [];
     this.context.currentMood = null;
     this.context.activeTopics = [];
+  }
+
+  // MEMORY FIX: Add cleanup methods to reduce memory usage
+  cleanupMemory() {
+    console.log('[Companion] 🧹 Starting memory cleanup...');
+    
+    // Clear old conversation history
+    if (this.context.conversationHistory.length > 5) {
+      this.context.conversationHistory = this.context.conversationHistory.slice(-5);
+      console.log('[Companion] ✅ Cleared old conversation history');
+    }
+    
+    // Clear old active topics
+    this.context.activeTopics = [];
+    
+    // Cleanup heavy services if they're loaded but not recently used
+    this.cleanupUnusedServices();
+    
+    // Trigger garbage collection hint
+    if (window.gc) {
+      window.gc();
+      console.log('[Companion] ✅ Triggered garbage collection');
+    }
+    
+    console.log('[Companion] 🧹 Memory cleanup completed');
+  }
+
+  // MEMORY FIX: Cleanup unused heavy services
+  cleanupUnusedServices() {
+    // Don't null out essential services, but we can do other cleanup
+    const services = [
+      'knowledgeService', 'proactiveIntelligence', 'multiModalService', 
+      'creativeAssistant', 'workflowAutomation', 'enhancedIntegrations',
+      'privacySecurity', 'advancedFeatures', 'experimentalCapabilities'
+    ];
+    
+    let cleanedServices = 0;
+    services.forEach(serviceName => {
+      if (this[serviceName] && typeof this[serviceName] === 'object') {
+        // For now, just log which services are loaded
+        // In future, could implement usage tracking and cleanup
+        console.log(`[Companion] Service ${serviceName} is loaded`);
+      }
+    });
+    
+    if (cleanedServices > 0) {
+      console.log(`[Companion] ✅ Cleaned up ${cleanedServices} unused services`);
+    }
+  }
+
+  // MEMORY FIX: Lazy loading for heavy services
+  async getKnowledgeService() {
+    if (!this.knowledgeService) {
+      console.log('[Companion] 📚 Loading KnowledgeService on-demand...');
+      const { default: KnowledgeService } = await import('./KnowledgeService');
+      this.knowledgeService = KnowledgeService;
+    }
+    return this.knowledgeService;
+  }
+
+  async getProactiveIntelligence() {
+    if (!this.proactiveIntelligence) {
+      console.log('[Companion] 🧠 Loading ProactiveIntelligenceService on-demand...');
+      const { default: ProactiveIntelligenceService } = await import('./ProactiveIntelligenceService');
+      this.proactiveIntelligence = ProactiveIntelligenceService;
+    }
+    return this.proactiveIntelligence;
+  }
+
+  async getMultiModalService() {
+    if (!this.multiModalService) {
+      console.log('[Companion] 🎬 Loading MultiModalService on-demand...');
+      const { default: MultiModalService } = await import('./MultiModalService');
+      this.multiModalService = MultiModalService;
+    }
+    return this.multiModalService;
   }
 
   // Update user preferences
@@ -1700,6 +1800,42 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
         this.experimentalCapabilities
       ].every(Boolean)
     };
+  }
+
+  // MEMORY FIX: Start memory cleanup routine
+  startMemoryCleanupRoutine() {
+    // Clean up memory every 5 minutes
+    this.memoryCleanupInterval = setInterval(() => {
+      this.cleanupMemory();
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    console.log('[Companion] 🧹 Memory cleanup routine started (every 5 minutes)');
+  }
+
+  // MEMORY FIX: Stop memory cleanup routine
+  stopMemoryCleanupRoutine() {
+    if (this.memoryCleanupInterval) {
+      clearInterval(this.memoryCleanupInterval);
+      this.memoryCleanupInterval = null;
+      console.log('[Companion] 🧹 Memory cleanup routine stopped');
+    }
+  }
+
+  // MEMORY FIX: Destroy service and clean up all resources
+  destroy() {
+    console.log('[Companion] 🧹 Destroying CompanionService...');
+    
+    // Stop memory cleanup
+    this.stopMemoryCleanupRoutine();
+    
+    // Final memory cleanup
+    this.cleanupMemory();
+    
+    // Clear all context
+    this.clearContext();
+    
+    // Clear services (don't null them as they might be used elsewhere)
+    console.log('[Companion] 🧹 CompanionService destroyed');
   }
 }
 

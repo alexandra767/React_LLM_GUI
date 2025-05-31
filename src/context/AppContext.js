@@ -3,6 +3,7 @@ import { useTheme } from './ThemeContext';
 import llmService from '../services/LLMService';
 import networkStatusService from '../services/NetworkStatusService';
 import unifiedStorageService from '../services/UnifiedStorageService';
+import { clearSpokenMessages } from '../components/Chat/Message';
 
 export const AppContext = createContext();
 
@@ -238,9 +239,22 @@ export const AppProvider = ({ children }) => {
       ...newProfileData
     }));
   };
+
+  // Wrapper function to toggle companion mode and clear spoken messages
+  const toggleCompanionMode = (enabled) => {
+    console.log('[AppContext] Toggling companion mode to:', enabled);
+    // Clear spoken messages cache when toggling companion mode to prevent voice conflicts
+    clearSpokenMessages();
+    setCompanionMode(enabled);
+    // Save to storage
+    unifiedStorageService.set('sephia_companion_mode', JSON.stringify(enabled));
+  };
   
   // Handle chat selection and apply theme
   const handleChatSelect = (chat) => {
+    // Clear spoken messages cache when switching chats to prevent voice conflicts
+    clearSpokenMessages();
+    
     // Find the full chat data from the chats array to ensure we have all messages
     const fullChat = chats.find(c => c.id === chat.id);
     if (fullChat) {
@@ -360,6 +374,9 @@ export const AppProvider = ({ children }) => {
   };
 
   const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
+    // Clear spoken messages cache when starting a new chat to prevent voice conflicts
+    clearSpokenMessages();
+    
     // Generate a timestamp for the chat
     const timestamp = new Date().toISOString();
     
@@ -800,6 +817,9 @@ export const AppProvider = ({ children }) => {
   };
   
   const deleteChat = (chatId) => {
+    // Clear spoken messages cache when deleting a chat to prevent voice conflicts
+    clearSpokenMessages();
+    
     setChats(prev => {
       if (!prev || !Array.isArray(prev)) return [];
       return prev.filter(chat => chat.id !== chatId);
@@ -1020,6 +1040,7 @@ export const AppProvider = ({ children }) => {
     setImageGenerationProgress: setImageGenerationProgressWithDebug,
     cancelImageGeneration,
     setCompanionMode,
+    toggleCompanionMode,
     
     // Methods
     handleChatSelect,

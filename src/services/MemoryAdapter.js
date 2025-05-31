@@ -49,9 +49,14 @@ class MemoryAdapter {
         this.memories.emotions = parsed.emotions || [];
         this.memories.achievements = parsed.achievements || [];
         
-        console.log('[MemoryAdapter] ✅ Loaded memories from unified storage');
+        console.log('[MemoryAdapter] ✅ Loaded memories from unified storage:', {
+          personalFacts: this.memories.personal.size,
+          conversations: this.memories.conversations.length,
+          relationships: this.memories.relationships.size,
+          userName: this.memories.personal.get('name')?.value
+        });
       } else {
-        // Create default memory with Alexandra's name
+        console.log('[MemoryAdapter] 📝 No existing memory found, creating default...');
         await this.createDefaultMemory();
       }
       
@@ -113,6 +118,9 @@ class MemoryAdapter {
   addConversation(userMessage, assistantMessage, metadata = {}) {
     const cleanedAssistantMessage = this.sanitizeMessage(assistantMessage.substring(0, 2000));
     
+    // Extract personal information from user message
+    this.extractPersonalInfo(userMessage);
+    
     const conversation = {
       id: `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
       timestamp: new Date().toISOString(),
@@ -133,6 +141,34 @@ class MemoryAdapter {
 
     console.log('[MemoryAdapter] 💬 Added conversation:', conversation.id);
     return conversation;
+  }
+  
+  // Extract personal information from user messages
+  extractPersonalInfo(userMessage) {
+    const lowerMessage = userMessage.toLowerCase();
+    
+    // Look for name introductions
+    if (lowerMessage.includes('i am ') || lowerMessage.includes('my name is ') || lowerMessage.includes('i\'m ')) {
+      // Extract name patterns
+      const namePatterns = [
+        /(?:i am|i'm|my name is)\s+([a-zA-Z]+)/i,
+        /(?:call me|i'm called)\s+([a-zA-Z]+)/i
+      ];
+      
+      for (const pattern of namePatterns) {
+        const match = userMessage.match(pattern);
+        if (match && match[1]) {
+          const extractedName = match[1].trim();
+          // Only save real names (not common words)
+          if (extractedName.length > 1 && /^[A-Z][a-z]+$/.test(extractedName)) {
+            console.log('[MemoryAdapter] 👤 Extracted name from user message:', extractedName);
+            this.addPersonalInfo('name', extractedName, 'conversation_extraction');
+            this.addPersonalInfo('user_name', extractedName, 'conversation_extraction');
+            break;
+          }
+        }
+      }
+    }
   }
   
   // Add personal fact

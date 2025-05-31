@@ -287,7 +287,7 @@ const ChatView = React.memo(({ projectId }) => {
     setImageGenerationProgress,
     cancelImageGeneration,
     companionMode,
-    setCompanionMode
+    toggleCompanionMode
   } = useApp();
   
   // Force component refresh with version stamp
@@ -2383,7 +2383,7 @@ const ChatView = React.memo(({ projectId }) => {
                 <input
                   type="checkbox"
                   checked={companionMode}
-                  onChange={(e) => setCompanionMode(e.target.checked)}
+                  onChange={(e) => toggleCompanionMode(e.target.checked)}
                   style={{
                     marginRight: '4px',
                     transform: 'scale(0.9)'
@@ -2508,7 +2508,7 @@ const ChatView = React.memo(({ projectId }) => {
               <input
                 type="checkbox"
                 checked={companionMode}
-                onChange={(e) => setCompanionMode(e.target.checked)}
+                onChange={(e) => toggleCompanionMode(e.target.checked)}
                 style={{
                   marginRight: '4px',
                   transform: 'scale(0.9)'

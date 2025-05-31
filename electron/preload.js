@@ -13,7 +13,11 @@ const validSendChannels = [
   'terminal:stop',
   'speech:start',
   'speech:stop',
-  'caldav:request'
+  'caldav:request',
+  'system:registerService',
+  'system:killProcess',
+  'system:killPort',
+  'system:forceQuit'
 ];
 
 const validReceiveChannels = [
@@ -250,6 +254,47 @@ const electronAPI = {
     }
   },
   
+  // System process management
+  registerBackgroundService: async (serviceInfo) => {
+    console.log('[Preload] Registering background service:', serviceInfo.name);
+    try {
+      return await ipcRenderer.invoke('system:registerService', serviceInfo);
+    } catch (error) {
+      console.error('[Preload] Failed to register service:', error);
+      throw error;
+    }
+  },
+  
+  killProcess: async (processPattern) => {
+    console.log('[Preload] Killing process pattern:', processPattern);
+    try {
+      return await ipcRenderer.invoke('system:killProcess', processPattern);
+    } catch (error) {
+      console.error('[Preload] Failed to kill process:', error);
+      throw error;
+    }
+  },
+  
+  killPort: async (port) => {
+    console.log('[Preload] Killing process on port:', port);
+    try {
+      return await ipcRenderer.invoke('system:killPort', port);
+    } catch (error) {
+      console.error('[Preload] Failed to kill port:', error);
+      throw error;
+    }
+  },
+  
+  forceQuit: async () => {
+    console.log('[Preload] Force quit requested');
+    try {
+      return await ipcRenderer.invoke('system:forceQuit');
+    } catch (error) {
+      console.error('[Preload] Failed to force quit:', error);
+      throw error;
+    }
+  },
+
   // Copy image to clipboard
   copyImageToClipboard: async (imageBuffer) => {
     console.log('[Preload] Copying image to clipboard, buffer size:', imageBuffer.byteLength);
@@ -321,6 +366,39 @@ const electronAPI = {
     } catch (error) {
       console.error('[Preload] Failed to create directory:', error);
       throw error;
+    }
+  },
+
+  // Persistent Storage API (userData directory)
+  storage: {
+    set: async (key, value) => {
+      console.log('[Preload] Storing data for key:', key);
+      try {
+        return await ipcRenderer.invoke('storage:set', key, value);
+      } catch (error) {
+        console.error('[Preload] Failed to store data:', error);
+        throw error;
+      }
+    },
+    
+    get: async (key) => {
+      console.log('[Preload] Retrieving data for key:', key);
+      try {
+        return await ipcRenderer.invoke('storage:get', key);
+      } catch (error) {
+        console.error('[Preload] Failed to retrieve data:', error);
+        throw error;
+      }
+    },
+    
+    remove: async (key) => {
+      console.log('[Preload] Removing data for key:', key);
+      try {
+        return await ipcRenderer.invoke('storage:remove', key);
+      } catch (error) {
+        console.error('[Preload] Failed to remove data:', error);
+        throw error;
+      }
     }
   },
   

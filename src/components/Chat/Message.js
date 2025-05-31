@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useTheme } from '../../context/ThemeContext';
 import ReactMarkdown from 'react-markdown';
@@ -14,6 +14,20 @@ import DOMPurify from 'dompurify';
 import copyToClipboard from '../../utils/clipboard';
 import { useStreamingContent } from '../../hooks/useStreamingContent';
 import voiceService from '../../services/VoiceService';
+
+// Global Set to track which messages have already been spoken to prevent duplicates
+const spokenMessageIds = new Set();
+
+// Export function to clear spoken messages (useful for new conversations)
+export const clearSpokenMessages = () => {
+  console.log('[Message] Clearing spoken messages cache, previous count:', spokenMessageIds.size);
+  spokenMessageIds.clear();
+};
+
+// Export function to check if message was spoken (for debugging)
+export const wasMessageSpoken = (messageId) => {
+  return spokenMessageIds.has(messageId);
+};
 
 // Keyframe animation for pulse effect
 const pulse = keyframes`
@@ -218,6 +232,7 @@ const Message = React.memo(({ message, onDelete }) => {
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isAutoSpeaking, setIsAutoSpeaking] = useState(false);
+  const hasBeenSpokenRef = useRef(false);
   
   // Ensure message has required properties
   const safeMessage = React.useMemo(() => ({
@@ -279,7 +294,14 @@ const Message = React.memo(({ message, onDelete }) => {
   // Auto-speak for assistant messages in companion mode
   React.useEffect(() => {
     // Only trigger voice for assistant messages in companion mode
-    if (safeMessage.role === 'assistant' && companionMode && displayContent && !isAutoSpeaking) {
+    if (safeMessage.role === 'assistant' && companionMode && displayContent && !hasBeenSpokenRef.current) {
+      // Check if this message has already been spoken globally
+      if (spokenMessageIds.has(safeMessage.id)) {
+        console.log('[Message] Message already spoken globally, skipping:', safeMessage.id);
+        hasBeenSpokenRef.current = true;
+        return;
+      }
+      
       // Only start voice when streaming is complete or content has enough words
       const wordCount = displayContent.split(/\s+/).filter(word => word.length > 0).length;
       const isStreamingComplete = !isStreamingMessage && !safeMessage.isStreaming;
@@ -290,9 +312,13 @@ const Message = React.memo(({ message, onDelete }) => {
           messageId: safeMessage.id,
           isStreamingComplete,
           wordCount,
-          contentPreview: displayContent.substring(0, 100)
+          contentPreview: displayContent.substring(0, 100),
+          globalSpokenCount: spokenMessageIds.size
         });
         
+        // Mark as spoken both locally and globally to prevent duplicate attempts
+        hasBeenSpokenRef.current = true;
+        spokenMessageIds.add(safeMessage.id);
         setIsAutoSpeaking(true);
         
         // Clean text for speech
@@ -323,26 +349,35 @@ const Message = React.memo(({ message, onDelete }) => {
           
           voiceService.speak(textToSpeak, {
             onStart: () => {
-              console.log('[Message] Auto-speak started');
+              console.log('[Message] Auto-speak started for message:', safeMessage.id);
             },
             onEnd: () => {
-              console.log('[Message] Auto-speak ended');
+              console.log('[Message] Auto-speak ended for message:', safeMessage.id);
               setIsAutoSpeaking(false);
             },
             onError: (error) => {
-              console.error('[Message] Auto-speak error:', error);
+              console.error('[Message] Auto-speak error for message:', safeMessage.id, error);
               setIsAutoSpeaking(false);
+              // Remove from spoken set on error so it can be retried
+              spokenMessageIds.delete(safeMessage.id);
+              hasBeenSpokenRef.current = false;
             }
           }).catch(error => {
-            console.error('[Message] Auto-speak failed:', error);
+            console.error('[Message] Auto-speak failed for message:', safeMessage.id, error);
             setIsAutoSpeaking(false);
+            // Remove from spoken set on error so it can be retried
+            spokenMessageIds.delete(safeMessage.id);
+            hasBeenSpokenRef.current = false;
           });
         } else {
           setIsAutoSpeaking(false);
+          // Remove from spoken set if no text to speak
+          spokenMessageIds.delete(safeMessage.id);
+          hasBeenSpokenRef.current = false;
         }
       }
     }
-  }, [displayContent, safeMessage.role, companionMode, isStreamingMessage, safeMessage.isStreaming, safeMessage.id, isAutoSpeaking]);
+  }, [displayContent, safeMessage.role, companionMode, isStreamingMessage, safeMessage.isStreaming, safeMessage.id]);
   
   const isUser = safeMessage.role === 'user';
   
