@@ -624,7 +624,8 @@ class CompanionService {
       'weather', 'temperature', 'forecast', 'rain', 'snow', 'sunny', 'cloudy',
       'today\'s weather', 'weather today', 'how hot', 'how cold', 'weather like',
       'will it rain', 'is it raining', 'going to rain', 'weather forecast',
-      'temperature today', 'degrees', 'celsius', 'fahrenheit'
+      'temperature today', 'degrees', 'celsius', 'fahrenheit', 'weather for',
+      'weather in', 'my location', 'current weather', 'local weather'
     ];
     return weatherKeywords.some(keyword => message.includes(keyword));
   }
@@ -1017,12 +1018,39 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
   // Execute weather command
   async executeWeatherCommand(message) {
     try {
-      const weatherQuery = this.extractWeatherQuery(message);
+      let weatherQuery = this.extractWeatherQuery(message);
+      
+      // If no specific location mentioned, try to get user's location or use default
+      if (!weatherQuery || weatherQuery.trim() === '') {
+        console.log('[Companion] No specific location in weather query, attempting to get user location');
+        
+        // Try to get user's saved location from memory
+        if (this.memoryService) {
+          const memoryContext = await this.memoryService.getRelevantContext(message);
+          if (memoryContext.personal?.location?.value) {
+            weatherQuery = memoryContext.personal.location.value;
+            console.log('[Companion] Using saved location from memory:', weatherQuery);
+          }
+        }
+        
+        // If still no location, ask user for location
+        if (!weatherQuery || weatherQuery.trim() === '') {
+          return {
+            content: "I'd be happy to get the weather for you! To provide accurate weather information, I need to know your location. Could you tell me what city or area you're in? For example, you could say 'Get the weather for San Francisco' or 'What's the weather like in New York?'",
+            requiresLocation: true
+          };
+        }
+      }
+      
+      console.log('[Companion] Getting weather for:', weatherQuery);
       const searchCommand = `@search current weather ${weatherQuery}`;
       return await this.commandProcessor.processCommand(searchCommand);
     } catch (error) {
       console.error('[Companion] Weather error:', error);
-      return null;
+      return {
+        content: "I'm sorry, I encountered an error while trying to get the weather information. Please try again or specify your location.",
+        error: error.message
+      };
     }
   }
 
@@ -1189,18 +1217,52 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
 
   extractWeatherQuery(message) {
     // Extract weather location query
-    const weatherIndicators = ['weather', 'weather in', 'weather for', 'temperature in', 'forecast for'];
-    let query = message;
+    const lowerMessage = message.toLowerCase();
+    let query = '';
     
-    for (const indicator of weatherIndicators) {
-      if (message.toLowerCase().includes(indicator)) {
-        query = message.toLowerCase().replace(indicator, '').trim();
-        break;
+    // Handle "my location" or "here" requests
+    if (lowerMessage.includes('my location') || lowerMessage.includes(' here') || 
+        lowerMessage.includes('where i am') || lowerMessage.includes('current location')) {
+      return ''; // Will trigger location detection
+    }
+    
+    // Extract location from various weather patterns
+    const weatherPatterns = [
+      /weather (?:in|for) (.+)/i,
+      /temperature (?:in|for) (.+)/i,
+      /forecast (?:in|for) (.+)/i,
+      /(?:current|today's) weather (?:in|for) (.+)/i,
+      /how(?:'s| is) the weather (?:in|for) (.+)/i,
+      /what(?:'s| is) the weather (?:like )?(?:in|for) (.+)/i
+    ];
+    
+    for (const pattern of weatherPatterns) {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        query = match[1].trim();
+        console.log('[Companion] Extracted weather location:', query);
+        return query;
       }
     }
     
-    // If no specific location mentioned, default to current location
-    return query || 'today current location';
+    // If no specific pattern matches, look for weather keywords and extract remaining text
+    const weatherKeywords = ['weather', 'temperature', 'forecast'];
+    for (const keyword of weatherKeywords) {
+      if (lowerMessage.includes(keyword)) {
+        // Remove common weather words and prepositions to extract location
+        query = message.toLowerCase()
+          .replace(/get|the|weather|temperature|forecast|current|today'?s?|for|in|at/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        
+        if (query && query.length > 2) {
+          console.log('[Companion] Extracted weather location (fallback):', query);
+          return query;
+        }
+      }
+    }
+    
+    return query;
   }
 
   generateTaskGuidance(message) {
