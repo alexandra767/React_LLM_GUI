@@ -785,6 +785,14 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     }
 
     contextPrompt += `\nCurrent conversation:\n${hasUserName ? userName : 'User'}: ${userMessage}\n`;
+    
+    // Add emphasis on answering the user's actual question
+    contextPrompt += `\nIMPORTANT: The user asked a specific question. Focus on answering their question directly and thoroughly. Use your memory context to personalize the response, but make sure to address what they actually asked about.\n`;
+    
+    // Debug logging
+    console.log('[Companion] 📝 Final contextual prompt length:', contextPrompt.length);
+    console.log('[Companion] 📝 User question:', userMessage);
+    console.log('[Companion] 📝 Conversation history length:', this.context.conversationHistory.length);
 
     return contextPrompt;
   }

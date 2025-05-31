@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Conversation Context</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #1a1a1a; color: #fff; }
+        button { margin: 10px; padding: 10px; background: #333; color: #fff; border: 1px solid #555; cursor: pointer; }
+        button:hover { background: #444; }
+        .output { background: #222; padding: 15px; margin: 10px 0; border-radius: 5px; border: 1px solid #333; max-height: 400px; overflow-y: auto; }
+        .debug { color: #888; font-size: 12px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <h1>Debug Conversation Context</h1>
+    
+    <button onclick="checkMemoryContext()">Check Memory Context</button>
+    <button onclick="clearConversationHistory()">Clear Conversation History</button>
+    <button onclick="simulateQuantumQuestion()">Simulate Quantum Question</button>
+    
+    <div id="output"></div>
+
+    <script>
+        function log(message, data = null) {
+            const output = document.getElementById('output');
+            const div = document.createElement('div');
+            div.className = 'output';
+            div.innerHTML = `<strong>${message}</strong>`;
+            if (data) {
+                div.innerHTML += `<br><pre class="debug">${JSON.stringify(data, null, 2)}</pre>`;
+            }
+            output.appendChild(div);
+            console.log(message, data);
+        }
+
+        function checkMemoryContext() {
+            try {
+                const memoryData = localStorage.getItem('aria_memory_system');
+                if (memoryData) {
+                    const parsed = JSON.parse(memoryData);
+                    
+                    log('Current Memory Context:', {
+                        conversationCount: parsed.conversations ? parsed.conversations.length : 0,
+                        recentConversations: parsed.conversations ? parsed.conversations.slice(-3).map(c => ({
+                            userMessage: c.userMessage?.substring(0, 100),
+                            assistantMessage: c.assistantMessage?.substring(0, 100),
+                            topics: c.topics
+                        })) : [],
+                        personalInfo: Array.from(new Map(parsed.personal || [])).reduce((obj, [key, value]) => {
+                            obj[key] = value;
+                            return obj;
+                        }, {}),
+                        hasName: parsed.personal && new Map(parsed.personal).has('name')
+                    });
+                } else {
+                    log('❌ No memory data found');
+                }
+            } catch (error) {
+                log('❌ Error checking memory:', error.message);
+            }
+        }
+
+        function clearConversationHistory() {
+            try {
+                const memoryData = localStorage.getItem('aria_memory_system');
+                if (memoryData) {
+                    const parsed = JSON.parse(memoryData);
+                    parsed.conversations = []; // Clear conversation history
+                    localStorage.setItem('aria_memory_system', JSON.stringify(parsed));
+                    log('✅ Cleared conversation history - personal info preserved');
+                } else {
+                    log('❌ No memory data to clear');
+                }
+            } catch (error) {
+                log('❌ Error clearing history:', error.message);
+            }
+        }
+
+        function simulateQuantumQuestion() {
+            const testQuestions = [
+                "Explain quantum computing in simple terms",
+                "What is quantum physics?",
+                "How do quantum computers work?",
+                "Tell me about quantum entanglement"
+            ];
+            
+            log('Test Questions to Try:', {
+                questions: testQuestions,
+                suggestion: "Try asking one of these questions to see if Aria focuses on the actual question instead of giving greetings"
+            });
+        }
+
+        // Auto-run check on load
+        setTimeout(() => {
+            log('🚀 Auto-checking memory context...');
+            checkMemoryContext();
+        }, 500);
+    </script>
+</body>
+</html>
