@@ -677,6 +677,14 @@ const ChatView = React.memo(({ projectId }) => {
           }
         }
         
+        // Capture current state to avoid stale closures
+        const capturedProjectId = projectId;
+        const capturedCurrentChat = currentChat;
+        const capturedTheme = theme;
+        
+        // Pre-generate message ID for voice callback
+        const streamingMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        
         // Process through companion service with voice callbacks
         const companionResult = await companionService.handleConversation(messageText.trim(), {
           voiceCallbacks: {
@@ -729,11 +737,6 @@ const ChatView = React.memo(({ projectId }) => {
         if (companionResult.delayTextUntilVoice && companionResult.voicePromise) {
           console.log('[ChatView] 🎤 Voice-first mode: Adding user message, waiting for voice to complete');
           
-          // Capture current state to avoid stale closures
-          const capturedProjectId = projectId;
-          const capturedCurrentChat = currentChat;
-          const capturedTheme = theme;
-          
           // Separate thinking process from final response
           const fullContent = companionResult.content || '';
           const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>/);
@@ -741,7 +744,6 @@ const ChatView = React.memo(({ projectId }) => {
           const responseContent = fullContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
           
           // Create streaming message for voice-first mode - show thinking immediately, response when voice starts
-          const streamingMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
           const streamingMessage = {
             id: streamingMessageId,
             role: 'assistant',
