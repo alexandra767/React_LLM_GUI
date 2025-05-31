@@ -683,10 +683,17 @@ class CompanionService {
   // Build simplified contextual prompt that focuses on the actual question
   buildSimpleContextualPrompt(userMessage, analysis, memoryContext = {}) {
     console.log('[Companion] Building simplified prompt for:', userMessage.substring(0, 100));
+    console.log('[Companion] Memory context debug:', {
+      hasPersonal: !!memoryContext.personal,
+      personalKeys: memoryContext.personal ? Object.keys(memoryContext.personal) : [],
+      nameValue: memoryContext.personal?.name?.value,
+      userNameValue: memoryContext.personal?.user_name?.value,
+      fullPersonal: memoryContext.personal
+    });
     
-    // Extract user's name from memory if available
-    const userName = memoryContext.personal?.name?.value || 'User';
-    const hasUserName = memoryContext.personal?.name?.value;
+    // Extract user's name from memory if available - try both name and user_name keys
+    const userName = memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value || 'User';
+    const hasUserName = !!(memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value);
     
     // Keep only essential personal context
     let essentialContext = '';
@@ -1549,9 +1556,7 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
       fixed.toLowerCase().includes('qwen') || 
       fixed.toLowerCase().includes('qwen3') ||
       fixed.toLowerCase().includes('deepseek') ||
-      fixed.toLowerCase().includes('alibaba') ||
-      fixed.toLowerCase().includes('tongyi') ||
-      // Only flag AI identity claims, not user statements
+      // Only flag AI identity claims from other models, not user statements
       fixed.toLowerCase().match(/^(hi|hello).*i('m| am) (?!aria)/i) ||
       fixed.toLowerCase().match(/my name is (?!aria)/i)
     );
