@@ -1,10 +1,10 @@
 // Auto-generated version file
-// Updated on: 2025-05-31T01:16:55.790Z
+// Updated on: 2025-05-31T02:21:15.997Z
 
 export const VERSION_INFO = {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "sephia",
-  "buildDate": "2025-05-31T01:16:55.789Z",
+  "buildDate": "2025-05-31T02:21:15.996Z",
   "gitBranch": "unknown",
   "gitCommit": "unknown",
   "nodeVersion": "v22.16.0",

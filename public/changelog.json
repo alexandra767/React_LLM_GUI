@@ -5,8 +5,8 @@
     "repository": "https://github.com/alexandra767/React_LLM_GUI",
     "license": "MIT",
     "author": "Alexandra",
-    "currentVersion": "1.0.0",
-    "lastUpdated": "2025-05-31T01:13:36.229Z"
+    "currentVersion": "1.0.1",
+    "lastUpdated": "2025-05-31T02:21:38.753Z"
   },
   "versions": {
     "1.0.0": {
@@ -75,9 +75,29 @@
   },
   "gitInfo": {
     "currentBranch": "feature/M4",
-    "lastCommit": "5af2dc3",
-    "commitCount": 74,
+    "lastCommit": "e4ac060",
+    "commitCount": 79,
     "recentCommits": [
+      {
+        "hash": "e4ac060",
+        "message": "feat: enhance Google Drive integration with comprehensive file operations"
+      },
+      {
+        "hash": "883c825",
+        "message": "fix: resolve weather detection for \"my location [address]\" pattern"
+      },
+      {
+        "hash": "65ca3f4",
+        "message": "fix: improve weather detection and location handling"
+      },
+      {
+        "hash": "f9fc205",
+        "message": "fix: add missing methods to MemoryAdapter service"
+      },
+      {
+        "hash": "eb011f5",
+        "message": "feat: implement comprehensive version control system"
+      },
       {
         "hash": "5af2dc3",
         "message": "debug: add context debugging and prompt improvements"
@@ -97,26 +117,6 @@
       {
         "hash": "4d10336",
         "message": "feat: add Google Drive OAuth setup utilities"
-      },
-      {
-        "hash": "72a6800",
-        "message": "feat: enhance voice services and add Google Drive integration"
-      },
-      {
-        "hash": "149cdd4",
-        "message": "feat: add typing indicator for voice-first mode and fix duplicate Aria identity"
-      },
-      {
-        "hash": "67d7418",
-        "message": "fix: resolve identity confusion from stored conversation memory"
-      },
-      {
-        "hash": "066d4b6",
-        "message": "fix: resolve Aria identity and voice duplication issues"
-      },
-      {
-        "hash": "6037634",
-        "message": "feat: implement external SSD memory and enhance voice consistency"
       }
     ]
   }
