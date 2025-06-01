@@ -1101,136 +1101,88 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         }
         
         console.log('[commandProcessor] Weather request for:', args);
-        console.log('[commandProcessor] Service methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(service)));
         
         try {
-          // Check if Claude is available for real-time weather data
-          const currentModel = localStorage.getItem('sephia_current_model');
-          console.log('[commandProcessor] Current model detected:', currentModel);
+          // Import and use WeatherService for real weather data
+          const { default: WeatherService } = await import('../services/WeatherService');
+          const weatherService = new WeatherService();
           
-          if (currentModel && currentModel.startsWith('claude-')) {
-            console.log('[commandProcessor] ✅ Using Claude to analyze weather search results');
+          console.log('[commandProcessor] 🌤️ Getting real weather data for:', args);
+          const weatherData = await weatherService.getWeather(args);
+          
+          if (weatherData) {
+            const formattedWeather = weatherService.formatWeatherResponse(weatherData);
+            console.log('[commandProcessor] ✅ Weather data retrieved successfully');
+            return {
+              type: 'integration',
+              content: formattedWeather,
+              skipVoice: false
+            };
+          } else {
+            throw new Error('No weather data available');
+          }
+          
+        } catch (weatherError) {
+          console.error('[commandProcessor] ❌ WeatherService failed:', weatherError);
+          
+          // Fallback: Try web search approach with Claude analysis if available
+          try {
+            const currentModel = localStorage.getItem('sephia_current_model');
             
-            try {
-              // First get web search results
-              console.log('[commandProcessor] 🔍 Getting web search results for weather...');
+            if (currentModel && currentModel.startsWith('claude-')) {
+              console.log('[commandProcessor] Trying Claude + web search fallback...');
+              
               const weatherQuery = `current weather ${args} temperature forecast today`;
               const searchResults = await service.webSearch(weatherQuery);
               
               if (searchResults && searchResults.length > 0) {
-                // Import LLMService to use Claude for analysis
                 const { default: LLMService } = await import('../services/LLMService');
                 
-                // Prepare search results for Claude analysis
                 const searchSummary = searchResults.slice(0, 5).map(result => 
                   `Title: ${result.title}\nContent: ${result.snippet || result.content || ''}\nSource: ${result.source || 'Unknown'}`
                 ).join('\n\n---\n\n');
                 
-                const analysisPrompt = `You are helping to summarize and format weather information from web search results. Please extract and organize the weather data from these search results for ${args}:
+                const analysisPrompt = `Extract and format weather information from these search results for ${args}:
 
 ${searchSummary}
 
-Task: Simply summarize and format any weather information found in these search results. You are not predicting weather - just organizing existing data from these sources.
-
-Please format as:
-**Current Conditions:** (if found in results)
+Format as:
+**Current Conditions:** (if found)
 **Temperature:** (if found)
-**Forecast:** (if found) 
-**Alerts:** (if any mentioned)
-**Sources:** (list the weather sources mentioned)
+**Forecast:** (if found)
+**Sources:** (list weather sources)
 
-If no actual weather data is found in these results, just say "No current weather data found in search results" and list the available weather sources instead.`;
+If no weather data found, say "No current weather data available" and suggest checking weather.com or weather.gov.`;
                 
-                console.log('[commandProcessor] 🤖 Asking Claude to analyze weather data...');
                 const claudeResponse = await LLMService.sendMessage(analysisPrompt, {
                   model: currentModel,
                   max_tokens: 1000
                 });
                 
-                console.log('[commandProcessor] 📡 Claude analysis received:', claudeResponse);
-                
                 if (claudeResponse && claudeResponse.content) {
-                  console.log('[commandProcessor] ✅ Returning Claude weather analysis');
                   return {
                     type: 'integration',
                     content: `🌤️ **Weather for ${args}:**\n\n${claudeResponse.content}`,
-                    skipVoice: true // Don't start voice until complete
+                    skipVoice: false
                   };
                 }
               }
-              
-              console.warn('[commandProcessor] ⚠️ No useful search results for Claude to analyze');
-            } catch (claudeError) {
-              console.error('[commandProcessor] ❌ Claude weather analysis failed:', claudeError);
-              console.error('[commandProcessor] Error details:', claudeError.message, claudeError.stack);
-              // Fall back to web search
             }
-          } else {
-            console.log('[commandProcessor] ❌ Claude not detected, using web search fallback');
-          }
-          
-          // Fall back to web search for non-Claude models or if Claude fails
-          console.log('[commandProcessor] Using web search for weather data');
-          // Try multiple weather-specific queries
-          const weatherQueries = [
-            `weather ${args}`,
-            `${args} weather today`,
-            `current weather ${args}`,
-            `weather forecast ${args}`
-          ];
-          
-          let bestResults = null;
-          
-          for (const query of weatherQueries) {
-            console.log('[commandProcessor] Trying weather query:', query);
-            const results = await service.webSearch(query);
-            console.log('[commandProcessor] Search results for', query, ':', results);
             
-            if (results && results.length > 0) {
-              // Check if we got actual weather content instead of news redirects
-              const hasWeatherContent = results.some(result => {
-                const text = `${result.title || ''} ${result.snippet || ''} ${result.content || ''}`.toLowerCase();
-                const isRedirect = result.url && (result.url.includes('/search?') || result.url.includes('cnn.com/search') || result.url.includes('bbc.co.uk/search'));
-                const hasWeatherTerms = text.includes('temperature') || text.includes('degrees') || text.includes('°') || text.includes('humidity') || text.includes('forecast');
-                
-                // Also accept results that are explicitly weather sites
-                const isWeatherSite = result.type === 'weather' || 
-                                     (result.source && (result.source.includes('Weather') || result.source.includes('AccuWeather'))) ||
-                                     (result.url && (result.url.includes('weather.com') || result.url.includes('weather.gov') || result.url.includes('accuweather.com')));
-                
-                return (hasWeatherTerms && !isRedirect) || isWeatherSite;
-              });
-              
-              if (hasWeatherContent) {
-                bestResults = results;
-                console.log('[commandProcessor] Found weather content with query:', query);
-                break;
-              }
-            }
-          }
-          
-          if (bestResults) {
-            // Format the good weather results
-            const formattedResults = service.formatWebSearchResults(bestResults);
-            return {
-              type: 'integration',
-              content: `🌤️ **Weather for ${args}:**\n\n${formattedResults}`
-            };
-          } else {
-            // Provide direct weather links instead of search redirects
+            // Final fallback: Provide helpful weather links
             const encodedLocation = encodeURIComponent(args);
             return {
               type: 'integration',
-              content: `🌤️ **Weather for ${args}:**\n\nI couldn't find real-time weather data in search results. Here are direct weather sources for your location:\n\n**🌦️ [Weather.com](https://weather.com/weather/today/l/${encodedLocation})**\nCurrent conditions and detailed forecast\n\n**🌤️ [AccuWeather](https://www.accuweather.com/en/search-locations?query=${encodedLocation})**\nHourly and 10-day weather forecasts\n\n**🏛️ [National Weather Service](https://forecast.weather.gov/)**\nOfficial U.S. government weather data and alerts\n\n**📱 [Google Weather](https://www.google.com/search?q=weather+${encodedLocation})**\nQuick weather overview with current conditions\n\n**🗺️ [Weather Underground](https://www.wunderground.com/weather/us/pa/${encodedLocation})**\nLocal weather stations and radar`
+              content: `🌤️ **Weather for ${args}:**\n\nI'm having trouble getting live weather data right now. Here are direct weather sources:\n\n**🌦️ [Weather.com](https://weather.com/weather/today/l/${encodedLocation})**\n**🏛️ [National Weather Service](https://forecast.weather.gov/)**\n**📱 [Google Weather](https://www.google.com/search?q=weather+${encodedLocation})**\n\nTry asking again in a moment, or check these sources for current conditions.`
+            };
+            
+          } catch (fallbackError) {
+            console.error('[commandProcessor] All weather methods failed:', fallbackError);
+            return {
+              type: 'error',
+              content: `Unable to get weather data for ${args}. Try checking weather.com or weather.gov directly.`
             };
           }
-        } catch (weatherError) {
-          console.error('Weather command error:', weatherError);
-          console.error('Service object:', service);
-          return {
-            type: 'error',
-            content: `Weather lookup failed: ${weatherError.message}. Service available methods: ${Object.getOwnPropertyNames(Object.getPrototypeOf(service)).join(', ')}`
-          };
         }
 
       case '@help':

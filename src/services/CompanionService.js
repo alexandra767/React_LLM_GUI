@@ -1094,12 +1094,17 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
   async executeWeatherCommand(message) {
     try {
       console.log('[Companion] 🌤️ executeWeatherCommand called with message:', message);
+      
+      // Import WeatherService for direct weather data access
+      const { default: WeatherService } = await import('./WeatherService');
+      const weatherService = new WeatherService();
+      
       let weatherQuery = this.extractWeatherQuery(message);
       console.log('[Companion] 🌤️ extractWeatherQuery returned:', weatherQuery);
       
-      // If no specific location mentioned, try to get user's location or use default
+      // If no specific location mentioned, try to get user's location from memory
       if (!weatherQuery || weatherQuery.trim() === '') {
-        console.log('[Companion] No specific location in weather query, attempting to get user location');
+        console.log('[Companion] No specific location in weather query, checking memory for saved location');
         
         // Try to get user's saved location from memory
         if (this.memoryService) {
@@ -1113,19 +1118,65 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
         // If still no location, ask user for location
         if (!weatherQuery || weatherQuery.trim() === '') {
           return {
-            content: "I'd be happy to get the weather for you! To provide accurate weather information, I need to know your location. Could you tell me what city or area you're in? For example, you could say 'Get the weather for San Francisco' or 'What's the weather like in New York?'",
+            content: "I'd be happy to get the weather for you! To provide accurate weather information, I need to know your location. Could you tell me what city or area you're in? For example, you could say 'What's the weather like in New York?' or just 'weather in Chicago'.",
             requiresLocation: true
           };
         }
       }
       
-      console.log('[Companion] Getting weather for:', weatherQuery);
-      const weatherCommand = `@weather ${weatherQuery}`;
-      return await this.commandProcessor.processCommand(weatherCommand);
+      console.log('[Companion] Getting live weather data for:', weatherQuery);
+      
+      try {
+        // Get real weather data using WeatherService
+        const weatherData = await weatherService.getWeather(weatherQuery);
+        
+        if (weatherData) {
+          const formattedWeather = weatherService.formatWeatherResponse(weatherData);
+          console.log('[Companion] ✅ Weather data retrieved successfully');
+          
+          // Save the location to memory for future use
+          if (this.memoryService && weatherData.location) {
+            try {
+              await this.memoryService.addPersonalInfo('location', weatherData.location, 'weather_query');
+              console.log('[Companion] Saved weather location to memory:', weatherData.location);
+            } catch (memoryError) {
+              console.warn('[Companion] Failed to save location to memory:', memoryError);
+            }
+          }
+          
+          return {
+            content: formattedWeather,
+            hasIntegration: true
+          };
+        } else {
+          throw new Error('No weather data available from WeatherService');
+        }
+        
+      } catch (weatherServiceError) {
+        console.error('[Companion] WeatherService failed, trying command processor fallback:', weatherServiceError);
+        
+        // Fallback to command processor if WeatherService fails
+        const weatherCommand = `@weather ${weatherQuery}`;
+        const commandResult = await this.commandProcessor.processCommand(weatherCommand);
+        
+        if (commandResult && commandResult.content) {
+          return {
+            content: commandResult.content,
+            hasIntegration: true
+          };
+        } else {
+          throw new Error('Both WeatherService and command processor failed');
+        }
+      }
+      
     } catch (error) {
-      console.error('[Companion] Weather error:', error);
+      console.error('[Companion] All weather methods failed:', error);
+      
+      // Extract location from the original message for error response
+      const locationForError = this.extractWeatherQuery(message) || 'your location';
+      
       return {
-        content: "I'm sorry, I encountered an error while trying to get the weather information. Please try again or specify your location.",
+        content: `I'm sorry, I'm having trouble getting weather information right now. You can try:\n\n• Asking again in a moment\n• Checking weather.com directly\n• Using Google search for "${locationForError} weather"\n\nError: ${error.message}`,
         error: error.message
       };
     }
