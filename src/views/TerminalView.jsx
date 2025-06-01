@@ -59,7 +59,10 @@ const TerminalView = () => {
           throw new Error('No response from Ollama. The service may be starting up. Please try again in a moment.');
         }
         
-        const parsedModels = modelList
+        // Ensure modelList is a string before splitting
+        const modelListString = typeof modelList === 'string' ? modelList : String(modelList);
+        
+        const parsedModels = modelListString
           .split('\n')
           .slice(1) // Skip header
           .filter(line => line.trim())
@@ -77,6 +80,10 @@ const TerminalView = () => {
         }
       } catch (err) {
         console.error('Failed to load models:', err);
+        
+        // Set fallback models to prevent infinite loops
+        setModels(['deepseek-r1:8b-m4', 'llama2', 'mistral']);
+        setSelectedModel('deepseek-r1:8b-m4');
         
         let errorMessage = 'Failed to load models. ';
         

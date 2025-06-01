@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AppProvider } from './context/AppContext';
 import MainLayout from './components/Layout/MainLayout';
 import StreamingTest from './components/StreamingTest';
+import MemoryDebugger from './components/MemoryDebugger';
 import './App.css';
 import { testDirectStreaming } from './utils/testDirectStreaming';
 import { exportAllData } from './utils/exportData';
@@ -14,6 +15,22 @@ window.testDirectStreaming = testDirectStreaming;
 window.exportSephiaData = exportAllData;
 window.diagnoseGoogleAuth = diagnoseGoogleAuth;
 window.testGoogleCalendarAPI = testGoogleCalendarAPI;
+
+// Add memory debugger to global scope for easy access
+window.showMemoryDebugger = () => {
+  const debugDiv = document.getElementById('memory-debugger');
+  if (debugDiv) {
+    debugDiv.style.display = debugDiv.style.display === 'none' ? 'block' : 'none';
+  }
+};
+
+// Add keyboard shortcut for memory debugger (Ctrl+Shift+M)
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'M') {
+    e.preventDefault();
+    window.showMemoryDebugger();
+  }
+});
 
 // Error boundary component
 class ErrorBoundary extends Component {
@@ -76,6 +93,15 @@ function App() {
           <ErrorBoundary>
             <MainLayout />
             {/* <StreamingTest /> */}
+            <div id="memory-debugger" style={{ display: 'none', position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 9999, overflow: 'auto' }}>
+              <div style={{ backgroundColor: 'white', margin: '20px', borderRadius: '10px', maxHeight: '90vh', overflow: 'auto' }}>
+                <div style={{ padding: '10px', borderBottom: '1px solid #ccc' }}>
+                  <button onClick={() => window.showMemoryDebugger()} style={{ float: 'right', background: 'red', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '5px' }}>Close</button>
+                  <h2>Memory Debugger</h2>
+                </div>
+                <MemoryDebugger />
+              </div>
+            </div>
           </ErrorBoundary>
         </AppProvider>
       </ThemeProvider>

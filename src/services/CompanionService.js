@@ -656,9 +656,28 @@ class CompanionService {
       conversationType: analysis.conversationType
     };
 
-    // Use simplified prompt for better question answering
-    // The complex buildContextualPrompt was causing generic responses instead of specific answers
-    let contextualPrompt = this.buildSimpleContextualPrompt(userMessage, analysis, options.memoryContext);
+    // Check if this is a conversation memory question that needs full context
+    const lowerMessage = userMessage.toLowerCase();
+    const isConversationMemoryQuestion = lowerMessage.includes("do you remember our") ||
+                                       lowerMessage.includes("remember our last") ||
+                                       lowerMessage.includes("remember our previous") ||
+                                       lowerMessage.includes("our last conversation") ||
+                                       lowerMessage.includes("our previous conversation") ||
+                                       lowerMessage.includes("remember what we talked about") ||
+                                       lowerMessage.includes("remember what we discussed") ||
+                                       lowerMessage.includes("do you remember me") ||
+                                       lowerMessage.includes("remember me") ||
+                                       lowerMessage.includes("do you know me");
+
+    // Use full contextual prompt for memory questions, simplified for others
+    let contextualPrompt;
+    if (isConversationMemoryQuestion && options.memoryContext?.conversations?.length > 0) {
+      console.log('[Companion] Using full contextual prompt for conversation memory question');
+      contextualPrompt = this.buildContextualPrompt(userMessage, analysis, options.memoryContext);
+    } else {
+      console.log('[Companion] Using simplified prompt for general question');
+      contextualPrompt = this.buildSimpleContextualPrompt(userMessage, analysis, options.memoryContext);
+    }
 
     // Execute integrations if needed
     if (this.shouldExecuteIntegrations(analysis)) {
@@ -799,7 +818,7 @@ IMPORTANT: Respond directly without excessive thinking. Be creative and natural.
     if (memoryContext.conversations && memoryContext.conversations.length > 0) {
       const recentConversations = memoryContext.conversations.slice(-3); // Last 3 conversations
       const conversationSummary = recentConversations.map(conv => 
-        `Previous: ${conv.userMessage.substring(0, 100)}... → Response topics: ${conv.topics.join(', ')}`
+        `Previous: ${conv.userMessage.substring(0, 100)}... → Response topics: ${conv.topics ? conv.topics.join(', ') : 'general conversation'}`
       ).join('\n');
       conversationContext = `\nRecent conversation topics:\n${conversationSummary}`;
     }
@@ -1478,6 +1497,76 @@ Be warm and personal while being honest about memory limitations.`;
 Respond like this: "I don't remember our previous conversations since I start fresh each session, but I'd love to get to know you again! What's your name so I can store it in my memory system?"
 
 Be friendly and helpful while being honest about starting fresh.`;
+        }
+      } else if (contextualPrompt.toLowerCase().includes("do you remember our") ||
+                 contextualPrompt.toLowerCase().includes("remember our last") ||
+                 contextualPrompt.toLowerCase().includes("remember our previous") ||
+                 contextualPrompt.toLowerCase().includes("our last conversation") ||
+                 contextualPrompt.toLowerCase().includes("our previous conversation") ||
+                 contextualPrompt.toLowerCase().includes("remember what we talked about") ||
+                 contextualPrompt.toLowerCase().includes("remember what we discussed")) {
+        // Handle questions about remembering past conversations
+        let memoryContext = options.memoryContext || {};
+        let userName = memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value;
+        let conversationHistory = memoryContext.conversations || [];
+        
+        // Try loading fresh context if not available
+        if (!userName || conversationHistory.length === 0) {
+          try {
+            if (this.memoryService) {
+              await this.memoryService.ensureInitialized();
+              const freshContext = await this.memoryService.getRelevantContext(contextualPrompt);
+              userName = userName || freshContext.personal?.name?.value || freshContext.personal?.user_name?.value;
+              conversationHistory = freshContext.conversations || [];
+            }
+          } catch (error) {
+            console.error('[Companion] Failed to load fresh memory context:', error);
+          }
+        }
+        
+        // Fallback to default name if none found
+        userName = userName || 'Alexandra';
+        
+        console.log('[Companion] Handling conversation memory question:', {
+          userName,
+          conversationCount: conversationHistory.length,
+          hasMemoryService: !!this.memoryService
+        });
+        
+        if (conversationHistory.length > 0) {
+          // Build a summary of recent conversation topics for context
+          const recentTopics = conversationHistory.slice(-3).map(conv => 
+            conv.topics && conv.topics.length > 0 ? conv.topics.join(', ') : 'general conversation'
+          ).filter(Boolean);
+          
+          ariaPrompt = `You are Aria, the AI assistant. ${userName} is asking about past conversations. You have access to conversation history from your memory system.
+
+CRITICAL CONTEXT:
+- You are Aria (the AI assistant)
+- The user is ${userName} (the human)
+- You have ${conversationHistory.length} stored conversations
+- Recent conversation topics: ${recentTopics.join('; ')}
+
+IMPORTANT RESPONSE GUIDELINES:
+- Acknowledge that you have stored conversation history in your memory system
+- Be honest that you don't "remember" conversations in the human sense, but you do have them stored
+- Reference the topics or themes you've discussed before (but avoid specific details about time-sensitive content)
+- Maintain continuity by acknowledging your ongoing relationship
+
+Respond naturally like this: "Hi ${userName}! I have our conversation history stored in my memory system. While I don't remember conversations in the human sense, I can see we've chatted about ${recentTopics.slice(0, 2).join(' and ')}${recentTopics.length > 2 ? ' among other things' : ''}. What would you like to talk about today?"
+
+Be warm and show continuity while being honest about how your memory works.`;
+        } else {
+          ariaPrompt = `You are Aria, the AI assistant. ${userName} is asking about past conversations, but you don't have any conversation history stored yet.
+
+CRITICAL:
+- You are Aria (the AI assistant)
+- The user is ${userName} (the human)
+- This appears to be early in your relationship or your memory was cleared
+
+Respond naturally like this: "Hi ${userName}! I don't have any previous conversations stored in my memory system yet. This might be one of our first chats, or my memory may have been reset. I'm excited to start fresh and get to know you! What would you like to talk about?"
+
+Be warm and welcoming while being honest about the lack of stored history.`;
         }
       } else if (contextualPrompt.toLowerCase().includes("what's my name") || 
                  contextualPrompt.toLowerCase().includes("whats my name") ||
