@@ -2,6 +2,10 @@ import BarkVoiceService from './BarkVoiceService';
 
 class VoiceService {
   constructor() {
+    if (VoiceService._instance) {
+      return VoiceService._instance;
+    }
+    
     console.log('[VoiceService] Initializing...');
     console.log('[VoiceService] Environment:', {
       isElectron: !!(window.electron || (window.process && window.process.type)),
@@ -19,9 +23,27 @@ class VoiceService {
     this.speechRate = 1.0;
     this.speechPitch = 1.0;
     this.speechVolume = 1.0;
+    this._initialized = false;
+    this._initPromise = null;
     
-    this.initializeSpeechRecognition();
-    this.loadVoices();
+    // Cache instance
+    VoiceService._instance = this;
+    
+    // Defer initialization to prevent blocking
+    this._initPromise = this._deferredInit();
+  }
+
+  async _deferredInit() {
+    if (this._initialized) return;
+    
+    try {
+      await this.initializeSpeechRecognition();
+      await this.loadVoices();
+      this._initialized = true;
+      console.log('[VoiceService] Initialization complete');
+    } catch (error) {
+      console.error('[VoiceService] Initialization failed:', error);
+    }
   }
 
   initializeSpeechRecognition() {
@@ -545,6 +567,11 @@ class VoiceService {
   }
 
   isSupported() {
+    // Cache the result to prevent excessive checks
+    if (this._supportedCache !== undefined) {
+      return this._supportedCache;
+    }
+    
     // Check if we're in Electron
     const isElectron = !!(window.electron || (window.process && window.process.type) || navigator.userAgent.includes('Electron'));
     
@@ -568,17 +595,19 @@ class VoiceService {
         hasSynthesis
       });
       
-      return {
+      this._supportedCache = {
         speechRecognition: hasRecognition,
         speechSynthesis: hasSynthesis
       };
+      return this._supportedCache;
     }
     
     // For regular browsers
-    return {
+    this._supportedCache = {
       speechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
       speechSynthesis: 'speechSynthesis' in window
     };
+    return this._supportedCache;
   }
 
   getErrorMessage(error) {
@@ -618,36 +647,65 @@ class VoiceService {
 // Enhanced Voice Service Factory - Bark TTS Only
 class VoiceServiceFactory {
   constructor() {
-    this.browserVoice = new VoiceService(); // Keep for speech recognition only
+    this.browserVoice = new VoiceService(); // Browser/system voices (the original voice pack)
     this.barkVoice = new BarkVoiceService();
-    this.currentProvider = 'bark'; // Only 'bark' for TTS
+    this.currentProvider = 'browser'; // Default to browser voices (the original system with Samantha)
     this.isSpeaking = false; // Prevent concurrent speech
     this.voiceLock = null; // Lock to prevent race conditions
     
-    console.log('[VoiceServiceFactory] Initialized with Bark TTS only:', {
+    console.log('[VoiceServiceFactory] Initialized with browser voices as default:', {
+      browser: !!this.browserVoice,
       bark: !!this.barkVoice
     });
   }
 
-  // Get the active voice service - always Bark for TTS
+  // Get the active voice service based on current provider
   getActiveService() {
-    return this.barkVoice;
+    if (this.currentProvider === 'browser') {
+      return this.browserVoice;
+    }
+    return this.barkVoice; // Default to Bark
   }
 
-  // Provider is always bark for TTS
+  // Support both browser and Bark TTS providers
   setProvider(provider) {
-    if (provider === 'bark') {
+    if (provider === 'bark' || provider === 'browser') {
       this.currentProvider = provider;
       console.log('[VoiceServiceFactory] Using provider:', provider);
       return true;
     }
-    console.warn('[VoiceServiceFactory] Only Bark TTS is supported, no fallback to browser voice');
+    console.warn('[VoiceServiceFactory] Unsupported provider:', provider);
     return false;
   }
 
-  // Get available providers - only Bark TTS
+  // Get available providers - both browser and Bark TTS
   async getProviders() {
     const providers = [];
+
+    // Check browser voices first (the original voice pack system)
+    try {
+      await this.browserVoice._initPromise; // Wait for browser voice initialization
+      const browserVoices = this.browserVoice.getVoices();
+      providers.push({
+        id: 'browser',
+        name: 'System Voices (with Samantha)',
+        type: 'Browser Speech Synthesis',
+        available: browserVoices.length > 0,
+        voices: browserVoices.length,
+        quality: 'High',
+        local: true,
+        samanthaAvailable: browserVoices.some(v => v.name.toLowerCase().includes('samantha'))
+      });
+    } catch (error) {
+      providers.push({
+        id: 'browser',
+        name: 'System Voices',
+        type: 'Browser Speech Synthesis',
+        available: false,
+        error: error.message,
+        voices: 0
+      });
+    }
 
     // Check if Bark is available
     try {
@@ -677,13 +735,40 @@ class VoiceServiceFactory {
     return providers;
   }
 
-  // Unified speak method - only use Bark TTS, no fallback
+  // Unified speak method - supports both browser and Bark TTS
   async speak(text, options = {}) {
-    // First check if Bark server is available
+    // Use browser voice if selected
+    if (this.currentProvider === 'browser') {
+      console.log('[VoiceServiceFactory] Using browser voice (System Voices)');
+      try {
+        return await this.browserVoice.speak(text, {
+          ...options,
+          onStart: () => {
+            console.log('[VoiceServiceFactory] Browser voice speech started');
+            options.onStart?.();
+          },
+          onEnd: () => {
+            console.log('[VoiceServiceFactory] Browser voice speech ended');
+            this.isSpeaking = false;
+            options.onEnd?.();
+          },
+          onError: (error) => {
+            console.error('[VoiceServiceFactory] Browser voice error:', error);
+            this.isSpeaking = false;
+            options.onError?.(error);
+          }
+        });
+      } catch (error) {
+        console.error('[VoiceServiceFactory] Browser voice failed:', error.message);
+        throw error;
+      }
+    }
+
+    // Use Bark TTS if selected (original logic)
     try {
       const barkStatus = await this.barkVoice.checkServerStatus();
       if (barkStatus.status !== 'running') {
-        const errorMessage = 'Bark TTS server is not running. Please start the Bark TTS server to use voice synthesis. No fallback voice is available as requested.';
+        const errorMessage = 'Bark TTS server is not running. Please start the Bark TTS server to use voice synthesis.';
         console.error('[VoiceServiceFactory]', errorMessage);
         if (options.onError) {
           options.onError(errorMessage);
@@ -691,7 +776,7 @@ class VoiceServiceFactory {
         throw new Error(errorMessage);
       }
     } catch (error) {
-      const errorMessage = `Bark TTS server is not available: ${error.message}. Please start the Bark TTS server to use voice synthesis. No fallback voice is available as requested.`;
+      const errorMessage = `Bark TTS server is not available: ${error.message}. Please start the Bark TTS server to use voice synthesis.`;
       console.error('[VoiceServiceFactory]', errorMessage);
       if (options.onError) {
         options.onError(errorMessage);
@@ -709,10 +794,12 @@ class VoiceServiceFactory {
       
       barkAudioElements.forEach(audio => {
         if (!audio.paused && !audio.ended && audio.currentTime > 0) {
-          // Preserve audio for much longer to prevent cutoffs (desktop app only)
-          if (audio.currentTime < 120) { // Increased from 30 to 120 seconds
+          // Only preserve speech for a short time to allow quick interruptions
+          if (audio.currentTime < 10) { // Reduced from 120 to 10 seconds
             hasActiveBarkSpeech = true;
             console.log('[VoiceServiceFactory] Preserving ongoing Bark speech (playing for', audio.currentTime.toFixed(1), 'seconds)');
+          } else {
+            console.log('[VoiceServiceFactory] Speech has been playing for', audio.currentTime.toFixed(1), 'seconds - allowing interruption');
           }
         }
       });
@@ -763,45 +850,52 @@ class VoiceServiceFactory {
     }
   }
 
-  // Unified voice methods - always use Bark TTS
+  // Unified voice methods - use active provider
   async getVoices() {
+    if (this.currentProvider === 'browser') {
+      await this.browserVoice._initPromise; // Wait for initialization
+      return this.browserVoice.getVoices();
+    }
     return await this.barkVoice.getVoices();
   }
 
   setVoice(voice) {
+    if (this.currentProvider === 'browser') {
+      return this.browserVoice.setVoice(voice);
+    }
     return this.barkVoice.setVoice(voice);
   }
 
-  // Stop voice - only Bark TTS
+  // Stop voice - works with both providers
   async stopAllVoices() {
     this.isSpeaking = false; // Clear speaking flag
     
     try {
-      // Stop Bark voice (this method is now conservative and preserves active speech)
-      await this.barkVoice.stop();
-      console.log('[VoiceServiceFactory] Called Bark TTS stop (conservative mode)');
+      if (this.currentProvider === 'browser') {
+        // Stop browser voice
+        this.browserVoice.stopSpeaking();
+        console.log('[VoiceServiceFactory] Stopped browser voice');
+      } else {
+        // Stop Bark voice (this method is now conservative and preserves active speech)
+        await this.barkVoice.stop();
+        console.log('[VoiceServiceFactory] Called Bark TTS stop (conservative mode)');
+      }
       
-      // Only stop non-Bark audio elements to avoid interfering with ongoing Bark speech
+      // Stop any remaining audio elements
       const audioElements = document.querySelectorAll('audio');
       let stoppedCount = 0;
-      let preservedCount = 0;
       
       audioElements.forEach(audio => {
-        if (audio.getAttribute('data-bark-speech') !== 'true') {
-          // Stop non-Bark audio (browser TTS, etc.)
+        if (this.currentProvider === 'browser' || audio.getAttribute('data-bark-speech') !== 'true') {
           audio.pause();
           audio.currentTime = 0;
           stoppedCount++;
-        } else {
-          // Preserve Bark audio
-          preservedCount++;
         }
       });
       
       console.log('[VoiceServiceFactory] Audio management:', {
-        total: audioElements.length,
-        stopped: stoppedCount,
-        preserved: preservedCount
+        provider: this.currentProvider,
+        audioElementsStopped: stoppedCount
       });
       
     } catch (error) {
@@ -831,17 +925,53 @@ class VoiceServiceFactory {
     this.browserVoice.stopListening();
   }
 
-  // Test methods - only Bark TTS
+  // Test methods - works with both providers
   async testProvider(provider) {
     if (provider === 'bark') {
       return await this.barkVoice.test();
+    } else if (provider === 'browser') {
+      try {
+        await this.browserVoice._initPromise;
+        const voices = this.browserVoice.getVoices();
+        const samantha = voices.find(v => v.name.toLowerCase().includes('samantha'));
+        
+        return {
+          success: true,
+          message: `Browser voices available: ${voices.length} voices${samantha ? ' (including Samantha)' : ''}`,
+          voices: voices.length,
+          samanthaAvailable: !!samantha
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Browser voice test failed: ${error.message}`
+        };
+      }
     } else {
-      return { success: false, message: 'Only Bark TTS is supported. No fallback voice available.' };
+      return { success: false, message: 'Unsupported provider.' };
     }
   }
 
-  // Get service info - always Bark TTS
+  // Get service info - works with both providers
   getInfo() {
+    if (this.currentProvider === 'browser') {
+      const voices = this.browserVoice.getVoices();
+      return {
+        name: 'System Voices',
+        type: 'Browser Speech Synthesis',
+        quality: 'High',
+        local: true,
+        voices: voices.length,
+        features: [
+          'Native system voices',
+          'Instant playback',
+          'No chunking required',
+          'Seamless long text reading',
+          voices.some(v => v.name.toLowerCase().includes('samantha')) ? 'Samantha voice available' : 'Multiple voice options'
+        ],
+        status: voices.length > 0 ? 'Available' : 'Unavailable'
+      };
+    }
     return this.barkVoice.getInfo();
   }
 

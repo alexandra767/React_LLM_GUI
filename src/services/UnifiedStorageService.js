@@ -229,19 +229,39 @@ class UnifiedStorageService {
   }
   
   async set(key, value) {
+    // Check cache to avoid redundant writes
+    const cachedValue = this.cache.get(key);
+    if (cachedValue === value) {
+      return; // No change, skip write
+    }
+    
     // Always save to localStorage for immediate access
     localStorage.setItem(key, value);
     
     // Update cache
     this.cache.set(key, value);
     
-    // Determine if we need persistent backup
+    // Determine if we need persistent backup with throttling
     const category = this.getCategoryForKey(key);
     if (category?.strategy === 'localStorage_with_backup' || category?.strategy === 'memory_system') {
-      await this.saveToPersistent(key, value);
+      this.scheduleBackup(key, value);
     }
     
     console.log(`[UnifiedStorage] ✅ Saved ${key} (${value.length} chars)`);
+  }
+
+  scheduleBackup(key, value) {
+    // Throttle backups to prevent excessive I/O
+    if (this._backupTimeouts) {
+      clearTimeout(this._backupTimeouts[key]);
+    } else {
+      this._backupTimeouts = {};
+    }
+    
+    this._backupTimeouts[key] = setTimeout(async () => {
+      await this.saveToPersistent(key, value);
+      delete this._backupTimeouts[key];
+    }, 2000); // Wait 2 seconds before backup
   }
   
   getCategoryForKey(key) {

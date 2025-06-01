@@ -214,11 +214,15 @@ class BarkVoiceService {
     });
     
     console.log('[BarkVoiceService] Generating speech for complete text:', {
-      text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+      textStart: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+      textEnd: text.length > 100 ? '...' + text.substring(text.length - 100) : '',
       textLength: text.length,
       voice,
       temperature: options.temperature || 0.7
     });
+    
+    // Log the exact text being processed for debugging story reading
+    console.log('[BarkVoiceService] 📖 FULL TEXT TO PROCESS:', text);
 
     try {
       // Simplified identity cleaning to reduce processing delays
@@ -243,8 +247,8 @@ class BarkVoiceService {
       }
       
       // For longer texts, use chunking to prevent server truncation
-      // Bark server truncates text that's too long, so we need proper chunking
-      if (contextualText.length > 1500) {  // Lowered to 1500 to prevent server truncation
+      // Bark server truncates text that's too long, so we need careful chunking
+      if (contextualText.length > 650) {  // Increased slightly for better flow while staying safe
         console.log('[BarkVoiceService] Processing long text:', contextualText.length, 'characters');
         return await this.speakLongText(contextualText, voice, options);
       }
@@ -317,14 +321,43 @@ class BarkVoiceService {
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
       
-      // Validate chunk belongs to original text
-      if (!text.includes(chunk.substring(0, Math.min(30, chunk.length)))) {
-        console.error(`[BarkVoiceService] Chunk ${i + 1} validation failed - does not belong to original text`);
-        console.error(`[BarkVoiceService] Contaminated chunk:`, chunk.substring(0, 100));
-        continue; // Skip this contaminated chunk
+      // More flexible validation - check if chunk contains words from original text
+      const chunkWords = chunk.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+      const originalWords = text.toLowerCase().split(/\s+/).filter(word => word.length > 3);
+      const hasMatchingWords = chunkWords.some(word => originalWords.includes(word));
+      
+      if (!hasMatchingWords && chunk.length > 50) {
+        console.error(`[BarkVoiceService] Chunk ${i + 1} validation failed - no matching words with original text`);
+        console.error(`[BarkVoiceService] Suspicious chunk:`, chunk.substring(0, 100));
+        continue; // Skip this suspicious chunk
       }
       
-      console.log(`[BarkVoiceService] Speaking chunk ${i + 1}/${chunks.length}:`, chunk.substring(0, 50) + '...');
+      // Add contextual bridging for better flow between chunks
+      let processedChunk = chunk;
+      
+      // For chunks that continue mid-sentence or mid-paragraph, add subtle continuity
+      if (i > 0 && !chunk.trim().match(/^[A-Z]|^\*\*|^[""'"]|^In\s|^The\s|^And\s|^But\s|^So\s/)) {
+        // This chunk continues from previous - add minimal bridge word to maintain flow
+        const prevChunk = chunks[i - 1];
+        const prevEndsWithComma = prevChunk.trim().endsWith(',');
+        const prevEndsWithDash = prevChunk.trim().endsWith('—') || prevChunk.trim().endsWith('-');
+        
+        if (prevEndsWithComma || prevEndsWithDash) {
+          // Very subtle addition to maintain sentence flow
+          processedChunk = processedChunk; // Keep as-is for comma/dash continuations
+          console.log(`[BarkVoiceService] Chunk ${i + 1} continues sentence flow (punctuation bridge)`);
+        } else {
+          console.log(`[BarkVoiceService] Chunk ${i + 1} continues from previous chunk`);
+        }
+      }
+      
+      console.log(`[BarkVoiceService] Speaking chunk ${i + 1}/${chunks.length}:`, {
+        preview: processedChunk.substring(0, 50) + '...',
+        length: processedChunk.length,
+        isNewParagraph: processedChunk.startsWith('**') || /^[A-Z]/.test(processedChunk.trim()),
+        continuesFromPrevious: i > 0 && !processedChunk.trim().match(/^[A-Z]|^\*\*|^[""']/),
+        fullText: processedChunk
+      });
       
       // Retry mechanism for each chunk
       let retries = 0;
@@ -334,7 +367,7 @@ class BarkVoiceService {
       while (!chunkSuccess && retries <= maxRetries) {
         try {
           const requestBody = {
-            text: chunk,
+            text: processedChunk,
             voice: voice,
             temperature: options.temperature || 0.7,
             silent: false
@@ -376,9 +409,18 @@ class BarkVoiceService {
             });
           }
           
-          // Minimal pause between chunks to reduce stuttering
+          // Minimal pause between chunks to maintain story flow
           if (i < chunks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // Very short pauses to minimize the "new paragraph" effect
+            const nextChunk = chunks[i + 1];
+            const currentEndsWithPeriod = chunk.trim().endsWith('.') || chunk.trim().endsWith('!') || chunk.trim().endsWith('?');
+            const isDialogue = nextChunk.trim().startsWith('"') || nextChunk.trim().startsWith('"');
+            const isNewParagraph = nextChunk.startsWith('**') || /^[A-Z][a-z]+ [a-z]/.test(nextChunk.trim());
+            
+            // Much shorter pauses to maintain continuity
+            const pauseTime = isNewParagraph ? 150 : (isDialogue ? 100 : (currentEndsWithPeriod ? 75 : 50));
+            console.log(`[BarkVoiceService] Pausing ${pauseTime}ms before next chunk (paragraph: ${isNewParagraph}, dialogue: ${isDialogue}, sentence end: ${currentEndsWithPeriod})`);
+            await new Promise(resolve => setTimeout(resolve, pauseTime));
           }
           
         } catch (error) {
@@ -401,22 +443,78 @@ class BarkVoiceService {
     return { success: true, chunks: chunks.length, successfulChunks };
   }
 
-  // Intelligently chunk text at sentence boundaries
+  // Intelligently chunk text at natural breaks while maintaining narrative flow
   chunkTextIntelligently(text) {
-    const maxChunkLength = 1200; // Smaller chunks for smoother flow and no truncation
+    const maxChunkLength = 800; // Slightly larger chunks for better flow, still under server limit
     const chunks = [];
     
-    // Split by sentences first, but handle incomplete sentences too
-    const sentences = text.split(/(?<=[.!?])\s+/);
+    // First, try to split by paragraph breaks to maintain story structure
+    const paragraphs = text.split(/\n\s*\n/);
     let currentChunk = '';
     
-    for (const sentence of sentences) {
-      // If adding this sentence would exceed max length, save current chunk
-      if (currentChunk.length + sentence.length > maxChunkLength && currentChunk.length > 0) {
-        chunks.push(currentChunk.trim());
-        currentChunk = sentence;
+    for (const paragraph of paragraphs) {
+      const trimmedParagraph = paragraph.trim();
+      if (!trimmedParagraph) continue;
+      
+      // If the paragraph itself is short enough, try to add it to current chunk
+      // Be more aggressive about keeping paragraphs together
+      if (currentChunk.length + trimmedParagraph.length <= maxChunkLength * 1.1) { // Allow 10% overflow for paragraph unity
+        currentChunk += (currentChunk ? '\n\n' : '') + trimmedParagraph;
       } else {
-        currentChunk += (currentChunk ? ' ' : '') + sentence;
+        // Save current chunk if it has content
+        if (currentChunk.trim()) {
+          chunks.push(currentChunk.trim());
+          currentChunk = '';
+        }
+        
+        // If paragraph is too long, split it by sentences
+        if (trimmedParagraph.length > maxChunkLength) {
+          const sentences = trimmedParagraph.split(/(?<=[.!?])\s+/);
+          let paragraphChunk = '';
+          
+          for (const sentence of sentences) {
+            // If sentence is too long, split by natural pauses
+            if (sentence.length > maxChunkLength) {
+              // Save current paragraph chunk
+              if (paragraphChunk.trim()) {
+                chunks.push(paragraphChunk.trim());
+                paragraphChunk = '';
+              }
+              
+              // Split long sentence by commas and conjunctions
+              const subParts = sentence.split(/(?<=,|\sand\s|\sbut\s|\sor\s|\sso\s|\syet\s|\sfor\s)\s+/);
+              let subChunk = '';
+              
+              for (const part of subParts) {
+                if (subChunk.length + part.length > maxChunkLength && subChunk.length > 0) {
+                  chunks.push(subChunk.trim());
+                  subChunk = part;
+                } else {
+                  subChunk += (subChunk ? ' ' : '') + part;
+                }
+              }
+              
+              if (subChunk.trim()) {
+                paragraphChunk = subChunk;
+              }
+            } else {
+              // Normal sentence handling
+              if (paragraphChunk.length + sentence.length > maxChunkLength && paragraphChunk.length > 0) {
+                chunks.push(paragraphChunk.trim());
+                paragraphChunk = sentence;
+              } else {
+                paragraphChunk += (paragraphChunk ? ' ' : '') + sentence;
+              }
+            }
+          }
+          
+          if (paragraphChunk.trim()) {
+            currentChunk = paragraphChunk;
+          }
+        } else {
+          // Paragraph fits in one chunk
+          currentChunk = trimmedParagraph;
+        }
       }
     }
     
@@ -430,14 +528,61 @@ class BarkVoiceService {
       chunks.push(text.trim());
     }
     
+    // Final safety check: force split any chunk that's still too long
+    const finalChunks = [];
+    for (const chunk of chunks) {
+      if (chunk.length > maxChunkLength) {
+        console.warn('[BarkVoiceService] Chunk still too long, force splitting:', chunk.length);
+        // Force split at any word boundary
+        const words = chunk.split(' ');
+        let forceChunk = '';
+        
+        for (const word of words) {
+          if (forceChunk.length + word.length + 1 > maxChunkLength && forceChunk.length > 0) {
+            finalChunks.push(forceChunk.trim());
+            forceChunk = word;
+          } else {
+            forceChunk += (forceChunk ? ' ' : '') + word;
+          }
+        }
+        
+        if (forceChunk.trim()) {
+          finalChunks.push(forceChunk.trim());
+        }
+      } else {
+        finalChunks.push(chunk);
+      }
+    }
+    
+    // Verify all text is preserved
+    const reconstructedText = finalChunks.join(' ').replace(/\s+/g, ' ').trim();
+    const originalNormalized = text.replace(/\s+/g, ' ').trim();
+    const textPreserved = reconstructedText.length >= originalNormalized.length * 0.95; // Allow 5% variance for spacing differences
+    
     console.log('[BarkVoiceService] Text chunking result:', {
       originalLength: text.length,
-      chunksCreated: chunks.length,
-      chunkLengths: chunks.map(chunk => chunk.length),
-      chunkPreviews: chunks.map(chunk => chunk.substring(0, 50) + '...')
+      chunksCreated: finalChunks.length,
+      chunkLengths: finalChunks.map(chunk => chunk.length),
+      maxChunkSize: Math.max(...finalChunks.map(chunk => chunk.length)),
+      allChunksUnderLimit: finalChunks.every(chunk => chunk.length <= maxChunkLength),
+      textPreserved: textPreserved,
+      reconstructedLength: reconstructedText.length,
+      chunkBreakPoints: finalChunks.map((chunk, i) => ({
+        chunk: i + 1,
+        startsWithTitle: chunk.startsWith('**'),
+        startsWithCapital: /^[A-Z]/.test(chunk.trim()),
+        endsWithPeriod: chunk.trim().endsWith('.'),
+        preview: chunk.substring(0, 30) + '...'
+      }))
     });
     
-    return chunks;
+    if (!textPreserved) {
+      console.error('[BarkVoiceService] WARNING: Text may have been lost during chunking!');
+      console.error('[BarkVoiceService] Original first 200 chars:', originalNormalized.substring(0, 200));
+      console.error('[BarkVoiceService] Reconstructed first 200 chars:', reconstructedText.substring(0, 200));
+    }
+    
+    return finalChunks;
   }
 
   async playAudioData(audioData, onStart = null) {

@@ -24,7 +24,14 @@ class MemoryAdapter {
   
   async ensureInitialized() {
     if (!this.isInitialized) {
+      console.log('[MemoryAdapter] Ensuring initialization...');
       await this.loadMemories();
+      
+      // Force create default memory with Alexandra's name if no name exists
+      if (!this.memories.personal.has('name') && !this.memories.personal.has('user_name')) {
+        console.log('[MemoryAdapter] No name found, creating default with Alexandra');
+        await this.createDefaultMemory();
+      }
     }
     return this.isInitialized;
   }
@@ -91,13 +98,19 @@ class MemoryAdapter {
   }
   
   async saveMemories() {
-    try {
-      const memoryData = {
-        personal: Array.from(this.memories.personal.entries()),
-        relationships: Array.from(this.memories.relationships.entries()),
-        projects: Array.from(this.memories.projects.entries()),
-        interests: Array.from(this.memories.interests.entries()),
-        patterns: Array.from(this.memories.patterns.entries()),
+    // Throttle saves to prevent excessive storage operations
+    if (this._saveTimeout) {
+      clearTimeout(this._saveTimeout);
+    }
+    
+    this._saveTimeout = setTimeout(async () => {
+      try {
+        const memoryData = {
+          personal: Array.from(this.memories.personal.entries()),
+          relationships: Array.from(this.memories.relationships.entries()),
+          projects: Array.from(this.memories.projects.entries()),
+          interests: Array.from(this.memories.interests.entries()),
+          patterns: Array.from(this.memories.patterns.entries()),
         knowledge: Array.from(this.memories.knowledge.entries()),
         preferences: Array.from(this.memories.preferences.entries()),
         conversations: this.memories.conversations.slice(-100), // Keep last 100
@@ -107,11 +120,12 @@ class MemoryAdapter {
         source: 'memory_adapter'
       };
       
-      await unifiedStorageService.set('aria_memory_system', JSON.stringify(memoryData));
-      console.log('[MemoryAdapter] ✅ Saved memories to unified storage');
-    } catch (error) {
-      console.error('[MemoryAdapter] ❌ Failed to save memories:', error);
-    }
+        await unifiedStorageService.set('aria_memory_system', JSON.stringify(memoryData));
+        console.log('[MemoryAdapter] ✅ Saved memories to unified storage');
+      } catch (error) {
+        console.error('[MemoryAdapter] ❌ Failed to save memories:', error);
+      }
+    }, 1000); // Throttle saves to once per second
   }
   
   // Add conversation to memory
@@ -121,6 +135,19 @@ class MemoryAdapter {
     // Extract personal information from user message
     this.extractPersonalInfo(userMessage);
     
+    // Detect if this conversation contains time-sensitive content
+    const fullText = (userMessage + ' ' + cleanedAssistantMessage).toLowerCase();
+    const isTimeSensitive = fullText.includes('breaking news') ||
+                           fullText.includes('latest news') ||
+                           fullText.includes('today\'s news') ||
+                           fullText.includes('recent news') ||
+                           fullText.includes('current events') ||
+                           fullText.includes('happening now') ||
+                           fullText.includes('this morning') ||
+                           fullText.includes('yesterday') ||
+                           fullText.includes('weather') ||
+                           fullText.includes('forecast');
+    
     const conversation = {
       id: `conv-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
       timestamp: new Date().toISOString(),
@@ -129,17 +156,22 @@ class MemoryAdapter {
       topics: this.extractTopics(userMessage + ' ' + cleanedAssistantMessage),
       mood: metadata.mood || 'neutral',
       context: metadata.context || {},
-      importance: this.calculateImportance(userMessage, cleanedAssistantMessage)
+      importance: this.calculateImportance(userMessage, cleanedAssistantMessage),
+      isTimeSensitive: isTimeSensitive // Flag time-sensitive content
     };
 
     this.memories.conversations.push(conversation);
+    
+    // Clean up old conversations more aggressively when adding new ones
+    this.cleanOldConversations();
     
     // Auto-save every 5 conversations
     if (this.memories.conversations.length % 5 === 0) {
       this.saveMemories();
     }
 
-    console.log('[MemoryAdapter] 💬 Added conversation:', conversation.id);
+    console.log('[MemoryAdapter] 💬 Added conversation:', conversation.id, 
+                isTimeSensitive ? '(time-sensitive)' : '');
     return conversation;
   }
   
@@ -207,9 +239,31 @@ class MemoryAdapter {
         relationships[name] = relationshipData;
       }
 
-      // Get recent conversations (cleaned)
+      // Get recent conversations (cleaned) - filter by time and relevance
+      const now = new Date();
+      const twentyFourHoursAgo = new Date(now - 24 * 60 * 60 * 1000);
+      
       const cleanConversations = this.memories.conversations
-        .slice(-10)
+        .filter(conv => {
+          // Only include conversations from the last 24 hours to prevent stale news references
+          const conversationTime = new Date(conv.timestamp);
+          const isRecent = conversationTime > twentyFourHoursAgo;
+          
+          // Skip conversations that mention specific news, dates, or time-sensitive content
+          const conversationText = (conv.userMessage + ' ' + conv.assistantMessage).toLowerCase();
+          const hasStaleContent = conversationText.includes('breaking news') ||
+                                 conversationText.includes('latest news') ||
+                                 conversationText.includes('today\'s news') ||
+                                 conversationText.includes('recent news') ||
+                                 conversationText.includes('yesterday') ||
+                                 conversationText.includes('last week') ||
+                                 conversationText.includes('this morning') ||
+                                 conversationText.includes('earlier today');
+          
+          // Include only recent conversations without stale news content
+          return isRecent && !hasStaleContent;
+        })
+        .slice(-5) // Limit to last 5 relevant conversations instead of 10
         .map(conv => this.sanitizeConversation(conv));
 
       const context = {
@@ -476,11 +530,82 @@ class MemoryAdapter {
     }
   }
 
+  // Clean old conversations to prevent stale context
+  cleanOldConversations() {
+    const now = new Date();
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    
+    const originalLength = this.memories.conversations.length;
+    
+    this.memories.conversations = this.memories.conversations.filter(conv => {
+      const conversationTime = new Date(conv.timestamp);
+      
+      // Keep all conversations from the last 24 hours
+      if (conversationTime > dayAgo) {
+        return true;
+      }
+      
+      // For older conversations, only keep non-time-sensitive ones that are important
+      if (conversationTime > weekAgo) {
+        return !conv.isTimeSensitive && conv.importance >= 0.7;
+      }
+      
+      // For very old conversations, only keep the most important ones
+      return conv.importance >= 0.9;
+    });
+    
+    const cleanedCount = originalLength - this.memories.conversations.length;
+    if (cleanedCount > 0) {
+      console.log(`[MemoryAdapter] 🧹 Cleaned ${cleanedCount} old/stale conversations`);
+    }
+  }
+
+  // Manually clear stale conversations (for user-triggered cleanup)
+  clearStaleConversations() {
+    const now = new Date();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    
+    const originalLength = this.memories.conversations.length;
+    
+    // Remove all time-sensitive conversations older than 24 hours
+    this.memories.conversations = this.memories.conversations.filter(conv => {
+      const conversationTime = new Date(conv.timestamp);
+      
+      // Keep recent conversations
+      if (conversationTime > dayAgo) {
+        return true;
+      }
+      
+      // Remove old time-sensitive conversations
+      return !conv.isTimeSensitive;
+    });
+    
+    const cleanedCount = originalLength - this.memories.conversations.length;
+    console.log(`[MemoryAdapter] 🧹 Manually cleared ${cleanedCount} stale conversations`);
+    
+    this.saveMemories();
+    return cleanedCount;
+  }
+
   // Get memory statistics
   getMemoryStats() {
+    const now = new Date();
+    const dayAgo = new Date(now - 24 * 60 * 60 * 1000);
+    
+    const recentConversations = this.memories.conversations.filter(conv => 
+      new Date(conv.timestamp) > dayAgo
+    ).length;
+    
+    const timeSensitiveConversations = this.memories.conversations.filter(conv => 
+      conv.isTimeSensitive
+    ).length;
+    
     return {
       storageLocation: 'Unified Storage',
       totalConversations: this.memories.conversations.length,
+      recentConversations: recentConversations,
+      timeSensitiveConversations: timeSensitiveConversations,
       personalFacts: this.memories.personal.size,
       activeProjects: Array.from(this.memories.projects.values())
         .filter(p => p.status === 'active').length,

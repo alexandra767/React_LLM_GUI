@@ -1,5 +1,66 @@
 // Simple streaming service that just works
 class SimpleStreamingService {
+  // Helper to enhance message with memory context for name questions
+  enhanceMessageForNameQuestions(message) {
+    const lowerMessage = message.toLowerCase();
+    const isNameQuestion = lowerMessage.includes("what's my name") || 
+                         lowerMessage.includes("whats my name") ||
+                         lowerMessage.includes("what is my name") ||
+                         lowerMessage.includes("do you know my name") ||
+                         lowerMessage.includes("who am i");
+                         
+    const isRememberQuestion = lowerMessage.includes("do you remember me") ||
+                             lowerMessage.includes("do you rember me") || // Handle typo
+                             lowerMessage.includes("remember me") ||
+                             lowerMessage.includes("do you know me");
+    
+    if (!isNameQuestion && !isRememberQuestion) {
+      return message; // Return original message if not a name or memory question
+    }
+    
+    // Load user's name from memory
+    let userName = 'Alexandra'; // Default fallback
+    try {
+      const memoryData = localStorage.getItem('aria_memory_system');
+      if (memoryData) {
+        const parsed = JSON.parse(memoryData);
+        const personalMap = new Map(parsed.personal || []);
+        const storedName = personalMap.get('name')?.value || personalMap.get('user_name')?.value;
+        if (storedName) {
+          userName = storedName;
+        }
+      }
+    } catch (error) {
+      console.warn('[SimpleStreaming] Failed to load user name from memory:', error);
+    }
+    
+    // Build enhanced prompt with clear identity instructions
+    if (isNameQuestion) {
+      return `IDENTITY CLARIFICATION:
+- You are an AI assistant called Aria
+- The human user you're talking to is called ${userName}
+- These are completely different names: Aria (you) vs ${userName} (them)
+
+The user is asking if you know their name. Their name is ${userName}.
+
+Respond exactly like this: "Hello ${userName}! Yes, I know your name is ${userName}. How can I help you today?"
+
+Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
+    }
+    
+    if (isRememberQuestion) {
+      return `IDENTITY CLARIFICATION:
+- You are an AI assistant called Aria
+- The human user you're talking to is called ${userName}
+- These are completely different names: Aria (you) vs ${userName} (them)
+
+The user is asking if you remember them. Their name is ${userName}.
+
+Respond exactly like this: "Hi ${userName}! While I don't remember our conversations between sessions, I do have your personal information stored in my memory system. I know your name is ${userName} and can use what I've learned about your preferences to help you. How can I assist you today?"
+
+Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
+    }
+  }
   async streamChat(message, model, onChunk, onComplete, onError) {
     console.log('[SimpleStreaming] Starting stream for:', {
       message: message.substring(0, 100) + '...',
@@ -9,13 +70,16 @@ class SimpleStreamingService {
       hasOnError: !!onError
     });
     
+    // Enhance message with memory context for name questions
+    const enhancedMessage = this.enhanceMessageForNameQuestions(message);
+    
     try {
       // Clean model name - remove any extra info like "(Unknown size)"
       const cleanModel = (model || 'qwen3:14B').split(' ')[0].trim();
       
       // Check if this is a Claude model and route accordingly
       if (cleanModel.startsWith('claude-')) {
-        return this.streamClaude(message, cleanModel, onChunk, onComplete, onError);
+        return this.streamClaude(enhancedMessage, cleanModel, onChunk, onComplete, onError);
       }
       
       // Check if in Electron and use terminal with streaming
@@ -49,6 +113,17 @@ class SimpleStreamingService {
             let hasCompleted = false;
             let isFirstChunk = true;
             
+            // Add timeout to prevent infinite hanging
+            const timeout = setTimeout(() => {
+              if (!hasCompleted) {
+                console.error('[SimpleStreaming] Streaming timeout after 120 seconds');
+                hasCompleted = true;
+                const error = new Error('Streaming timeout - no response received');
+                if (onError) onError(error);
+                reject(error);
+              }
+            }, 120000); // 120 second timeout for creative tasks
+            
             const child = spawnStream('ollama', args, 
               // onData callback
               (chunk) => {
@@ -81,6 +156,7 @@ class SimpleStreamingService {
                 if (error.includes('not found')) {
                   if (!hasCompleted) {
                     hasCompleted = true;
+                    clearTimeout(timeout); // Clear timeout on error
                     const err = new Error(`Model "${cleanModel}" not found. Please run: ollama pull ${cleanModel}`);
                     if (onError) onError(err);
                     reject(err);
@@ -93,6 +169,7 @@ class SimpleStreamingService {
                 
                 if (!hasCompleted) {
                   hasCompleted = true;
+                  clearTimeout(timeout); // Clear timeout on completion
                   if (code === 0 || fullContent.length > 0) {
                     if (onComplete) onComplete(fullContent);
                     resolve();
@@ -114,9 +191,9 @@ class SimpleStreamingService {
             
             console.log('[SimpleStreaming] Child process created, PID:', child.pid);
             
-            // Write the message to stdin
-            console.log('[SimpleStreaming] Writing message to stdin:', message.substring(0, 50) + '...');
-            child.write(message + '\n');
+            // Write the enhanced message to stdin
+            console.log('[SimpleStreaming] Writing enhanced message to stdin:', enhancedMessage.substring(0, 50) + '...');
+            child.write(enhancedMessage + '\n');
             child.end();
           });
         } catch (terminalError) {
@@ -140,8 +217,10 @@ class SimpleStreamingService {
       
       // M4-specific optimizations for 24GB unified memory
       const options = {
-        temperature: 0.7,
-        num_predict: -1, // No limit on predictions
+        temperature: 0.8, // Slightly higher for creativity
+        num_predict: 6144, // Increase further for longer creative content
+        top_p: 0.9, // Nucleus sampling for better quality
+        top_k: 40, // Limit token choices for more focused responses
         // Context size based on model - optimize for 32B with 24GB RAM
         num_ctx: is32BModel ? 8192 : (isLargeModel ? 16384 : (isMediumModel ? 24576 : 32768)),
         // GPU layers - maximize for M4 Pro with 16 GPU cores
@@ -173,7 +252,7 @@ class SimpleStreamingService {
       
       const requestBody = {
         model: cleanModel,
-        prompt: message,
+        prompt: enhancedMessage,
         stream: true,
         options
       };
@@ -217,27 +296,25 @@ class SimpleStreamingService {
       let fullContent = '';
       let chunkCount = 0;
       let lastActivityTime = Date.now();
-      const TIMEOUT_MS = 0; // Disable timeout - let the stream run as long as needed
+      const TIMEOUT_MS = 120000; // Increase to 120 seconds for creative tasks and large models
       let timeoutHandle = null;
 
-      // Set up timeout handler - only if timeout is enabled
+      // Set up timeout handler - always enabled now
       const resetTimeout = () => {
-        if (TIMEOUT_MS > 0) {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          timeoutHandle = setTimeout(() => {
-            console.error('[SimpleStreaming] Stream timeout - no activity');
-            reader.cancel();
-            if (onError) onError(new Error('Stream timeout - no response from model'));
-          }, TIMEOUT_MS);
-        }
+        if (timeoutHandle) clearTimeout(timeoutHandle);
+        lastActivityTime = Date.now();
+        timeoutHandle = setTimeout(() => {
+          console.error('[SimpleStreaming] Stream timeout - no activity for 120 seconds');
+          reader.cancel();
+          if (onError) onError(new Error('Stream timeout - no response from model'));
+        }, TIMEOUT_MS);
       };
 
-      if (TIMEOUT_MS > 0) {
-        resetTimeout(); // Start initial timeout only if enabled
-      }
+      // Start initial timeout
+      resetTimeout();
 
       let consecutiveEmptyReads = 0;
-      const MAX_EMPTY_READS = 50; // Allow many empty reads - streaming can be bursty
+      const MAX_EMPTY_READS = 20; // Reduce to catch stalled streams faster
       
       while (true) {
         try {
@@ -408,6 +485,8 @@ class SimpleStreamingService {
   }
   
   async streamViaTerminal(message, model, onChunk, onComplete, onError) {
+    // Enhance message for name questions
+    const enhancedMessage = this.enhanceMessageForNameQuestions(message);
     console.log('[SimpleStreaming] Terminal streaming for model:', model);
     
     try {
@@ -422,8 +501,8 @@ class SimpleStreamingService {
         return;
       }
       
-      // Create a shell command that pipes the message to ollama
-      const escapedMessage = message.replace(/'/g, "'\\''");
+      // Create a shell command that pipes the enhanced message to ollama
+      const escapedMessage = enhancedMessage.replace(/'/g, "'\\''");
       
       console.log('[SimpleStreaming] Running ollama with:', {
         model,
@@ -566,6 +645,8 @@ class SimpleStreamingService {
   }
 
   async streamClaude(message, model, onChunk, onComplete, onError) {
+    // Enhance message for name questions
+    const enhancedMessage = this.enhanceMessageForNameQuestions(message);
     console.log('[SimpleStreaming] Using Claude streaming for model:', model);
     
     try {
@@ -593,7 +674,7 @@ class SimpleStreamingService {
           messages: [
             {
               role: 'user',
-              content: message
+              content: enhancedMessage
             }
           ],
           temperature: 0.7,

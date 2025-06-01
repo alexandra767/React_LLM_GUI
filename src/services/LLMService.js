@@ -871,21 +871,105 @@ class LLMService {
     return adapter.getModels();
   }
 
-  // Simpler API for other components to use
+  // Enhanced API that includes memory integration for consistent name recognition
   async generateResponse(message, options = {}) {
     try {
-      // This would normally send the request to the actual LLM
-      // For now, we'll simulate a response
       const startTime = Date.now();
       
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+      // Load memory context for name questions
+      let memoryContext = {};
+      let userName = null;
+      
+      // Check if this is a name-related or memory question
+      const lowerMessage = message.toLowerCase();
+      const isNameQuestion = lowerMessage.includes("what's my name") || 
+                           lowerMessage.includes("whats my name") ||
+                           lowerMessage.includes("what is my name") ||
+                           lowerMessage.includes("do you know my name") ||
+                           lowerMessage.includes("who am i");
+                           
+      const isRememberQuestion = lowerMessage.includes("do you remember me") ||
+                               lowerMessage.includes("do you rember me") || // Handle typo
+                               lowerMessage.includes("remember me") ||
+                               lowerMessage.includes("do you know me");
+      
+      if (isNameQuestion || isRememberQuestion) {
+        try {
+          // Load memory from UnifiedStorageService
+          const memoryData = localStorage.getItem('aria_memory_system');
+          if (memoryData) {
+            const parsed = JSON.parse(memoryData);
+            const personalMap = new Map(parsed.personal || []);
+            userName = personalMap.get('name')?.value || personalMap.get('user_name')?.value;
+            console.log('[LLMService] Loaded user name from memory:', userName);
+          }
+          
+          // Fallback to default if no name found
+          if (!userName) {
+            userName = 'Alexandra';
+            console.log('[LLMService] Using fallback name: Alexandra');
+          }
+        } catch (error) {
+          console.error('[LLMService] Error loading memory:', error);
+          userName = 'Alexandra'; // Fallback
+        }
+      }
+      
+      // Build enhanced prompt with memory context for name and memory questions
+      let enhancedMessage = message;
+      if (isNameQuestion && userName) {
+        enhancedMessage = `IDENTITY CLARIFICATION:
+- You are an AI assistant called Aria
+- The human user you're talking to is called ${userName}
+- These are completely different names: Aria (you) vs ${userName} (them)
+
+The user is asking if you know their name. Their name is ${userName}.
+
+Respond exactly like this: "Hello ${userName}! Yes, I know your name is ${userName}. How can I help you today?"
+
+Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
+      } else if (isRememberQuestion && userName) {
+        enhancedMessage = `IDENTITY CLARIFICATION:
+- You are an AI assistant called Aria
+- The human user you're talking to is called ${userName}
+- These are completely different names: Aria (you) vs ${userName} (them)
+
+The user is asking if you remember them. Their name is ${userName}.
+
+Respond exactly like this: "Hi ${userName}! While I don't remember our conversations between sessions, I do have your personal information stored in my memory system. I know your name is ${userName} and can use what I've learned about your preferences to help you. How can I assist you today?"
+
+Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
+      }
+      
+      // Send to current adapter
+      const adapter = this.getCurrentAdapter();
+      const response = await adapter.sendMessage(enhancedMessage, options);
+      
+      // Clean response for identity confusion
+      let cleanedResponse = response.response;
+      if (userName && cleanedResponse) {
+        // Fix identity confusion - replace "Hello Aria!" with user's name
+        cleanedResponse = cleanedResponse
+          .replace(/Hello Aria!/gi, `Hello ${userName}!`)
+          .replace(/Hi Aria!/gi, `Hi ${userName}!`)
+          .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+          .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+          .replace(/I'm Monica/gi, "I'm Aria")
+          .replace(/I am Monica/gi, "I am Aria")
+          .replace(/Monica/gi, "Aria")
+          .replace(/I'm Qwen/gi, "I'm Aria")
+          .replace(/I am Qwen/gi, "I am Aria")
+          .replace(/Qwen/gi, "Aria")
+          .replace(/I'm DeepSeek/gi, "I'm Aria")
+          .replace(/I am DeepSeek/gi, "I am Aria")
+          .replace(/DeepSeek/gi, "Aria");
+      }
       
       return {
-        text: `This is a simulated response to: "${message}"\n\nIn a real implementation, this would connect to your local LLM via Ollama.`,
+        text: cleanedResponse || response.response,
         tokens: {
-          input: Math.ceil(message.length / 4), // Roughly estimate tokens
-          output: 40, // Fixed response size for simulation
+          input: Math.ceil(message.length / 4),
+          output: Math.ceil((cleanedResponse || response.response || '').length / 4),
         },
         duration: (Date.now() - startTime) / 1000,
       };

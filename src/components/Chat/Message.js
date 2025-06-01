@@ -119,7 +119,7 @@ const styles = {
     }
   }),
   messageWrapper: {
-    maxWidth: '70%',
+    maxWidth: '85%', // Increased from 70% to 85% to allow more space for long-form content like stories
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
@@ -164,6 +164,10 @@ const styles = {
   messageContent: {
     fontSize: '15px',
     lineHeight: 1.6,
+    wordBreak: 'break-word', // Ensure long words wrap properly
+    overflowWrap: 'break-word', // Additional word wrapping support
+    hyphens: 'auto', // Enable hyphenation for better text flow
+    maxWidth: '100%', // Ensure content doesn't overflow container
     '& p': {
       margin: 0,
       marginBottom: '8px',
@@ -834,7 +838,14 @@ const Message = React.memo(({ message, onDelete }) => {
         </code>
       );
     },
-    p: ({ children }) => <p style={{ marginBottom: '1em', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{children}</p>,
+    p: ({ children }) => <p style={{ 
+      marginBottom: '1em', 
+      lineHeight: 1.6, 
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      overflowWrap: 'break-word',
+      maxWidth: '100%'
+    }}>{children}</p>,
     ul: ({ children }) => <ul style={{ marginBottom: '1em', paddingLeft: '1.5em' }}>{children}</ul>,
     ol: ({ children }) => <ol style={{ marginBottom: '1em', paddingLeft: '1.5em' }}>{children}</ol>,
     li: ({ children }) => <li style={{ marginBottom: '0.5em' }}>{children}</li>,
@@ -899,13 +910,35 @@ const Message = React.memo(({ message, onDelete }) => {
 
   // Parse content to extract thinking and answer sections
   const parseThinkingContent = (content) => {
-    // Check for complete thinking tags
-    const thinkRegex = /<think>([\s\S]*?)<\/think>/;
-    const match = content.match(thinkRegex);
+    if (!content || typeof content !== 'string') {
+      return {
+        hasThinking: false,
+        thinking: null,
+        answer: content || '',
+        isComplete: true
+      };
+    }
+    
+    // Check for complete thinking tags - be more flexible with whitespace and formats
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/i;
+    const altThinkRegex = /<think>([\s\S]*?)think>/i; // Handle malformed closing tags
+    
+    let match = content.match(thinkRegex);
+    if (!match) {
+      match = content.match(altThinkRegex);
+    }
     
     if (match) {
       const thinkingContent = match[1].trim();
-      const answerContent = content.replace(thinkRegex, '').trim();
+      const answerContent = content.replace(match[0], '').trim();
+      
+      console.log('[Message] Thinking content parsed (tagged):', {
+        hasThinking: true,
+        thinkingLength: thinkingContent.length,
+        answerLength: answerContent.length,
+        answerPreview: answerContent.substring(0, 50)
+      });
+      
       return {
         hasThinking: true,
         thinking: thinkingContent,
@@ -915,7 +948,7 @@ const Message = React.memo(({ message, onDelete }) => {
     }
     
     // Check for incomplete thinking tag (still streaming)
-    const incompleteThinkMatch = content.match(/<think>([\s\S]*)/);
+    const incompleteThinkMatch = content.match(/<think>([\s\S]*)/i);
     if (incompleteThinkMatch && (isStreamingMessage || safeMessage.isStreaming)) {
       const thinkingContent = incompleteThinkMatch[1].trim();
       return {
@@ -924,6 +957,89 @@ const Message = React.memo(({ message, onDelete }) => {
         answer: '', // No answer yet while thinking
         isComplete: false
       };
+    }
+    
+    // NEW: Check for untagged thinking content followed by actual story/response
+    // Look for patterns that indicate AI reasoning followed by actual content
+    // Enhanced pattern to catch more thinking indicators and story markers
+    const untaggedThinkingPattern = /^(Okay, the user|Let me start by thinking|I need to|I should|Since .+ didn't specify|Let me think about|Looking at this|The user .+ wants|I'll start by considering|Maybe something|I should start|Conflict is important|Make sure)([\s\S]*?)(\*\*[^*]+\*\*|#{1,6}\s|Title:|Story:|Response:|Here's|Let me provide|Based on|^\s*\*\*)/im;
+    const untaggedMatch = content.match(untaggedThinkingPattern);
+    
+    console.log('[Message] Checking untagged thinking pattern:', {
+      contentStart: content.substring(0, 100),
+      patternMatched: !!untaggedMatch,
+      matchDetails: untaggedMatch ? {
+        fullMatch: untaggedMatch[0].substring(0, 100),
+        startPattern: untaggedMatch[1],
+        endPattern: untaggedMatch[3]
+      } : null
+    });
+    
+    if (untaggedMatch) {
+      // Extract the thinking part (everything before the actual content)
+      const thinkingStart = untaggedMatch[0];
+      const thinkingEnd = untaggedMatch[3];
+      const thinkingPortion = content.substring(0, content.indexOf(thinkingEnd));
+      const answerPortion = content.substring(content.indexOf(thinkingEnd)).trim();
+      
+      console.log('[Message] Thinking content parsed (untagged):', {
+        hasThinking: true,
+        thinkingLength: thinkingPortion.length,
+        answerLength: answerPortion.length,
+        answerPreview: answerPortion.substring(0, 50),
+        detectedPattern: untaggedMatch[1]
+      });
+      
+      return {
+        hasThinking: true,
+        thinking: thinkingPortion.trim(),
+        answer: answerPortion,
+        isComplete: true
+      };
+    }
+    
+    // Alternative pattern: Look for planning language followed by story content
+    // Enhanced to catch the specific pattern from the user's example
+    const planningPattern = /(.*?)(\*\*[^*]+\*\*|Title:\s*[^\n]+|^[A-Z][^.]*?story[^.]*?\.|^\s*\*\*)/im;
+    const planningMatch = content.match(planningPattern);
+    
+    console.log('[Message] Planning pattern check:', {
+      hasMatch: !!planningMatch,
+      contentPreview: content.substring(0, 200),
+      planningTextLength: planningMatch ? planningMatch[1].length : 0
+    });
+    
+    if (planningMatch && planningMatch[1].length > 100) {
+      // If there's substantial planning text before the story
+      const planningText = planningMatch[1].trim();
+      const storyContent = (planningMatch[2] + planningMatch[3]).trim();
+      
+      // Check if the planning text contains thinking indicators
+      const hasThinkingIndicators = /\b(I need|I should|maybe|let me|perhaps|I'll|since.*didn't specify|I want to|the user|alexandra|conflict is important|make sure|outline|structure)\b/gi.test(planningText);
+      
+      console.log('[Message] Planning text analysis:', {
+        planningLength: planningText.length,
+        storyLength: storyContent.length,
+        hasThinkingIndicators,
+        planningPreview: planningText.substring(0, 100),
+        storyPreview: storyContent.substring(0, 100)
+      });
+      
+      if (hasThinkingIndicators) {
+        console.log('[Message] Thinking content parsed (planning pattern):', {
+          hasThinking: true,
+          thinkingLength: planningText.length,
+          answerLength: storyContent.length,
+          answerPreview: storyContent.substring(0, 50)
+        });
+        
+        return {
+          hasThinking: true,
+          thinking: planningText,
+          answer: storyContent,
+          isComplete: true
+        };
+      }
     }
     
     return {
@@ -948,6 +1064,18 @@ const Message = React.memo(({ message, onDelete }) => {
       originalContentLength: safeMessage.content?.length || 0
     });
     
+    // Enhanced logging for long content (like stories)
+    if (displayContent && displayContent.length > 3000) {
+      console.log('[Message] 📖 Long content detected:', {
+        messageId: safeMessage.id,
+        totalLength: displayContent.length,
+        isComplete: !isStreamingMessage && !safeMessage.isStreaming,
+        contentType: displayContent.includes('<think>') ? 'thinking+response' : 'response-only',
+        preview: displayContent.substring(0, 200) + '...',
+        ending: '...' + displayContent.substring(displayContent.length - 200)
+      });
+    }
+    
     // Handle empty or undefined content
     if (!displayContent || displayContent.trim() === '') {
       console.log('[Message] renderContent - empty content, isStreaming:', isStreamingMessage, 'messageIsStreaming:', safeMessage.isStreaming);
@@ -971,7 +1099,39 @@ const Message = React.memo(({ message, onDelete }) => {
     }
     
     try {
-      const { hasThinking, thinking, answer } = parseThinkingContent(displayContent);
+      // Cache parsing results to prevent redundant processing, but don't cache streaming content
+      const isCurrentlyStreaming = isStreamingMessage || safeMessage.isStreaming;
+      const cacheKey = `${safeMessage.id}-${displayContent.length}-${isCurrentlyStreaming ? 'streaming' : 'complete'}`;
+      let parsed = Message._parseCache?.get(cacheKey);
+      
+      // Don't use cache for streaming content to ensure real-time updates
+      if (!parsed || isCurrentlyStreaming) {
+        parsed = parseThinkingContent(displayContent);
+        if (!isCurrentlyStreaming) {
+          // Only cache complete (non-streaming) content
+          if (!Message._parseCache) {
+            Message._parseCache = new Map();
+          }
+          Message._parseCache.set(cacheKey, parsed);
+          
+          // Clear any old streaming cache entries for this message
+          if (Message._parseCache) {
+            for (const key of Message._parseCache.keys()) {
+              if (key.startsWith(`${safeMessage.id}-`) && key.includes('streaming')) {
+                Message._parseCache.delete(key);
+              }
+            }
+          }
+          
+          // Limit cache size to prevent memory leaks
+          if (Message._parseCache.size > 100) {
+            const firstKey = Message._parseCache.keys().next().value;
+            Message._parseCache.delete(firstKey);
+          }
+        }
+      }
+      
+      const { hasThinking, thinking, answer } = parsed;
       console.log('Message.renderContent - parsed:', { hasThinking, thinkingLength: thinking?.length, answerLength: answer?.length });
       
       // Render thinking section if present
@@ -1225,13 +1385,35 @@ const Message = React.memo(({ message, onDelete }) => {
         } else {
           // Render as Markdown
           console.log('Message.renderContent - Rendering as Markdown');
+          console.log('[Message] 📝 Markdown content length:', answer.length);
+          
+          // Additional logging for very long content to help debug story truncation
+          if (answer.length > 5000) {
+            console.log('[Message] 📚 Very long content detected (likely a story):', {
+              messageId: safeMessage.id,
+              answerLength: answer.length,
+              wordCount: answer.split(/\s+/).length,
+              hasThinking: answer !== displayContent,
+              isComplete: !isStreamingMessage && !safeMessage.isStreaming,
+              firstLine: answer.split('\n')[0],
+              lastLine: answer.split('\n').slice(-1)[0]
+            });
+          }
+          
           return (
-            <ReactMarkdown 
-              components={components}
-              remarkPlugins={[remarkGfm]}
-            >
-              {answer}
-            </ReactMarkdown>
+            <div style={{ 
+              maxWidth: '100%', 
+              wordBreak: 'break-word', 
+              overflowWrap: 'break-word',
+              width: '100%' // Ensure full width utilization
+            }}>
+              <ReactMarkdown 
+                components={components}
+                remarkPlugins={[remarkGfm]}
+              >
+                {answer}
+              </ReactMarkdown>
+            </div>
           );
         }
       };

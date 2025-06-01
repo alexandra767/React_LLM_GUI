@@ -31,8 +31,23 @@ class WebSearchService {
     // Remove duplicates and limit results
     const uniqueResults = this.deduplicateResults(results);
     
-    // Only add search portal links if we have very few real results
-    if (uniqueResults.length < 3) {
+    // Check if this is a weather query and prioritize weather sites
+    const lowerQuery = query.toLowerCase();
+    const isWeatherQuery = lowerQuery.includes('weather') || 
+                          lowerQuery.includes('temperature') || 
+                          lowerQuery.includes('forecast') || 
+                          lowerQuery.includes('rain') || 
+                          lowerQuery.includes('snow') || 
+                          lowerQuery.includes('sunny') || 
+                          lowerQuery.includes('cloudy');
+    
+    if (isWeatherQuery) {
+      // For weather queries, always add weather sites as primary results
+      const weatherLinks = this.generateNewsLinks(query);
+      // Insert weather sites at the beginning for weather queries
+      uniqueResults.unshift(...weatherLinks);
+    } else if (uniqueResults.length < 3) {
+      // Only add search portal links if we have very few real results
       const portalLinks = this.generateNewsLinks(query);
       uniqueResults.push(...portalLinks.slice(0, 3));
     }
@@ -139,10 +154,48 @@ class WebSearchService {
     }
   }
 
-  // Generate direct links to major news sites
+  // Generate direct links to major news sites or weather sites based on query
   generateNewsLinks(query) {
     const encodedQuery = encodeURIComponent(query);
+    const lowerQuery = query.toLowerCase();
     
+    // Check if this is a weather-related query
+    const isWeatherQuery = lowerQuery.includes('weather') || 
+                          lowerQuery.includes('temperature') || 
+                          lowerQuery.includes('forecast') || 
+                          lowerQuery.includes('rain') || 
+                          lowerQuery.includes('snow') || 
+                          lowerQuery.includes('sunny') || 
+                          lowerQuery.includes('cloudy');
+    
+    if (isWeatherQuery) {
+      // Return weather-specific sites with actual weather content
+      return [
+        {
+          title: `Weather.com: Current conditions and forecast`,
+          url: `https://weather.com/`,
+          snippet: `Current weather conditions, hourly forecasts, and 10-day outlook. Check temperature, humidity, precipitation, and severe weather alerts for your location.`,
+          source: 'Weather.com',
+          type: 'weather'
+        },
+        {
+          title: `National Weather Service`,
+          url: `https://weather.gov/`,
+          snippet: `Official weather forecasts, warnings, and meteorological data from the U.S. National Weather Service. Get detailed temperature, precipitation, and weather alerts.`,
+          source: 'National Weather Service',
+          type: 'weather'
+        },
+        {
+          title: `AccuWeather: Detailed forecast`,
+          url: `https://www.accuweather.com/`,
+          snippet: `Accurate weather forecasts with minute-by-minute precipitation, temperature trends, and extended outlooks. Check current conditions and hourly forecasts.`,
+          source: 'AccuWeather',
+          type: 'weather'
+        }
+      ];
+    }
+    
+    // Return news search links for non-weather queries
     return [
       {
         title: `CNN: ${query}`,

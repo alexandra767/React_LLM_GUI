@@ -354,10 +354,23 @@ const ChatView = React.memo(({ projectId }) => {
         ...voiceSettings,
         autoSpeak: true,
         voiceEnabled: true,
-        voiceSynthesisProvider: 'bark'
+        voiceSynthesisProvider: voiceSettings.voiceSynthesisProvider || 'browser' // Use existing or default to browser
       };
       localStorage.setItem('sephia_voice_settings', JSON.stringify(updatedSettings));
-      console.log('[ChatView] 🎤 Auto-enabled voice-first mode');
+      console.log('[ChatView] 🎤 Auto-enabled voice-first mode with provider:', updatedSettings.voiceSynthesisProvider);
+      
+      // Set the voice service provider
+      import('../../services/VoiceService').then(({ default: voiceService }) => {
+        voiceService.setProvider(updatedSettings.voiceSynthesisProvider);
+        console.log('[ChatView] Voice service provider set to:', updatedSettings.voiceSynthesisProvider);
+      });
+    } else {
+      // Auto-speak was already enabled - make sure voice service is using correct provider
+      const provider = voiceSettings.voiceSynthesisProvider || 'browser';
+      import('../../services/VoiceService').then(({ default: voiceService }) => {
+        voiceService.setProvider(provider);
+        console.log('[ChatView] Voice service provider confirmed as:', provider);
+      });
     }
   }, []);
   
@@ -503,30 +516,20 @@ const ChatView = React.memo(({ projectId }) => {
     const currentStreamingId = streamingMessageId || window.__streamingMessageId;
     const currentStreamingContent = streamingContent || window.__streamingContent || '';
     
-    console.log('[DIAGNOSTIC] Messages memo recalculating:', {
-      projectId,
-      baseMessagesCount: baseMessages.length,
-      baseMessagesPreview: baseMessages.slice(-2).map(m => ({ id: m.id, role: m.role, contentLength: m.content?.length || 0 })),
-      currentStreamingId,
-      currentStreamingContentLength: currentStreamingContent.length,
-      streamingMessageId,
-      streamingContentLength: streamingContent.length,
-      isStreaming,
-      windowIsStreaming: window.__isStreaming,
-      windowStreamingContent: window.__streamingContent?.length || 0,
-      localProjectMessagesCount: projectId ? localProjectMessages.length : 'N/A',
-      currentChatMessagesCount: currentChat?.messages?.length || 'N/A'
-    });
+    // Reduced diagnostic logging for performance
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[DIAGNOSTIC] Messages memo recalculating:', {
+        projectId,
+        baseMessagesCount: baseMessages.length,
+        currentStreamingId,
+        isStreaming
+      });
+    }
     
     // Find and update the streaming message if it exists
     if (currentStreamingId) {  // Remove isStreaming check to ensure content shows
       const messageIndex = msgs.findIndex(msg => msg.id === currentStreamingId);
-      console.log('[DIAGNOSTIC] Streaming message lookup:', {
-        messageIndex,
-        foundMessage: messageIndex !== -1 ? msgs[messageIndex] : null,
-        willUpdateContent: currentStreamingContent.length > 0,
-        currentContent: msgs[messageIndex]?.content?.length || 0
-      });
+      // Reduced logging for performance
       
       if (messageIndex !== -1) {
         // Always update with the latest content
@@ -535,22 +538,17 @@ const ChatView = React.memo(({ projectId }) => {
           content: currentStreamingContent,
           isStreaming: isStreaming || window.__isStreaming
         };
-        console.log('[DIAGNOSTIC] Updated streaming message:', {
-          id: msgs[messageIndex].id,
-          contentLength: msgs[messageIndex].content.length,
-          contentPreview: typeof msgs[messageIndex].content === 'string' ? msgs[messageIndex].content.substring(0, 50) : 'N/A',
-          isStreaming: msgs[messageIndex].isStreaming
-        });
-      } else {
-        console.warn('[DIAGNOSTIC] Streaming message not found in messages array!');
+        // Message updated
       }
     }
     
-    console.log('[DIAGNOSTIC] Final messages:', {
-      count: msgs.length,
-      lastMessage: msgs[msgs.length - 1],
-      lastMessageContent: typeof msgs[msgs.length - 1]?.content === 'string' ? msgs[msgs.length - 1].content.substring(0, 50) : 'N/A'
-    });
+    // Minimal final logging
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[DIAGNOSTIC] Final messages:', {
+        count: msgs.length,
+        lastMessage: msgs[msgs.length - 1]?.role
+      });
+    }
     
     return msgs;
   }, [baseMessages, streamingMessageId, streamingContent, isStreaming, voiceUpdateTrigger]); // Include all streaming deps and voice trigger
@@ -570,6 +568,70 @@ const ChatView = React.memo(({ projectId }) => {
   // Remove diagnostic effect to prevent re-renders
   
   
+  // Helper function to apply identity confusion fixes consistently
+  const applyIdentityFixes = useCallback((content) => {
+    if (!content || typeof content !== 'string') return content;
+    
+    // Load user's name from memory for dynamic identity fixes
+    let userName = 'Alexandra'; // Default fallback
+    try {
+      const memoryData = localStorage.getItem('aria_memory_system');
+      if (memoryData) {
+        const parsed = JSON.parse(memoryData);
+        const personalMap = new Map(parsed.personal || []);
+        const storedName = personalMap.get('name')?.value || personalMap.get('user_name')?.value;
+        if (storedName) {
+          userName = storedName;
+        }
+      }
+    } catch (error) {
+      console.warn('[ChatView] Failed to load user name from memory, using fallback:', error);
+    }
+    
+    return content
+      // ULTRA-AGGRESSIVE identity replacement for both display and voice
+      .replace(/I'm Qwen/gi, "I'm Aria")
+      .replace(/I am Qwen/gi, "I am Aria") 
+      .replace(/My name is Qwen/gi, "My name is Aria")
+      .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+      // FIX NAME CONFUSION: Replace "Hello Aria!" with user's actual name
+      .replace(/Hello Aria!/gi, `Hello ${userName}!`)
+      .replace(/Hi Aria!/gi, `Hi ${userName}!`)
+      .replace(/Hey Aria!/gi, `Hey ${userName}!`)
+      .replace(/Hello there, Aria!/gi, `Hello ${userName}!`)
+      .replace(/Hi there, Aria!/gi, `Hi ${userName}!`)
+      .replace(/Good morning, Aria!/gi, `Good morning, ${userName}!`)
+      .replace(/Good afternoon, Aria!/gi, `Good afternoon, ${userName}!`)
+      .replace(/Good evening, Aria!/gi, `Good evening, ${userName}!`)
+      // Fix assistant identity confusion
+      .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
+      .replace(/I'm Qwen3/gi, "I'm Aria")
+      .replace(/I am Qwen3/gi, "I am Aria")
+      .replace(/My name is Qwen3/gi, "My name is Aria")
+      .replace(/Hello! I'm Qwen3/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Qwen3/gi, "Hi! I'm Aria")
+      .replace(/I'm Monica/gi, "I'm Aria")
+      .replace(/I am Monica/gi, "I am Aria")
+      .replace(/My name is Monica/gi, "My name is Aria")
+      .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+      .replace(/I'm DeepSeek/gi, "I'm Aria")
+      .replace(/I am DeepSeek/gi, "I am Aria")
+      .replace(/My name is DeepSeek/gi, "My name is Aria")
+      .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
+      .replace(/I'm Claude/gi, "I'm Aria")
+      .replace(/I am Claude/gi, "I am Aria")
+      .replace(/My name is Claude/gi, "My name is Aria")
+      .replace(/Hello! I'm Claude/gi, "Hello! I'm Aria")
+      .replace(/Hi! I'm Claude/gi, "Hi! I'm Aria")
+      .replace(/\bQwen\b/gi, "Aria")
+      .replace(/\bQwen3\b/gi, "Aria")
+      .replace(/\bMonica\b/gi, "Aria")
+      .replace(/\bDeepSeek\b/gi, "Aria")
+      .replace(/\bClaude\b/gi, "Aria");
+  }, []);
+
   const handleStopGeneration = useCallback(() => {
     console.log('Stopping generation...');
     if (abortControllerRef.current) {
@@ -626,6 +688,33 @@ const ChatView = React.memo(({ projectId }) => {
       charCode: messageText?.charCodeAt(0)
     });
     
+    // VOICE INTERRUPTION: Stop any ongoing speech when new message is sent
+    try {
+      console.log('[ChatView] 🔇 Interrupting any ongoing speech for new message');
+      // Stop all voice synthesis immediately
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      
+      // Stop Bark TTS audio elements
+      const barkAudioElements = document.querySelectorAll('audio[data-bark-speech="true"]');
+      barkAudioElements.forEach(audio => {
+        if (!audio.paused) {
+          console.log('[ChatView] 🔇 Stopping Bark audio element');
+          audio.pause();
+          audio.currentTime = 0;
+        }
+      });
+      
+      // Import and stop voice service
+      const voiceService = await import('../../services/VoiceService');
+      if (voiceService.default?.stopAllVoices) {
+        await voiceService.default.stopAllVoices();
+      }
+    } catch (error) {
+      console.warn('[ChatView] Failed to stop voice synthesis:', error);
+    }
+
     // Validate input
     if (!messageText || typeof messageText !== 'string' || !messageText.trim()) {
       console.warn('handleSendMessage: Empty or invalid message text');
@@ -733,28 +822,65 @@ const ChatView = React.memo(({ projectId }) => {
           timestamp: new Date().toISOString()
         };
 
-        // Handle voice-first mode if enabled
-        if (companionResult.delayTextUntilVoice && companionResult.voicePromise) {
-          console.log('[ChatView] 🎤 Voice-first mode: Adding user message, waiting for voice to complete');
+        // Handle post-completion voice synthesis if enabled
+        if (companionResult.shouldSpeakAfterComplete) {
+          console.log('[ChatView] 🎤 Post-completion voice mode: Will speak after streaming completes');
           
-          // Separate thinking process from final response
+          // Set global flag for post-completion voice synthesis
+          window.__pendingVoiceSynthesis = {
+            enabled: true,
+            voiceSettings: companionResult.voiceSettings || {}
+          };
+          console.log('[ChatView] 🎤 Set pending voice synthesis flag');
+          
+          // Separate thinking process from final response using robust parsing
           const fullContent = companionResult.content || '';
-          const thinkMatch = fullContent.match(/<think>([\s\S]*?)<\/think>/);
-          const thinkingContent = thinkMatch ? thinkMatch[1].trim() : '';
-          const responseContent = fullContent.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+          console.log('[ChatView] Parsing content for voice:', { contentLength: fullContent.length, contentPreview: fullContent.substring(0, 100) });
           
-          // Create streaming message for voice-first mode - show thinking immediately, response when voice starts
+          // Use robust thinking content parsing
+          let thinkingContent = '';
+          let responseContent = '';
+          
+          // Try multiple regex patterns to handle different formats
+          const thinkRegex = /<think>([\s\S]*?)<\/think>/i;
+          const altThinkRegex = /<think>([\s\S]*?)think>/i; // Handle malformed closing tags
+          
+          let thinkMatch = fullContent.match(thinkRegex);
+          if (!thinkMatch) {
+            thinkMatch = fullContent.match(altThinkRegex);
+          }
+          
+          if (thinkMatch) {
+            thinkingContent = thinkMatch[1].trim();
+            responseContent = fullContent.replace(thinkMatch[0], '').trim();
+            console.log('[ChatView] Thinking content separated:', { 
+              thinkingLength: thinkingContent.length, 
+              responseLength: responseContent.length,
+              responsePreview: responseContent.substring(0, 50)
+            });
+          } else {
+            responseContent = fullContent.trim();
+            console.log('[ChatView] No thinking content found, using full content');
+          }
+          
+          // Apply identity fixes to response content before storing
+          const cleanedResponseContent = applyIdentityFixes(responseContent);
+          
+          // Store the clean response content for voice synthesis
+          window.__pendingVoiceSynthesis.responseContent = cleanedResponseContent;
+          
+          // Create streaming message for voice-first mode - show content immediately since we have it
           const streamingMessage = {
             id: streamingMessageId,
             role: 'assistant',
-            content: responseContent || 'Generating response...',  // The actual response content
+            content: cleanedResponseContent || 'Generating response...',  // The actual response content
             thinkingProcess: thinkingContent,  // Thinking process for dropdown
             timestamp: new Date().toISOString(),
             isCompanion: true,
-            isStreaming: true,  // Mark as streaming instead of typing
-            isVoicePlaying: true,  // Indicate voice is playing
-            isPreparingVoice: true,  // Special flag for voice preparation
-            showContentOnVoiceStart: true  // Flag to show content when voice starts
+            isStreaming: false,  // Not streaming since we have complete content
+            isVoicePlaying: false,  // Voice will start later
+            showContentNow: true,  // Show content immediately
+            isPreparingVoice: false  // Don't show preparing message since we have content
           };
           
           // Add user message and streaming response immediately
@@ -800,250 +926,73 @@ const ChatView = React.memo(({ projectId }) => {
             }
           }
 
-          // Wait for voice to complete, then mark streaming as complete
-          console.log('[ChatView] 🎤 Setting up voice completion handler');
-          companionResult.voicePromise.then((voiceResult) => {
-            console.log('[ChatView] 🎤 Voice promise resolved with result:', voiceResult);
-            console.log('[ChatView] 🎤 Voice completed, marking message as complete');
-            
-            // No need to create a new message - just update the existing one to mark voice as complete
-            const finalContent = typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.');
-            const imageData = companionResult.integrationResults?.find(r => r.type === 'image');
-
-            console.log('[ChatView] 🎤 Updating message to mark voice complete:', {
-              id: streamingMessageId,
-              contentLength: finalContent.length,
-              contentPreview: finalContent.substring(0, 100)
-            });
-
-            try {
-              if (capturedProjectId && updateProject) {
-                console.log('[ChatView] 🎤 Marking streaming message as voice complete');
-                setLocalProjectMessages(prevMessages => {
-                  // Update the streaming message to mark voice as complete
-                  const finalMessages = prevMessages.map(msg => 
-                    msg.id === streamingMessageId ? { 
-                      ...msg, 
-                      content: finalContent,
-                      isStreaming: false,
-                      isVoicePlaying: false,
-                      ...(imageData && { imageUrl: imageData.data.imageUrl })
-                    } : msg
-                  );
-                  console.log('[ChatView] 🎤 Project: Final messages after voice:', finalMessages.length);
-                  
-                  // Schedule project update after state update completes
-                  setTimeout(() => {
-                    updateProject(capturedProjectId, { 
-                      messages: finalMessages,
-                      lastUpdated: new Date().toISOString()
-                    });
-                    // Trigger re-render to ensure UI updates
-                    setVoiceUpdateTrigger(prev => prev + 1);
-                  }, 0);
-                  
-                  return finalMessages;
-                });
-              } else {
-                console.log('[ChatView] 🎤 Marking chat streaming message as voice complete');
-                // Use functional update to get latest state
-                setCurrentChat(prevChat => {
-                  // Ensure we have a chat to update
-                  if (!prevChat) {
-                    console.warn('[ChatView] 🎤 No current chat found, cannot update');
-                    return prevChat;
-                  }
-                  
-                  const updatedChat = {
-                    ...prevChat,
-                    messages: prevChat.messages.map(msg => 
-                      msg.id === streamingMessageId ? { 
-                        ...msg, 
-                        content: finalContent,
-                        isStreaming: false,
-                        isVoicePlaying: false,
-                        ...(imageData && { imageUrl: imageData.data.imageUrl })
-                      } : msg
-                    ),
-                    updatedAt: new Date().toISOString()
-                  };
-                  
-                  console.log('[ChatView] 🎤 Chat: Updated messages after voice:', updatedChat.messages.length);
-                  
-                  // Update chats collection
-                  if (setChats) {
-                    setChats(prevChats => 
-                      prevChats.map(chat => 
-                        chat.id === prevChat.id ? updatedChat : chat
-                      )
-                    );
-                  }
-                  
-                  // Trigger re-render to ensure UI updates
-                  setTimeout(() => setVoiceUpdateTrigger(prev => prev + 1), 0);
-                  
-                  return updatedChat;
-                });
-              }
-              console.log('[ChatView] 🎤 ✅ Voice-first mode completed successfully');
-            } catch (stateError) {
-              console.error('[ChatView] 🎤 ❌ Error updating state after voice:', stateError);
-              console.error('[ChatView] 🎤 State error stack:', stateError.stack);
-              
-              // Fallback: try to replace typing message using functional updates
-              console.log('[ChatView] 🎤 Attempting fallback state update');
-              try {
-                if (capturedProjectId && updateProject) {
-                  setLocalProjectMessages(prevMessages => 
-                    prevMessages.map(msg => 
-                      msg.isTyping ? { ...companionMessage, id: msg.id } : msg
-                    )
-                  );
-                } else {
-                  setCurrentChat(prevChat => {
-                    if (!prevChat) return prevChat;
-                    return {
-                      ...prevChat,
-                      messages: prevChat.messages.map(msg => 
-                        msg.isTyping ? { ...companionMessage, id: msg.id } : msg
-                      ),
-                      updatedAt: new Date().toISOString()
-                    };
-                  });
-                }
-                console.log('[ChatView] 🎤 ✅ Fallback state update succeeded');
-              } catch (fallbackError) {
-                console.error('[ChatView] 🎤 ❌ Fallback state update also failed:', fallbackError);
-              }
-            }
-          }).catch(error => {
-            console.error('[ChatView] 🎤 ❌ Voice promise rejected or state update failed:', error);
-            console.error('[ChatView] 🎤 Error details:', {
-              errorMessage: error?.message,
-              errorStack: error?.stack,
-              errorName: error?.name,
-              errorString: String(error)
-            });
-            
-            // Still show text even if voice failed - use fallback message creation
-            const fallbackMessage = {
-              id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-              role: 'assistant',
-              content: typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.'),
-              timestamp: new Date().toISOString(),
-              isCompanion: true,
-              ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
-                imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
-              })
-            };
-
-            console.log('[ChatView] 🎤 Replacing typing message with fallback after voice error');
-            try {
-              if (capturedProjectId && updateProject) {
-                setLocalProjectMessages(prevMessages => {
-                  const updatedMessages = prevMessages.map(msg => 
-                    msg.isTyping ? { ...fallbackMessage, id: msg.id } : msg
-                  );
-                  console.log('[ChatView] 🎤 Fallback: Project messages updated, total:', updatedMessages.length);
-                  
-                  // Schedule project update after state update completes
-                  setTimeout(() => {
-                    updateProject(capturedProjectId, { 
-                      messages: updatedMessages,
-                      lastUpdated: new Date().toISOString()
-                    });
-                  }, 0);
-                  
-                  return updatedMessages;
-                });
-              } else {
-                setCurrentChat(prevChat => {
-                  if (!prevChat) {
-                    console.warn('[ChatView] 🎤 Fallback: No current chat for fallback message');
-                    return prevChat;
-                  }
-                  
-                  const updatedChat = {
-                    ...prevChat,
-                    messages: prevChat.messages.map(msg => 
-                      msg.isTyping ? { ...fallbackMessage, id: msg.id } : msg
-                    ),
-                    updatedAt: new Date().toISOString()
-                  };
-                  
-                  console.log('[ChatView] 🎤 Fallback: Chat messages updated, total:', updatedChat.messages.length);
-                  
-                  if (setChats) {
-                    setChats(prevChats => 
-                      prevChats.map(chat => 
-                        chat.id === prevChat.id ? updatedChat : chat
-                      )
-                    );
-                  }
-                  
-                  return updatedChat;
-                });
-              }
-              console.log('[ChatView] 🎤 ✅ Fallback message successfully added');
-            } catch (fallbackError) {
-              console.error('[ChatView] 🎤 ❌ Even fallback message addition failed:', fallbackError);
-            }
-          });
-
-          return; // Exit early for voice-first mode
-        }
-
-        // Regular mode: Create companion response normally
-        const companionMessage = {
-          id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-          role: 'assistant',
-          content: typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.'),
-          timestamp: new Date().toISOString(),
-          isCompanion: true,
-          ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
-            imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
-          })
-        };
-        
-        // Handle project context or regular chat
-        if (projectId && updateProject) {
-          const currentMessages = Array.isArray(messages) ? messages : [];
-          const updatedMessages = [...currentMessages, userMessage, companionMessage];
-          setLocalProjectMessages(updatedMessages);
-          updateProject(projectId, { 
-            messages: updatedMessages,
-            lastUpdated: new Date().toISOString()
-          });
+          // Voice synthesis will happen after streaming completes
+          console.log('[ChatView] 🎤 Post-completion voice synthesis enabled');
         } else {
-          // Handle regular chat context
-          if (!currentChat) {
-            const newChat = createNewChat('Chat with Aria', theme?.name || 'dark', messageText.trim());
-            const chatWithMessages = {
-              ...newChat,
-              messages: [userMessage, companionMessage],
-              updatedAt: new Date().toISOString()
-            };
-            setCurrentChat(chatWithMessages);
-            if (setChats) {
-              setChats(prevChats => 
-                prevChats.map(chat => 
-                  chat.id === newChat.id ? chatWithMessages : chat
-                )
-              );
-            }
+          // Regular mode without voice: Create companion response normally
+          
+          // Apply name confusion fixes to companion content before storing
+          let rawContent = typeof companionResult.content === 'string' ? companionResult.content : String(companionResult.content || 'I apologize, but I encountered an issue processing your request.');
+          let cleanedCompanionContent = applyIdentityFixes(rawContent);
+
+          // Nuclear option for companion: If any wrong identity remains, replace with clean intro
+          if (cleanedCompanionContent.toLowerCase().includes('qwen') || 
+              cleanedCompanionContent.toLowerCase().includes('monica') ||
+              cleanedCompanionContent.toLowerCase().match(/i('m| am) (?!your)/i)) {
+            cleanedCompanionContent = "Hi Alexandra! I'm your AI assistant. I'm here to help you with questions, tasks, and conversations.";
+          }
+          
+          const companionMessage = {
+            id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            role: 'assistant',
+            content: cleanedCompanionContent,
+            timestamp: new Date().toISOString(),
+            isCompanion: true,
+            ...(companionResult.integrationResults?.find(r => r.type === 'image') && {
+              imageUrl: companionResult.integrationResults.find(r => r.type === 'image').data.imageUrl
+            })
+          };
+          
+          // Handle project context or regular chat
+          if (capturedProjectId && updateProject) {
+            const currentMessages = Array.isArray(messages) ? messages : [];
+            const updatedMessages = [...currentMessages, userMessage, companionMessage];
+            setLocalProjectMessages(updatedMessages);
+            updateProject(capturedProjectId, { 
+              messages: updatedMessages,
+              lastUpdated: new Date().toISOString()
+            });
           } else {
-            const updatedChat = {
-              ...currentChat,
-              messages: [...currentChat.messages, userMessage, companionMessage],
-              updatedAt: new Date().toISOString()
-            };
-            setCurrentChat(updatedChat);
-            if (setChats) {
-              setChats(prevChats => 
-                prevChats.map(chat => 
-                  chat.id === currentChat.id ? updatedChat : chat
-                )
-              );
+            // Handle regular chat context
+            if (!capturedCurrentChat) {
+              const newChat = createNewChat('Chat with Aria', capturedTheme?.name || 'dark', messageText.trim());
+              const chatWithMessages = {
+                ...newChat,
+                messages: [userMessage, companionMessage],
+                updatedAt: new Date().toISOString()
+              };
+              setCurrentChat(chatWithMessages);
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === newChat.id ? chatWithMessages : chat
+                  )
+                );
+              }
+            } else {
+              const updatedChat = {
+                ...capturedCurrentChat,
+                messages: [...capturedCurrentChat.messages, userMessage, companionMessage],
+                updatedAt: new Date().toISOString()
+              };
+              setCurrentChat(updatedChat);
+              if (setChats) {
+                setChats(prevChats => 
+                  prevChats.map(chat => 
+                    chat.id === capturedCurrentChat.id ? updatedChat : chat
+                  )
+                );
+              }
             }
           }
         }
@@ -1527,7 +1476,7 @@ const ChatView = React.memo(({ projectId }) => {
     let noProgressCount = 0;
     const WATCHDOG_ENABLED = true; // Set to false to disable watchdog completely
     const WATCHDOG_INTERVAL = 30000; // 30 seconds - check less frequently
-    const MAX_NO_PROGRESS_COUNT = 10; // Allow 5 minutes total
+    const MAX_NO_PROGRESS_COUNT = 20; // Allow 10 minutes total for creative tasks
     
     const startWatchdog = () => {
       if (!WATCHDOG_ENABLED) {
@@ -1682,8 +1631,8 @@ const ChatView = React.memo(({ projectId }) => {
           }));
           
           // Debounce updates to prevent too many re-renders
-          // Update every 200ms at most to reduce re-render frequency
-          if (!window.__lastStreamUpdate || Date.now() - window.__lastStreamUpdate > 200) {
+          // Update every 500ms at most to reduce re-render frequency further
+          if (!window.__lastStreamUpdate || Date.now() - window.__lastStreamUpdate > 500) {
             window.__lastStreamUpdate = Date.now();
             
             // Update state if ANY ChatView is active and streaming is active
@@ -1691,9 +1640,11 @@ const ChatView = React.memo(({ projectId }) => {
             if ((isMountedRef.current || hasActiveChatView) && window.__isStreaming) {
               // Wrap in try-catch to prevent errors from breaking streaming
               try {
+                // Apply identity fixes to streaming content
+                const cleanedStreamingContent = applyIdentityFixes(fullContent);
                 // Update React state to trigger re-render
-                setStreamingContent(fullContent);
-                console.log('[ChatView] Setting streaming content:', fullContent.length, 'Active views:', window.__activeChatViews?.size || 0);
+                setStreamingContent(cleanedStreamingContent);
+                console.log('[ChatView] Setting streaming content:', cleanedStreamingContent.length, 'Active views:', window.__activeChatViews?.size || 0);
               } catch (updateError) {
                 console.error('[ChatView] Error updating streaming content:', updateError);
               }
@@ -1704,22 +1655,25 @@ const ChatView = React.memo(({ projectId }) => {
           const estimatedTokens = Math.ceil(fullContent.length / 4); // Rough estimate
           updateTokenCount({ output: estimatedTokens });
           
+          // Apply identity fixes once for reuse
+          const cleanedFullContent = applyIdentityFixes(fullContent);
+          
           // Force a small delay to ensure window variable is set before hooks read it
           setTimeout(() => {
-            window.__streamingContent = fullContent;
+            window.__streamingContent = cleanedFullContent;
           }, 0);
           
-          // Dispatch custom event for components that need updates
+          // Dispatch custom event for components that need updates (with cleaned content)
           window.dispatchEvent(new CustomEvent('streamingUpdate', { 
-            detail: { messageId: assistantMessageId, content: fullContent } 
+            detail: { messageId: assistantMessageId, content: cleanedFullContent } 
           }));
           
-          // Force update the messages
+          // Force update the messages with cleaned content
           if (projectId) {
             setLocalProjectMessages(currentMessages => {
               return currentMessages.map(msg => 
                 msg.id === assistantMessageId
-                  ? { ...msg, content: fullContent, isStreaming: true }
+                  ? { ...msg, content: cleanedFullContent, isStreaming: true }
                   : msg
               );
             });
@@ -1731,7 +1685,7 @@ const ChatView = React.memo(({ projectId }) => {
                 ...prev,
                 messages: prev.messages.map(msg => 
                   msg.id === assistantMessageId
-                    ? { ...msg, content: fullContent, isStreaming: true }
+                    ? { ...msg, content: cleanedFullContent, isStreaming: true }
                     : msg
                 )
               };
@@ -1763,11 +1717,51 @@ const ChatView = React.memo(({ projectId }) => {
           // Update the message with final content
           console.log('[streamAssistantResponse] Updating message with final content');
           
+          // CRITICAL: Apply name confusion fixes BEFORE storing content for both display and voice
+          let cleanedFinalContent = applyIdentityFixes(finalContent);
+
+          // Nuclear option: If any wrong identity remains, replace with clean intro
+          if (cleanedFinalContent.toLowerCase().includes('qwen') || 
+              cleanedFinalContent.toLowerCase().includes('monica') ||
+              cleanedFinalContent.toLowerCase().match(/i('m| am) (?!your)/i)) {
+            cleanedFinalContent = "Hi Alexandra! I'm your AI assistant. I'm here to help you with questions, tasks, and conversations.";
+          }
+          
+          console.log('[streamAssistantResponse] Applied name confusion fixes to final content');
+          
+          // VOICE SYNTHESIS: Speak complete response after streaming finishes
+          if (window.__pendingVoiceSynthesis) {
+            console.log('[streamAssistantResponse] 🎤 Triggering post-completion voice synthesis');
+            setTimeout(async () => {
+              try {
+                const companionService = await import('../../services/CompanionService');
+                if (companionService.default?.speakCompleteResponse) {
+                  // Use the cleaned response content instead of raw finalContent
+                  const contentToSpeak = window.__pendingVoiceSynthesis.responseContent || cleanedFinalContent;
+                  console.log('[streamAssistantResponse] 🎤 Speaking clean response content:', contentToSpeak.substring(0, 100) + '...');
+                  await companionService.default.speakCompleteResponse(
+                    contentToSpeak, 
+                    window.__pendingVoiceSynthesis.voiceSettings || {},
+                    {
+                      onStart: () => console.log('[streamAssistantResponse] 🎤 Voice synthesis started'),
+                      onEnd: () => console.log('[streamAssistantResponse] 🎤 Voice synthesis completed'),
+                      onError: (error) => console.error('[streamAssistantResponse] 🎤 Voice synthesis error:', error)
+                    }
+                  );
+                }
+                // Clear the pending voice synthesis flag
+                window.__pendingVoiceSynthesis = null;
+              } catch (error) {
+                console.error('[streamAssistantResponse] 🎤 Failed to speak complete response:', error);
+              }
+            }, 500); // Small delay to ensure UI updates complete
+          }
+          
           if (projectId) {
             setLocalProjectMessages(currentMessages => {
               const updated = currentMessages.map(msg => 
                 msg.id === assistantMessageId
-                  ? { ...msg, content: finalContent, isStreaming: false }
+                  ? { ...msg, content: cleanedFinalContent, isStreaming: false }
                   : msg
               );
               console.log('[streamAssistantResponse] Updated project messages:', updated.length);
@@ -1783,7 +1777,7 @@ const ChatView = React.memo(({ projectId }) => {
                 ...prev,
                 messages: prev.messages.map(msg => 
                   msg.id === assistantMessageId
-                    ? { ...msg, content: finalContent, isStreaming: false }
+                    ? { ...msg, content: cleanedFinalContent, isStreaming: false }
                     : msg
                 )
               };
@@ -1869,37 +1863,9 @@ const ChatView = React.memo(({ projectId }) => {
                       const provider = voiceSettings.voiceSynthesisProvider || 'browser';
                       console.log('[ChatView] Using voice provider:', provider);
                       
-                      // CRITICAL: Apply Aria identity filtering BEFORE voice generation
-                      let identityCleanedContent = finalContent
-                        // ULTRA-AGGRESSIVE identity replacement for voice
-                        .replace(/I'm Qwen/gi, "I'm Aria")
-                        .replace(/I am Qwen/gi, "I am Aria") 
-                        .replace(/My name is Qwen/gi, "My name is Aria")
-                        .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
-                        .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
-                        .replace(/I'm Qwen3/gi, "I'm Aria")
-                        .replace(/I am Qwen3/gi, "I am Aria")
-                        .replace(/My name is Qwen3/gi, "My name is Aria")
-                        .replace(/Hello! I'm Qwen3/gi, "Hello! I'm Aria")
-                        .replace(/Hi! I'm Qwen3/gi, "Hi! I'm Aria")
-                        .replace(/I'm Monica/gi, "I'm Aria")
-                        .replace(/I am Monica/gi, "I am Aria")
-                        .replace(/My name is Monica/gi, "My name is Aria")
-                        .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
-                        .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
-                        .replace(/\bQwen\b/gi, "Aria")
-                        .replace(/\bQwen3\b/gi, "Aria")
-                        .replace(/\bMonica\b/gi, "Aria");
-
-                      // Nuclear option for voice: If any wrong identity remains, replace with clean Aria intro
-                      if (identityCleanedContent.toLowerCase().includes('qwen') || 
-                          identityCleanedContent.toLowerCase().includes('monica') ||
-                          identityCleanedContent.toLowerCase().match(/i('m| am) (?!aria)/i)) {
-                        identityCleanedContent = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations.";
-                      }
-
+                      // Use the already cleaned content (name confusion fixes already applied)
                       // Clean content for speaking (remove thinking process and markdown)
-                      const cleanContent = identityCleanedContent
+                      const cleanContent = cleanedFinalContent
                         .replace(/<think>[\s\S]*?<\/think>/g, '') // Remove tagged thinking process
                         // Remove exposed thinking patterns (common AI reasoning patterns)
                         .replace(/^(Okay, the user asked me to|First, I should|Let me think about|I should|Maybe|Wait, did I|I think|Okay, I think)[\s\S]*?(?=Hello!|Hi!|I'm|My name|Welcome)/i, '') 
@@ -1950,7 +1916,7 @@ const ChatView = React.memo(({ projectId }) => {
               const { messages: savedMessages } = pendingProjectSaveRef.current;
               const finalMessages = savedMessages.map(msg => 
                 msg.id === assistantMessageId
-                  ? { ...msg, content: finalContent, isStreaming: false }
+                  ? { ...msg, content: cleanedFinalContent, isStreaming: false }
                   : msg
               );
               
@@ -1988,12 +1954,15 @@ const ChatView = React.memo(({ projectId }) => {
           if (partialContent && partialContent.length > 0) {
             console.log('[streamAssistantResponse] Saving partial content before error:', partialContent.length);
             
-            // Update the message with partial content
+            // Apply name confusion fixes to partial content too
+            let cleanedPartialContent = applyIdentityFixes(partialContent);
+            
+            // Update the message with cleaned partial content
             if (projectId) {
               setLocalProjectMessages(currentMessages => {
                 return currentMessages.map(msg => 
                   msg.id === assistantMessageId
-                    ? { ...msg, content: partialContent + '\n\n[Response interrupted]', isStreaming: false }
+                    ? { ...msg, content: cleanedPartialContent + '\n\n[Response interrupted]', isStreaming: false }
                     : msg
                 );
               });
@@ -2003,7 +1972,7 @@ const ChatView = React.memo(({ projectId }) => {
                 const { messages: savedMessages } = pendingProjectSaveRef.current;
                 const finalMessages = savedMessages.map(msg => 
                   msg.id === assistantMessageId
-                    ? { ...msg, content: partialContent + '\n\n[Response interrupted]', isStreaming: false }
+                    ? { ...msg, content: cleanedPartialContent + '\n\n[Response interrupted]', isStreaming: false }
                     : msg
                 );
                 
@@ -2013,12 +1982,12 @@ const ChatView = React.memo(({ projectId }) => {
                 });
               }
             } else if (currentChat) {
-              // Update chat with partial content
+              // Update chat with cleaned partial content
               const updatedChat = {
                 ...currentChat,
                 messages: currentChat.messages.map(msg => 
                   msg.id === assistantMessageId
-                    ? { ...msg, content: partialContent + '\n\n[Response interrupted]', isStreaming: false }
+                    ? { ...msg, content: cleanedPartialContent + '\n\n[Response interrupted]', isStreaming: false }
                     : msg
                 ),
                 updatedAt: new Date().toISOString()

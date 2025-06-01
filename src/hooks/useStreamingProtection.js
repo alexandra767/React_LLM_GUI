@@ -17,10 +17,13 @@ export const useStreamingProtection = (componentName) => {
       streamingMessageId: window.__streamingMessageId
     };
     
-    console.log(`[StreamingProtection] ${componentName} render:`, renderInfo);
+    // Only log every 10th render to reduce console spam further
+    if (renderCountRef.current % 10 === 0) {
+      console.log(`[StreamingProtection] ${componentName} render:`, renderInfo);
+    }
     
-    // Warn if component is re-rendering too frequently during streaming
-    if (window.__isStreaming && renderCountRef.current > 5) {
+    // Only warn once when excessive re-rendering is detected
+    if (window.__isStreaming && renderCountRef.current === 6) {
       console.warn(`[StreamingProtection] ${componentName} is re-rendering excessively during streaming!`, {
         renderCount: renderCountRef.current,
         streamingContent: window.__streamingContent?.length || 0

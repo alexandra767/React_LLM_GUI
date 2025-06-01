@@ -399,7 +399,7 @@ const SettingsView = () => {
     autoSpeak: false,
     useOfflineRecognition: false,  // Default to online for better quality
     speechProvider: 'browser',  // Speech recognition provider
-    voiceSynthesisProvider: 'bark',  // Voice output provider (separate from input)
+    voiceSynthesisProvider: 'browser',  // Voice output provider (restored to browser/system voices with Samantha)
     azureApiKey: '',
     openaiApiKey: ''
   });
@@ -486,8 +486,9 @@ const SettingsView = () => {
         voiceService.setRecognitionLanguage(value);
         break;
       case 'voiceSynthesisProvider':
-        // VoiceService automatically reads provider from localStorage
-        console.log('[Settings] Voice synthesis provider setting saved:', value);
+        // Update voice service provider
+        voiceService.setProvider(value);
+        console.log('[Settings] Voice synthesis provider changed to:', value);
         break;
     }
   };
@@ -597,13 +598,18 @@ const SettingsView = () => {
         voiceService.setSpeechPitch(parsed.speechPitch || 1.0);
         voiceService.setSpeechVolume(parsed.speechVolume || 1.0);
         
-        // Note: VoiceService automatically reads provider from settings
-        // No need to manually set provider here to avoid conflicts
-        console.log('[Settings] Voice provider configured:', parsed.voiceSynthesisProvider);
+        // Set voice synthesis provider
+        const provider = parsed.voiceSynthesisProvider || 'browser';
+        voiceService.setProvider(provider);
+        console.log('[Settings] Voice synthesis provider set to:', provider);
         voiceService.setRecognitionLanguage(parsed.recognitionLanguage || 'en-US');
       } catch (e) {
         console.error('Failed to load voice settings:', e);
       }
+    } else {
+      // No saved settings - initialize with defaults (browser voice system)
+      voiceService.setProvider('browser');
+      console.log('[Settings] Initialized voice provider to browser (default)');
     }
   }, []);
   

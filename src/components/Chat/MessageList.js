@@ -36,51 +36,9 @@ const MessageList = ({ messages = [], onDeleteMessage }) => {
   // Use scroll lock to prevent scroll-triggered re-renders
   const { lockScroll, unlockScroll } = useScrollLock(containerRef);
   
-  // Debug logs
+  // Minimal logging for performance
   React.useEffect(() => {
-    console.log('MessageList render - message count:', messages.length);
-    
-    // Log the last message content specifically
-    if (messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      console.log('MessageList - Last message:', {
-        id: lastMsg.id,
-        role: lastMsg.role,
-        contentLength: lastMsg.content?.length || 0,
-        contentPreview: lastMsg.content?.substring(0, 50) || 'empty',
-        isStreaming: lastMsg.isStreaming
-      });
-      
-      // Log all assistant messages
-      const assistantMessages = messages.filter(m => m.role === 'assistant');
-      console.log('MessageList - Assistant messages:', assistantMessages.map(m => ({
-        id: m.id,
-        contentLength: m.content?.length || 0,
-        isStreaming: m.isStreaming
-      })));
-    }
-    
-    if (messages.length > 0) {
-      console.log('First message:', {
-        id: messages[0].id,
-        role: messages[0].role,
-        content: messages[0].content ? `${String(messages[0].content).substring(0, 50)}...` : 'No content',
-        timestamp: messages[0].timestamp
-      });
-      
-      // Log when new messages are added
-      if (messages.length > prevMessagesLength.current) {
-        const newMessages = messages.slice(prevMessagesLength.current);
-        console.log(`Added ${newMessages.length} new messages:`, newMessages.map(m => ({
-          id: m.id,
-          role: m.role,
-          content: m.content ? `${String(m.content).substring(0, 30)}...` : 'No content'
-        })));
-      }
-    } else {
-      console.log('No messages to display');
-    }
-    
+    console.log('Processing messages for display');
     prevMessagesLength.current = messages.length;
     
     return () => {

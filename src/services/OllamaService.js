@@ -5,6 +5,12 @@ class OllamaService {
   }
 
   async listModels() {
+    // Cache models to prevent excessive API calls
+    if (this._modelsCache && this._modelsCacheTime && (Date.now() - this._modelsCacheTime) < 30000) {
+      console.log('[OllamaService] Using cached models');
+      return this._modelsCache;
+    }
+
     try {
       let models = [];
       
@@ -35,27 +41,43 @@ class OllamaService {
       // If no models from Electron, try HTTP API
       if (models.length === 0) {
         try {
-          const response = await fetch(`${this.baseUrl}/tags`);
+          const response = await fetch(`${this.baseUrl}/tags`, { 
+            signal: AbortSignal.timeout(5000) // 5 second timeout
+          });
           if (response.ok) {
             const data = await response.json();
             models = data.models || [];
           }
         } catch (e) {
           console.error('Error fetching models via HTTP:', e);
+          // Return fallback models if API fails
+          return this._getFallbackModels();
         }
       }
       
       // Format models to a consistent structure
-      return models.map(model => ({
+      const formattedModels = models.map(model => ({
         name: model.name || model,
         size: model.size,
         modified: model.modified_at || model.modified
       }));
+
+      // Cache the results
+      this._modelsCache = formattedModels;
+      this._modelsCacheTime = Date.now();
+      
+      return formattedModels;
       
     } catch (error) {
       console.error('Error listing models:', error);
-      return [];
+      return this._getFallbackModels();
     }
+  }
+
+  _getFallbackModels() {
+    return [
+      { name: 'qwen3:14B', size: '8.2GB', modified: '2024-06-01' }
+    ];
   }
 
   async generate(model, prompt, options = {}) {

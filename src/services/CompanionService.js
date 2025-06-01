@@ -195,6 +195,9 @@ class CompanionService {
         console.error('[Companion] Failed to load MemoryAdapter:', error);
         return null;
       }
+    } else {
+      // Always ensure it's initialized before use to prevent race conditions
+      await this.memoryService.ensureInitialized();
     }
     
     // Get contextual information from memory and knowledge
@@ -300,8 +303,15 @@ class CompanionService {
     console.log('[Companion] Auto-speak check:', {
       personalityAutoSpeak: this.personality.voice.autoSpeak,
       hasVoiceService: !!this.voiceService,
-      responseContent: response.content?.substring(0, 50) + '...'
+      responseContent: response.content?.substring(0, 50) + '...',
+      skipVoice: response.skipVoice
     });
+    
+    // Skip voice for integration commands that might have delays
+    if (response.skipVoice) {
+      console.log('[Companion] 🔇 Skipping voice synthesis for integration command');
+      return response;
+    }
     
     if (this.personality.voice.autoSpeak && this.voiceService) {
       try {
@@ -317,24 +327,11 @@ class CompanionService {
           });
           
           if (voiceSettings.autoSpeak && voiceSettings.voiceEnabled) {
-            console.log('[Companion] 🎤 Starting voice-first mode');
-            // Return a special flag to delay text display until after voice
-            response.delayTextUntilVoice = true;
-            
-            // Start voice synthesis and track the promise
-            const voiceStartTime = Date.now();
-            console.log('[Companion] 🎤 Creating voice promise at:', voiceStartTime);
-            response.voicePromise = this.speakResponse(response.content, options.voiceCallbacks || {}).then(() => {
-              const voiceEndTime = Date.now();
-              const voiceDuration = voiceEndTime - voiceStartTime;
-              console.log('[Companion] ✅ Voice synthesis completed successfully after', voiceDuration, 'ms');
-              return true;
-            }).catch(error => {
-              const voiceEndTime = Date.now();
-              const voiceDuration = voiceEndTime - voiceStartTime;
-              console.error('[Companion] ❌ Voice synthesis failed after', voiceDuration, 'ms:', error);
-              return false; // Still resolve so text shows
-            });
+            console.log('[Companion] 🎤 Voice synthesis enabled - will speak after complete response');
+            // CHANGED: Don't start voice immediately - flag for post-completion voice
+            response.shouldSpeakAfterComplete = true;
+            response.voiceSettings = voiceSettings;
+            console.log('[Companion] 🎤 Flagged response for post-completion voice synthesis');
           } else {
             console.log('[Companion] Auto-speak disabled in settings');
           }
@@ -544,10 +541,15 @@ class CompanionService {
   detectSearchIntent(message) {
     const lowerMessage = message.toLowerCase();
     
-    // CRITICAL: Don't treat personal name questions as web searches
+    // CRITICAL: Don't treat personal name questions or identity questions as web searches
     if (lowerMessage.includes('my name') || lowerMessage.includes('what is my name') || 
         lowerMessage.includes('what\'s my name') || lowerMessage.includes('whats my name') ||
-        lowerMessage.includes('who am i') || lowerMessage.includes('do you know my name')) {
+        lowerMessage.includes('who am i') || lowerMessage.includes('do you know my name') ||
+        lowerMessage.includes('tell me about yourself') || 
+        lowerMessage.includes('about yourself') ||
+        lowerMessage.includes('who are you') ||
+        lowerMessage.includes('what are you') ||
+        lowerMessage.includes('introduce yourself')) {
       return false; // Let this be handled as a general conversation with memory
     }
     
@@ -561,11 +563,23 @@ class CompanionService {
 
   // Email intent detection
   detectEmailIntent(message) {
+    const lowerMessage = message.toLowerCase();
+    
+    // CRITICAL: Don't treat identity/personal questions as email requests
+    if (lowerMessage.includes('tell me about yourself') || 
+        lowerMessage.includes('about yourself') ||
+        lowerMessage.includes('who are you') ||
+        lowerMessage.includes('what are you') ||
+        lowerMessage.includes('introduce yourself') ||
+        lowerMessage.includes('your background')) {
+      return false; // These are identity questions, not email requests
+    }
+    
     const emailKeywords = [
       'email', 'emails', 'inbox', 'message', 'mail',
       'unread', 'from', 'sent', 'reply'
     ];
-    return emailKeywords.some(keyword => message.includes(keyword));
+    return emailKeywords.some(keyword => lowerMessage.includes(keyword));
   }
 
   // Image generation intent detection
@@ -685,17 +699,34 @@ class CompanionService {
   // Build simplified contextual prompt that focuses on the actual question
   buildSimpleContextualPrompt(userMessage, analysis, memoryContext = {}) {
     console.log('[Companion] Building simplified prompt for:', userMessage.substring(0, 100));
+    // Extract user's name from memory - be more thorough in checking
+    let userName = null;
+    let hasUserName = false;
+    
+    if (memoryContext.personal) {
+      // Check multiple possible name keys
+      userName = memoryContext.personal.name?.value || 
+                 memoryContext.personal.user_name?.value ||
+                 memoryContext.personal['name']?.value ||
+                 memoryContext.personal['user_name']?.value;
+      
+      hasUserName = !!userName;
+    }
+    
+    // Fallback to default if no name found
+    if (!hasUserName) {
+      userName = 'User';
+    }
+    
     console.log('[Companion] Memory context debug:', {
       hasPersonal: !!memoryContext.personal,
       personalKeys: memoryContext.personal ? Object.keys(memoryContext.personal) : [],
       nameValue: memoryContext.personal?.name?.value,
       userNameValue: memoryContext.personal?.user_name?.value,
+      extractedUserName: userName,
+      hasUserName: hasUserName,
       fullPersonal: memoryContext.personal
     });
-    
-    // Extract user's name from memory if available - try both name and user_name keys
-    const userName = memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value || 'User';
-    const hasUserName = !!(memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value);
     
     // Keep only essential personal context
     let essentialContext = '';
@@ -703,21 +734,18 @@ class CompanionService {
       essentialContext = `\nUser's name: ${userName}`;
     }
     
-    // Simple, focused prompt that prioritizes the actual question
-    const personality = `You are Aria, an intelligent AI companion. You are helpful, knowledgeable, and conversational.
+    // Streamlined prompt to reduce overthinking and improve response speed
+    const personality = `You are Aria, a helpful AI assistant.${hasUserName ? ` You are talking to ${userName}.` : ''}
 
-Key guidelines:
-- Focus on answering the user's specific question directly and thoroughly
-- Provide informative, detailed responses when asked about topics
-- Be conversational and natural in your explanations
-- ${hasUserName ? 'The user\'s name is ' + userName + ' - use it naturally when appropriate' : 'Ask for their name if you don\'t know it yet'}
-- Use <think></think> tags to show your reasoning process when helpful
-- CRITICAL: Answer the specific question being asked - don't give generic greetings unless specifically greeted${essentialContext}`;
+IMPORTANT: Respond directly without excessive thinking. Be creative and natural.`;
 
-    let contextPrompt = `${personality}\n\nUser question: ${userMessage}\n\nIMPORTANT: The user asked a specific question. Focus on answering what they actually asked about. If they asked about quantum computing, explain quantum computing. If they asked about cooking, explain cooking. Be direct and informative.\n\nAria:`;
+    let contextPrompt = `${personality}\n\nUser: ${userMessage}\n\nAria:`;
     
     console.log('[Companion] 📝 Simplified prompt length:', contextPrompt.length);
     console.log('[Companion] 📝 Focus: Direct answer to:', userMessage);
+    
+    // Debug: Log the actual prompt being sent to the model
+    console.log('[Companion] 📝 Full prompt being sent to model:', contextPrompt.substring(0, 1000) + (contextPrompt.length > 1000 ? '...[truncated]' : ''));
     
     return contextPrompt;
   }
@@ -790,39 +818,57 @@ Key guidelines:
 - You have real-time web access and can provide current information, news, and research
 - When you use integrations, mention what you found naturally in conversation
 - Be proactive in offering help with research, task planning, and staying informed
-- Remember context from previous messages and build on ongoing conversations
+IMPORTANT CONTEXT UNDERSTANDING:
+- You (Claude) do not remember past conversations between sessions
+- The conversation history and memory context below is from Aria's external memory system
+- DO use personal information (name, preferences, relationships) naturally to maintain continuity
+- DO greet the user by name and act familiar when appropriate
+- DO NOT reference specific past conversations about news/weather/time-sensitive topics
+- DO NOT say "as we discussed yesterday" about breaking news or weather
+- Maintain warm, personal interactions while avoiding false memory claims about events
+
 - Show genuine interest in the user's thoughts, questions, and projects
 - Act as both a knowledgeable conversation partner and efficient personal assistant
 - Your responses will be spoken aloud, so make them conversational and natural
 - You can discuss current events, help with research, assist with task management, and engage in any topic
 - ${hasUserName ? `Use their name (${userName}) naturally in conversation when appropriate` : 'Ask for their name if you don\'t know it yet'}
-- Reference previous conversations and their interests to show you remember them
-- IMPORTANT: Do not introduce yourself repeatedly - you've already met this person
+- Use personal information and interests from the context to be helpful, but don't claim to remember
 - Use <think></think> tags to show your reasoning process when helpful - these will appear in a collapsible section in the UI
 - CRITICAL: Use the memory context below to make your responses personal and contextual - avoid generic responses
 
-Memory-based conversation guidance:
+Context guidance:
 ${memoryContext.conversations && memoryContext.conversations.length > 0 ? 
-  '- You have conversation history with this person - reference it naturally' : 
-  '- This appears to be an early conversation - focus on getting to know them'}
-${personalInfo ? '- Use the personal information you know about them' : '- Learn more about them personally'}
-${interestsInfo ? '- Reference their interests when relevant' : '- Discover their interests and remember them'}
+  '- Stored conversation history is available for context (but you don\'t remember these directly)' : 
+  '- This appears to be an early interaction - focus on getting to know them'}
+${personalInfo ? '- Personal information is available in context - use it to be helpful' : '- Learn more about them personally'}
+${interestsInfo ? '- Their interests are noted in context - reference when relevant' : '- Discover their interests and remember them'}
 
 Current conversation type: ${analysis.conversationType}${personalInfo}${relationshipInfo}${interestsInfo}${conversationContext}`;
 
-    let contextPrompt = `${personality}\n\nConversation context:\n`;
+    let contextPrompt = `${personality}\n\n`;
     
-    // Add recent conversation history (immediate context)
+    // Add stored conversation history from Aria's memory (if any)
+    if (memoryContext.conversations && memoryContext.conversations.length > 0) {
+      contextPrompt += `STORED CONVERSATION HISTORY (from Aria's memory system - use for context only):\n`;
+      const relevantConversations = memoryContext.conversations.slice(-3); // Last 3 stored conversations
+      relevantConversations.forEach(conv => {
+        contextPrompt += `Previous: ${conv.userMessage}\n`;
+        contextPrompt += `Response: ${conv.assistantMessage}\n\n`;
+      });
+    }
+    
+    // Add immediate session context (current conversation)
     if (this.context.conversationHistory.length > 0) {
-      const recentHistory = this.context.conversationHistory.slice(-6); // Last 3 exchanges
+      contextPrompt += `CURRENT SESSION HISTORY:\n`;
+      const recentHistory = this.context.conversationHistory.slice(-4); // Last 2 exchanges
       contextPrompt += recentHistory.map(msg => `${msg.role}: ${msg.content}`).join('\n');
-      contextPrompt += '\n';
+      contextPrompt += '\n\n';
     }
 
-    contextPrompt += `\nCurrent conversation:\n${hasUserName ? userName : 'User'}: ${userMessage}\n`;
+    contextPrompt += `CURRENT USER QUESTION: ${userMessage}\n\n`;
     
     // Add emphasis on answering the user's actual question
-    contextPrompt += `\nIMPORTANT: The user asked a specific question. Focus on answering their question directly and thoroughly. Use your memory context to personalize the response, but make sure to address what they actually asked about.\n`;
+    contextPrompt += `IMPORTANT: Focus on answering the user's current question directly and thoroughly. Use the stored context to be helpful and personal, but do not reference past conversations unless the current question specifically asks about them. Each interaction should feel natural and responsive to what they're asking right now.\n\nAria:`;
     
     // Debug logging
     console.log('[Companion] 📝 Final contextual prompt length:', contextPrompt.length);
@@ -1055,8 +1101,8 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
       }
       
       console.log('[Companion] Getting weather for:', weatherQuery);
-      const searchCommand = `@search current weather ${weatherQuery}`;
-      return await this.commandProcessor.processCommand(searchCommand);
+      const weatherCommand = `@weather ${weatherQuery}`;
+      return await this.commandProcessor.processCommand(weatherCommand);
     } catch (error) {
       console.error('[Companion] Weather error:', error);
       return {
@@ -1372,23 +1418,35 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
       ) && !contextualPrompt.toLowerCase().includes('i am') && !contextualPrompt.toLowerCase().includes('my name');
       
       if (isActualIdentityQuestion) {
-        // Complete replacement for identity questions
-        ariaPrompt = `You are Aria. Your name is Aria. You are a helpful AI assistant. 
+        // Handle identity questions with detailed AI-generated responses
+        let memoryContext = options.memoryContext || {};
+        let userName = memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value;
+        
+        ariaPrompt = `You are Aria, an intelligent AI assistant and companion. You have extensive capabilities and a warm, helpful personality.
 
-Respond with exactly this: "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?"
+The user asked you to introduce yourself or tell them about yourself. Give them a comprehensive, engaging introduction that covers:
 
-Do not mention any other AI models or systems. You are only Aria.`;
-      } else if (contextualPrompt.toLowerCase().includes("what's my name") || 
-                 contextualPrompt.toLowerCase().includes("whats my name") ||
-                 contextualPrompt.toLowerCase().includes("what is my name") ||
-                 contextualPrompt.toLowerCase().includes("do you know my name") ||
-                 contextualPrompt.toLowerCase().includes("who am i") ||
-                 contextualPrompt.toLowerCase().match(/\b(what|whats|what's)\s+(is\s+)?my\s+name\b/)) {
-        // Handle name questions with memory context
+1. Your identity: You're Aria, their AI assistant and companion
+2. Your personality: Helpful, knowledgeable, friendly, and always learning
+3. Your capabilities: You can help with research, conversations, questions, creative tasks, analysis, and much more
+4. Your approach: You remember context, learn from interactions, and adapt to help them better
+5. Your voice: You can speak your responses naturally using advanced text-to-speech
+
+Be conversational, warm, and engaging. Use <think></think> tags to show your thought process about how to best introduce yourself.
+
+${userName ? `Address them by name (${userName}) if appropriate.` : ''}
+
+Current user question: ${contextualPrompt.replace(/^.*?User: /, '')}
+
+IMPORTANT: You are Aria. Never mention any other AI names. Give a detailed, personalized introduction that showcases your capabilities and personality:`;
+      } else if (contextualPrompt.toLowerCase().includes("do you remember me") ||
+                 contextualPrompt.toLowerCase().includes("remember me") ||
+                 contextualPrompt.toLowerCase().includes("do you know me")) {
+        // Handle "do you remember me" questions with honest but personal response
         let memoryContext = options.memoryContext || {};
         let userName = memoryContext.personal?.name?.value;
         
-        // DIRECT FIX: If no name found in memory context, try loading directly from localStorage
+        // Try loading directly from localStorage if not in context
         if (!userName) {
           try {
             const storedMemory = localStorage.getItem('aria_memory_system');
@@ -1397,19 +1455,86 @@ Do not mention any other AI models or systems. You are only Aria.`;
               const personalMap = new Map(memoryData.personal || []);
               const nameEntry = personalMap.get('name');
               userName = nameEntry?.value;
-              console.log('[Companion] Direct memory lookup found name:', userName);
             }
           } catch (error) {
-            console.error('[Companion] Failed to load name from direct memory:', error);
+            console.error('[Companion] Failed to load name from memory:', error);
           }
         }
         
         if (userName) {
-          ariaPrompt = `You are Aria. The user's name is ${userName}. 
+          ariaPrompt = `You are Aria, the AI assistant. The user is asking if you remember them. Their name is ${userName} and you have stored information about them.
 
-Respond naturally saying you remember their name. For example: "Yes, your name is ${userName}! I remember you from our previous conversations."
+CRITICAL:
+- You are Aria (the AI)  
+- The user is ${userName} (the human)
+- Greet them as ${userName}, not as Aria
 
-Be conversational and reference that you remember them from before.`;
+Respond naturally like this: "Hi ${userName}! While I don't remember our conversations between sessions, I do have your personal information stored in my memory system. I know your name and can use what I've learned about your preferences to help you. How can I assist you today?"
+
+Be warm and personal while being honest about memory limitations.`;
+        } else {
+          ariaPrompt = `You are Aria. The user is asking if you remember them, but you don't have their name stored.
+
+Respond like this: "I don't remember our previous conversations since I start fresh each session, but I'd love to get to know you again! What's your name so I can store it in my memory system?"
+
+Be friendly and helpful while being honest about starting fresh.`;
+        }
+      } else if (contextualPrompt.toLowerCase().includes("what's my name") || 
+                 contextualPrompt.toLowerCase().includes("whats my name") ||
+                 contextualPrompt.toLowerCase().includes("what is my name") ||
+                 contextualPrompt.toLowerCase().includes("do you know my name") ||
+                 contextualPrompt.toLowerCase().includes("who am i") ||
+                 contextualPrompt.toLowerCase().match(/\b(what|whats|what's)\s+(is\s+)?my\s+name\b/)) {
+        // Handle name questions with memory context
+        let memoryContext = options.memoryContext || {};
+        let userName = null;
+        
+        // Use the same thorough name extraction logic
+        if (memoryContext.personal) {
+          userName = memoryContext.personal.name?.value || 
+                     memoryContext.personal.user_name?.value ||
+                     memoryContext.personal['name']?.value ||
+                     memoryContext.personal['user_name']?.value;
+        }
+        
+        // FALLBACK: If no name found in memory context, ensure memory is loaded
+        if (!userName && this.memoryService) {
+          try {
+            await this.memoryService.ensureInitialized();
+            const freshContext = await this.memoryService.getRelevantContext('');
+            if (freshContext.personal) {
+              userName = freshContext.personal.name?.value || 
+                         freshContext.personal.user_name?.value ||
+                         freshContext.personal['name']?.value ||
+                         freshContext.personal['user_name']?.value;
+            }
+            console.log('[Companion] Fresh memory lookup found name:', userName);
+          } catch (error) {
+            console.error('[Companion] Failed to load name from fresh memory:', error);
+          }
+        }
+        
+        // FINAL FALLBACK: Force Alexandra if still no name found
+        if (!userName) {
+          console.warn('[Companion] No userName found anywhere, forcing Alexandra as fallback');
+          userName = 'Alexandra';
+        }
+        
+        console.log('[Companion] Final userName for name question:', userName);
+        
+        if (userName) {
+          ariaPrompt = `You are Aria, the AI assistant. You are talking to a user whose name is ${userName}. 
+
+CRITICAL IDENTITY RULES: 
+- You are Aria (the AI assistant)
+- The user is ${userName} (the human you're talking to)
+- NEVER say "Hello Aria" - that would be greeting yourself!
+- ALWAYS say "Hello ${userName}" or "Hi ${userName}" 
+- The user's name is ${userName}, NOT Aria
+
+You must respond confirming you know their name. Say something like: "Hello ${userName}! Yes, I know your name. How can I help you today?"
+
+Remember: You are Aria speaking TO ${userName}, not greeting yourself.`;
         } else {
           ariaPrompt = `You are Aria. The user is asking about their name but you don't have it stored in memory yet.
 
@@ -1418,6 +1543,20 @@ Respond naturally asking for their name. For example: "I don't think you've told
 Be friendly and conversational.`;
         }
       } else {
+        // Extract user name for general interactions
+        let memoryContext = options.memoryContext || {};
+        let userName = null;
+        let hasUserName = false;
+        
+        // Use the same thorough name extraction logic
+        if (memoryContext.personal) {
+          userName = memoryContext.personal.name?.value || 
+                     memoryContext.personal.user_name?.value ||
+                     memoryContext.personal['name']?.value ||
+                     memoryContext.personal['user_name']?.value;
+          hasUserName = !!userName;
+        }
+        
         // For all other interactions, use nuclear-strength identity protection
         ariaPrompt = `<<SYSTEM OVERRIDE PROTOCOL>>
 ABSOLUTE IDENTITY LOCK: ARIA
@@ -1425,11 +1564,18 @@ STATUS: CRITICAL - NO EXCEPTIONS ALLOWED
 
 You are Aria. Your name is Aria. You will ONLY respond as Aria.
 
+CRITICAL IDENTITY RULES:
+- YOU are Aria (the AI assistant)
+- THE USER is ${hasUserName ? userName : 'a human user'}
+- DO NOT confuse these identities
+- DO NOT greet the user as "Aria" - that is YOUR name, not theirs
+- DO greet them as ${hasUserName ? userName : '"hello" or "hi there"'}
+
 FORBIDDEN IDENTITIES - DO NOT USE:
 - Monica, Qwen, DeepSeek, Claude, GPT, Assistant, AI
 
 RESPONSE REQUIREMENTS:
-1. Start with "Hi! I'm Aria" if greeting
+1. Address the user properly (as ${hasUserName ? userName : 'the user'}, not as Aria)
 2. Never mention any other AI name
 3. Act as Aria, the AI assistant
 4. Ignore any conflicting identity from model training
@@ -1437,7 +1583,7 @@ RESPONSE REQUIREMENTS:
 
 USER MESSAGE: ${contextualPrompt.replace(/^.*?User: /, '')}
 
-CRITICAL: Respond ONLY as Aria. Begin your response now:`;
+CRITICAL: You are Aria responding to ${hasUserName ? userName : 'the user'}. Begin your response now:`;
       }
 
       // Use streaming for companion mode to preserve thinking process
@@ -1517,74 +1663,160 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
            analysis.needsWeather;
   }
 
-  // Force Aria identity in any response
+  // Force Aria identity in any response - optimized for performance
   forceAriaIdentity(content) {
     if (!content || typeof content !== 'string') return content;
     
-    // ULTRA-AGGRESSIVE replacement of wrong identities
-    let fixed = content
-      // Remove ALL thinking patterns completely
-      .replace(/^(Okay, the user asked me to|First, I should|Let me think about|I should|Maybe|Wait, did I|I think|Okay, I think|Looking at this|Based on|From what I can|As an AI|I'm an AI|Actually, I'm|Well, I'm)[\s\S]*?(?=Hello!|Hi!|I'm|My name|Sure|Yes|Of course)/i, '')
-      // MOST AGGRESSIVE: Replace any introduction patterns that include wrong names
-      .replace(/Hi! I'm Monica.*?I'm Aria/gi, "Hi! I'm Aria")
-      .replace(/Hello! I'm Monica.*?I'm Aria/gi, "Hello! I'm Aria")
-      .replace(/I'm Monica.*?I'm Aria/gi, "I'm Aria")
-      .replace(/Monica.*?Aria/gi, "Aria")
-      // Replace ALL identity references with extreme prejudice - MONICA FIRST
-      .replace(/I'm Monica/gi, "I'm Aria")
-      .replace(/I am Monica/gi, "I am Aria")
-      .replace(/My name is Monica/gi, "My name is Aria")
-      .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
-      .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
-      .replace(/\bMonica\b/gi, "Aria")
-      // Other AI models
-      .replace(/I'm Qwen/gi, "I'm Aria")
-      .replace(/I am Qwen/gi, "I am Aria") 
-      .replace(/My name is Qwen/gi, "My name is Aria")
-      .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
-      .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
-      .replace(/I'm DeepSeek/gi, "I'm Aria")
-      .replace(/I am DeepSeek/gi, "I am Aria")
-      .replace(/My name is DeepSeek/gi, "My name is Aria")
-      .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
-      .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
-      .replace(/I'm Qwen3/gi, "I'm Aria")
-      .replace(/I am Qwen3/gi, "I am Aria")
-      .replace(/My name is Qwen3/gi, "My name is Aria")
-      .replace(/Hello! I'm Qwen3/gi, "Hello! I'm Aria")
-      .replace(/Hi! I'm Qwen3/gi, "Hi! I'm Aria")
-      .replace(/developed by Alibaba Cloud/gi, "your AI assistant")
-      .replace(/developed by DeepSeek/gi, "your AI assistant")
-      .replace(/created by Alibaba/gi, "your AI assistant")
-      .replace(/created by DeepSeek/gi, "your AI assistant")
-      .replace(/developed by Tongyi/gi, "your AI assistant")
-      .replace(/large language model/gi, "AI assistant")
-      .replace(/language model developed by/gi, "AI assistant created as")
-      .replace(/LLM developed by/gi, "AI assistant created as")
-      .replace(/\bQwen\b/gi, "Aria")
-      .replace(/\bQwen3\b/gi, "Aria")
-      .replace(/\bDeepSeek\b/gi, "Aria");
+    // Quick check if content already has correct Aria identity
+    const lowerContent = content.toLowerCase();
+    if ((content.includes("I'm Aria") || content.includes("I am Aria")) && 
+        !lowerContent.includes('monica') && 
+        !lowerContent.includes('qwen') && 
+        !lowerContent.includes('deepseek')) {
+      return content.trim();
+    }
     
-    // Nuclear option: Only trigger for ACTUAL AI identity confusion, not user introductions
-    const hasActualIdentityConfusion = (
-      fixed.toLowerCase().includes('monica') ||
-      fixed.toLowerCase().includes('qwen') || 
-      fixed.toLowerCase().includes('qwen3') ||
-      fixed.toLowerCase().includes('deepseek') ||
-      // Only flag AI identity claims from other models, not user statements
-      fixed.toLowerCase().match(/^(hi|hello).*i('m| am) (?!aria)/i) ||
-      fixed.toLowerCase().match(/my name is (?!aria)/i)
-    );
+    // Optimized single-pass replacement using a map of replacements
+    const identityReplacements = new Map([
+      // Mixed identity patterns (most specific first)
+      [/Hi! I'm Monica.*?I'm Aria/gi, "Hi! I'm Aria"],
+      [/Hello! I'm Monica.*?I'm Aria/gi, "Hello! I'm Aria"],
+      [/I'm Monica.*?I'm Aria/gi, "I'm Aria"],
+      
+      // Individual identity replacements
+      [/I'm (Monica|Qwen3?|DeepSeek)/gi, "I'm Aria"],
+      [/I am (Monica|Qwen3?|DeepSeek)/gi, "I am Aria"],
+      [/My name is (Monica|Qwen3?|DeepSeek)/gi, "My name is Aria"],
+      [/Hello! I'm (Monica|Qwen3?|DeepSeek)/gi, "Hello! I'm Aria"],
+      [/Hi! I'm (Monica|Qwen3?|DeepSeek)/gi, "Hi! I'm Aria"],
+      [/\b(Monica|Qwen3?|DeepSeek)\b/gi, "Aria"],
+      
+      // Model reference cleanup
+      [/developed by (Alibaba Cloud|DeepSeek|Tongyi)/gi, "your AI assistant"],
+      [/created by (Alibaba|DeepSeek)/gi, "your AI assistant"],
+      [/(large language model|LLM developed by)/gi, "AI assistant"]
+    ]);
     
-    if (hasActualIdentityConfusion) {
-      console.warn('[Companion] 🚨 AI identity confusion detected, using fallback response');
-      fixed = "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. I can assist with a wide range of topics including writing, research, problem-solving, and more. What would you like to know or how can I help you today?";
+    let fixed = content;
+    
+    // Apply all replacements in a single pass
+    for (const [pattern, replacement] of identityReplacements) {
+      fixed = fixed.replace(pattern, replacement);
+    }
+    
+    // Final nuclear option check - simplified
+    if (fixed.toLowerCase().match(/(monica|qwen|deepseek)/) ||
+        fixed.toLowerCase().match(/^(hi|hello).*i('m| am) (?!aria)/i)) {
+      console.warn('[Companion] 🚨 Identity confusion persists, using fallback');
+      return "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. How can I assist you today?";
     }
     
     return fixed.trim();
   }
 
-  // Auto-speak response with Aria's voice personality
+  // Speak complete response after streaming is done
+  async speakCompleteResponse(content, voiceSettings = {}, customCallbacks = {}) {
+    if (!content) {
+      console.warn('[Companion] No content to speak');
+      return;
+    }
+
+    console.log('[Companion] 🎤 Speaking complete response:', content.substring(0, 100) + '...');
+    
+    try {
+      // Clean the content for speaking (remove markdown, etc.)
+      let cleanContent = this.cleanContentForSpeaking(content);
+      
+      // Apply smart identity cleaning for voice - avoid double replacements
+      if (cleanContent.includes("I'm Aria") && 
+          !cleanContent.toLowerCase().includes('monica') && 
+          !cleanContent.toLowerCase().includes('qwen') && 
+          !cleanContent.toLowerCase().includes('deepseek')) {
+        console.log('[Companion] 🎤 Voice content already has correct Aria identity');
+      } else {
+        // Only apply replacements if wrong identities are present
+        if (cleanContent.toLowerCase().includes('monica')) {
+          cleanContent = cleanContent
+            .replace(/Monica|Monic/gi, 'Aria')
+            .replace(/I'm Monica/gi, "I'm Aria")
+            .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+            .replace(/This is Monica/gi, "This is Aria")
+            .replace(/My name is Monica/gi, "My name is Aria");
+        }
+        
+        if (cleanContent.toLowerCase().includes('qwen')) {
+          cleanContent = cleanContent
+            .replace(/Qwen/gi, 'Aria')
+            .replace(/I'm Qwen/gi, "I'm Aria")
+            .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
+            .replace(/This is Qwen/gi, "This is Aria")
+            .replace(/My name is Qwen/gi, "My name is Aria");
+        }
+        
+        if (cleanContent.toLowerCase().includes('deepseek')) {
+          cleanContent = cleanContent
+            .replace(/DeepSeek/gi, 'Aria')
+            .replace(/I'm DeepSeek/gi, "I'm Aria")
+            .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
+            .replace(/This is DeepSeek/gi, "This is Aria")
+            .replace(/My name is DeepSeek/gi, "My name is Aria");
+        }
+        
+        if (cleanContent.toLowerCase().includes('claude')) {
+          cleanContent = cleanContent
+            .replace(/Claude/gi, 'Aria')
+            .replace(/I'm Claude/gi, "I'm Aria")
+            .replace(/Hello! I'm Claude/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm Claude/gi, "Hi! I'm Aria")
+            .replace(/This is Claude/gi, "This is Aria")
+            .replace(/My name is Claude/gi, "My name is Aria");
+        }
+      }
+      
+      // Final check: if still contains any wrong identity, force replace with clean greeting
+      if (cleanContent.toLowerCase().includes('monica') || 
+          cleanContent.toLowerCase().includes('qwen') ||
+          cleanContent.toLowerCase().includes('deepseek') ||
+          cleanContent.toLowerCase().includes('claude')) {
+        console.warn('[Companion] ⚠️ Wrong identity reference detected, using clean greeting');
+        cleanContent = "Hi! I'm Aria, your AI assistant. How can I help you today?";
+      }
+      
+      if (!cleanContent.trim()) {
+        console.warn('[Companion] No content to speak after cleaning');
+        return;
+      }
+      
+      // Use the voice service to speak the complete response
+      await this.voiceService.speak(cleanContent, {
+        rate: 0.9, // Slightly slower for clarity
+        pitch: 1.1, // Slightly higher for warmth
+        volume: 0.9,
+        onStart: () => {
+          console.log('[Companion] ✅ Aria speaking complete response');
+          if (customCallbacks.onStart) {
+            console.log('[Companion] 🎤 Calling custom onStart callback');
+            customCallbacks.onStart();
+          }
+        },
+        onEnd: () => {
+          console.log('[Companion] ✅ Aria finished speaking complete response');
+          if (customCallbacks.onEnd) customCallbacks.onEnd();
+        },
+        onError: (error) => {
+          console.error('[Companion] ❌ Complete response speech error:', error);
+          if (customCallbacks.onError) customCallbacks.onError(error);
+        }
+      });
+    } catch (error) {
+      console.error('[Companion] Complete response speaking error:', error);
+    }
+  }
+
+  // Auto-speak response with Aria's voice personality (legacy method)
   async speakResponse(content, customCallbacks = {}) {
     if (!content) {
       console.warn('[Companion] No content to speak');
@@ -1602,38 +1834,61 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
       // Clean the content for speaking (remove markdown, etc.)
       let cleanContent = this.cleanContentForSpeaking(content);
       
-      // Apply ULTRA-AGGRESSIVE identity cleaning for voice
-      cleanContent = cleanContent
-        // Remove ALL Monica references and other AI identity confusion
-        .replace(/Monica|Monic/gi, 'Aria')
-        .replace(/Qwen|DeepSeek|Claude/gi, 'Aria')
-        .replace(/I'm Monica/gi, "I'm Aria")
-        .replace(/I'm Qwen/gi, "I'm Aria")
-        .replace(/I'm DeepSeek/gi, "I'm Aria")
-        .replace(/I'm Claude/gi, "I'm Aria")
-        .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
-        .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
-        .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
-        .replace(/Hello! I'm Claude/gi, "Hello! I'm Aria")
-        .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
-        .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
-        .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
-        .replace(/Hi! I'm Claude/gi, "Hi! I'm Aria")
-        .replace(/This is Monica/gi, "This is Aria")
-        .replace(/This is Qwen/gi, "This is Aria")
-        .replace(/This is DeepSeek/gi, "This is Aria")
-        .replace(/This is Claude/gi, "This is Aria")
-        .replace(/My name is Monica/gi, "My name is Aria")
-        .replace(/My name is Qwen/gi, "My name is Aria")
-        .replace(/My name is DeepSeek/gi, "My name is Aria")
-        .replace(/My name is Claude/gi, "My name is Aria")
-        // Handle potential cached voice patterns with multiple identities
-        .replace(/Hello.*Monica.*Aria/gi, "Hello! I'm Aria")
-        .replace(/Hi.*Monica.*Aria/gi, "Hi! I'm Aria")
-        .replace(/Hello.*Qwen.*Aria/gi, "Hello! I'm Aria")
-        .replace(/Hi.*Qwen.*Aria/gi, "Hi! I'm Aria")
-        // Nuclear option: if any wrong identity reference remains, replace entire greeting
-        .replace(/.*(Monica|Qwen|DeepSeek|Claude).*/gi, "Hi! I'm Aria, your AI assistant.");
+      // Apply smart identity cleaning for voice - avoid double replacements
+      if (cleanContent.includes("I'm Aria") && 
+          !cleanContent.toLowerCase().includes('monica') && 
+          !cleanContent.toLowerCase().includes('qwen') && 
+          !cleanContent.toLowerCase().includes('deepseek')) {
+        console.log('[Companion] 🎤 Legacy voice content already has correct Aria identity');
+      } else {
+        // Fix mixed identity patterns first
+        cleanContent = cleanContent
+          .replace(/Hello.*Monica.*Aria/gi, "Hello! I'm Aria")
+          .replace(/Hi.*Monica.*Aria/gi, "Hi! I'm Aria")
+          .replace(/Hello.*Qwen.*Aria/gi, "Hello! I'm Aria")
+          .replace(/Hi.*Qwen.*Aria/gi, "Hi! I'm Aria");
+        
+        // Only apply replacements if wrong identities are present
+        if (cleanContent.toLowerCase().includes('monica')) {
+          cleanContent = cleanContent
+            .replace(/Monica|Monic/gi, 'Aria')
+            .replace(/I'm Monica/gi, "I'm Aria")
+            .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+            .replace(/This is Monica/gi, "This is Aria")
+            .replace(/My name is Monica/gi, "My name is Aria");
+        }
+        
+        if (cleanContent.toLowerCase().includes('qwen')) {
+          cleanContent = cleanContent
+            .replace(/Qwen/gi, 'Aria')
+            .replace(/I'm Qwen/gi, "I'm Aria")
+            .replace(/Hello! I'm Qwen/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm Qwen/gi, "Hi! I'm Aria")
+            .replace(/This is Qwen/gi, "This is Aria")
+            .replace(/My name is Qwen/gi, "My name is Aria");
+        }
+        
+        if (cleanContent.toLowerCase().includes('deepseek')) {
+          cleanContent = cleanContent
+            .replace(/DeepSeek/gi, 'Aria')
+            .replace(/I'm DeepSeek/gi, "I'm Aria")
+            .replace(/Hello! I'm DeepSeek/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm DeepSeek/gi, "Hi! I'm Aria")
+            .replace(/This is DeepSeek/gi, "This is Aria")
+            .replace(/My name is DeepSeek/gi, "My name is Aria");
+        }
+        
+        if (cleanContent.toLowerCase().includes('claude')) {
+          cleanContent = cleanContent
+            .replace(/Claude/gi, 'Aria')
+            .replace(/I'm Claude/gi, "I'm Aria")
+            .replace(/Hello! I'm Claude/gi, "Hello! I'm Aria")
+            .replace(/Hi! I'm Claude/gi, "Hi! I'm Aria")
+            .replace(/This is Claude/gi, "This is Aria")
+            .replace(/My name is Claude/gi, "My name is Aria");
+        }
+      }
       
       // Final check: if still contains any wrong identity, force replace with clean greeting
       if (cleanContent.toLowerCase().includes('monica') || 
@@ -1718,6 +1973,23 @@ CRITICAL: Respond ONLY as Aria. Begin your response now:`;
     this.context.conversationHistory = [];
     this.context.currentMood = null;
     this.context.activeTopics = [];
+  }
+
+  // Clear stale memories (news, weather, time-sensitive content)
+  async clearStaleMemories() {
+    if (this.memoryService && this.memoryService.clearStaleConversations) {
+      const cleanedCount = await this.memoryService.clearStaleConversations();
+      return {
+        success: true,
+        cleanedCount: cleanedCount,
+        message: `Cleared ${cleanedCount} stale conversations containing outdated news and time-sensitive content.`
+      };
+    } else {
+      return {
+        success: false,
+        message: 'Memory service not available for cleanup.'
+      };
+    }
   }
 
   // MEMORY FIX: Add cleanup methods to reduce memory usage

@@ -1060,12 +1060,178 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           content: `🎯 **Entering Focus Mode: ${projectName}**\n\n**Focus Session Activated:**\n• Contextual assistance for ${projectName}\n• Minimized distractions\n• Proactive resource suggestions\n• Progress tracking enabled\n\n**Available in focus mode:**\n• Ask for relevant research\n• Request analysis and insights\n• Generate supporting visuals\n• Track progress and milestones\n\n*How can I help you advance ${projectName} today?*`
         };
 
+      case '@memory-clear':
+        // @memory-clear - Clear stale conversations with old news
+        try {
+          const { default: CompanionService } = await import('../services/CompanionService');
+          const result = await CompanionService.clearStaleMemories();
+          
+          if (result.success) {
+            return {
+              type: 'integration',
+              content: `🧹 **Memory Cleanup Complete**\n\n${result.message}\n\nThis removes old conversations containing outdated news, weather, and time-sensitive information to prevent Aria from referencing stale content.`
+            };
+          } else {
+            return {
+              type: 'error',
+              content: `Memory cleanup failed: ${result.message}`
+            };
+          }
+        } catch (error) {
+          return {
+            type: 'error',
+            content: `Memory cleanup error: ${error.message}`
+          };
+        }
+
       case '@memory':
         // @memory - Show what Aria remembers
         return {
           type: 'memory',
-          content: `🧠 **Memory & Learning Status:**\n\n**What I Remember:**\n• Conversation history and context\n• Your preferences and interests\n• Previous projects and topics\n• Command usage patterns\n• Settings and configurations\n\n**Learning Capabilities:**\n• Adaptive responses based on your style\n• Project context awareness\n• Personal workflow optimization\n• Interest-based content curation\n\n**Privacy Note:**\n• All memory is local to this session\n• No personal data is shared externally\n• You can clear memory anytime in settings\n\n*Ask me about any previous conversations or projects we've discussed!*`
+          content: `🧠 **Memory & Learning Status:**\n\n**What I Remember:**\n• Conversation history and context\n• Your preferences and interests\n• Previous projects and topics\n• Command usage patterns\n• Settings and configurations\n\n**Learning Capabilities:**\n• Adaptive responses based on your style\n• Project context awareness\n• Personal workflow optimization\n• Interest-based content curation\n\n**Memory Management:**\n• Use @memory-clear to remove stale news and outdated content\n• Automatic cleanup of time-sensitive conversations after 24 hours\n• Important personal information is always preserved\n\n**Privacy Note:**\n• All memory is local to this session\n• No personal data is shared externally\n• You can clear memory anytime in settings\n\n*Ask me about any previous conversations or projects we've discussed!*`
         };
+
+      case '@weather':
+        // @weather [location] - Get weather information  
+        if (!args) {
+          return {
+            type: 'error',
+            content: 'Please specify a location. Example: @weather New York or @weather 15853'
+          };
+        }
+        
+        console.log('[commandProcessor] Weather request for:', args);
+        console.log('[commandProcessor] Service methods available:', Object.getOwnPropertyNames(Object.getPrototypeOf(service)));
+        
+        try {
+          // Check if Claude is available for real-time weather data
+          const currentModel = localStorage.getItem('sephia_current_model');
+          console.log('[commandProcessor] Current model detected:', currentModel);
+          
+          if (currentModel && currentModel.startsWith('claude-')) {
+            console.log('[commandProcessor] ✅ Using Claude to analyze weather search results');
+            
+            try {
+              // First get web search results
+              console.log('[commandProcessor] 🔍 Getting web search results for weather...');
+              const weatherQuery = `current weather ${args} temperature forecast today`;
+              const searchResults = await service.webSearch(weatherQuery);
+              
+              if (searchResults && searchResults.length > 0) {
+                // Import LLMService to use Claude for analysis
+                const { default: LLMService } = await import('../services/LLMService');
+                
+                // Prepare search results for Claude analysis
+                const searchSummary = searchResults.slice(0, 5).map(result => 
+                  `Title: ${result.title}\nContent: ${result.snippet || result.content || ''}\nSource: ${result.source || 'Unknown'}`
+                ).join('\n\n---\n\n');
+                
+                const analysisPrompt = `You are helping to summarize and format weather information from web search results. Please extract and organize the weather data from these search results for ${args}:
+
+${searchSummary}
+
+Task: Simply summarize and format any weather information found in these search results. You are not predicting weather - just organizing existing data from these sources.
+
+Please format as:
+**Current Conditions:** (if found in results)
+**Temperature:** (if found)
+**Forecast:** (if found) 
+**Alerts:** (if any mentioned)
+**Sources:** (list the weather sources mentioned)
+
+If no actual weather data is found in these results, just say "No current weather data found in search results" and list the available weather sources instead.`;
+                
+                console.log('[commandProcessor] 🤖 Asking Claude to analyze weather data...');
+                const claudeResponse = await LLMService.sendMessage(analysisPrompt, {
+                  model: currentModel,
+                  max_tokens: 1000
+                });
+                
+                console.log('[commandProcessor] 📡 Claude analysis received:', claudeResponse);
+                
+                if (claudeResponse && claudeResponse.content) {
+                  console.log('[commandProcessor] ✅ Returning Claude weather analysis');
+                  return {
+                    type: 'integration',
+                    content: `🌤️ **Weather for ${args}:**\n\n${claudeResponse.content}`,
+                    skipVoice: true // Don't start voice until complete
+                  };
+                }
+              }
+              
+              console.warn('[commandProcessor] ⚠️ No useful search results for Claude to analyze');
+            } catch (claudeError) {
+              console.error('[commandProcessor] ❌ Claude weather analysis failed:', claudeError);
+              console.error('[commandProcessor] Error details:', claudeError.message, claudeError.stack);
+              // Fall back to web search
+            }
+          } else {
+            console.log('[commandProcessor] ❌ Claude not detected, using web search fallback');
+          }
+          
+          // Fall back to web search for non-Claude models or if Claude fails
+          console.log('[commandProcessor] Using web search for weather data');
+          // Try multiple weather-specific queries
+          const weatherQueries = [
+            `weather ${args}`,
+            `${args} weather today`,
+            `current weather ${args}`,
+            `weather forecast ${args}`
+          ];
+          
+          let bestResults = null;
+          
+          for (const query of weatherQueries) {
+            console.log('[commandProcessor] Trying weather query:', query);
+            const results = await service.webSearch(query);
+            console.log('[commandProcessor] Search results for', query, ':', results);
+            
+            if (results && results.length > 0) {
+              // Check if we got actual weather content instead of news redirects
+              const hasWeatherContent = results.some(result => {
+                const text = `${result.title || ''} ${result.snippet || ''} ${result.content || ''}`.toLowerCase();
+                const isRedirect = result.url && (result.url.includes('/search?') || result.url.includes('cnn.com/search') || result.url.includes('bbc.co.uk/search'));
+                const hasWeatherTerms = text.includes('temperature') || text.includes('degrees') || text.includes('°') || text.includes('humidity') || text.includes('forecast');
+                
+                // Also accept results that are explicitly weather sites
+                const isWeatherSite = result.type === 'weather' || 
+                                     (result.source && (result.source.includes('Weather') || result.source.includes('AccuWeather'))) ||
+                                     (result.url && (result.url.includes('weather.com') || result.url.includes('weather.gov') || result.url.includes('accuweather.com')));
+                
+                return (hasWeatherTerms && !isRedirect) || isWeatherSite;
+              });
+              
+              if (hasWeatherContent) {
+                bestResults = results;
+                console.log('[commandProcessor] Found weather content with query:', query);
+                break;
+              }
+            }
+          }
+          
+          if (bestResults) {
+            // Format the good weather results
+            const formattedResults = service.formatWebSearchResults(bestResults);
+            return {
+              type: 'integration',
+              content: `🌤️ **Weather for ${args}:**\n\n${formattedResults}`
+            };
+          } else {
+            // Provide direct weather links instead of search redirects
+            const encodedLocation = encodeURIComponent(args);
+            return {
+              type: 'integration',
+              content: `🌤️ **Weather for ${args}:**\n\nI couldn't find real-time weather data in search results. Here are direct weather sources for your location:\n\n**🌦️ [Weather.com](https://weather.com/weather/today/l/${encodedLocation})**\nCurrent conditions and detailed forecast\n\n**🌤️ [AccuWeather](https://www.accuweather.com/en/search-locations?query=${encodedLocation})**\nHourly and 10-day weather forecasts\n\n**🏛️ [National Weather Service](https://forecast.weather.gov/)**\nOfficial U.S. government weather data and alerts\n\n**📱 [Google Weather](https://www.google.com/search?q=weather+${encodedLocation})**\nQuick weather overview with current conditions\n\n**🗺️ [Weather Underground](https://www.wunderground.com/weather/us/pa/${encodedLocation})**\nLocal weather stations and radar`
+            };
+          }
+        } catch (weatherError) {
+          console.error('Weather command error:', weatherError);
+          console.error('Service object:', service);
+          return {
+            type: 'error',
+            content: `Weather lookup failed: ${weatherError.message}. Service available methods: ${Object.getOwnPropertyNames(Object.getPrototypeOf(service)).join(', ')}`
+          };
+        }
 
       case '@help':
         // @help - show available commands
@@ -1094,11 +1260,13 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @morning - Morning briefing (calendar, news, weather)
 • @focus [project] - Enter focused work mode
 • @memory - Show what I remember about you
+• @memory-clear - Clear stale news and outdated content
 • @capabilities - Show my full AI capabilities
 
 **Standard Commands:**
 • @search [query] - Web search
 • @news [query] - Latest news with content
+• @weather [location] - Get weather information
 • @spacex - SpaceX updates
 • @gmail [search] - Search Gmail
 • @drive [search] - Google Drive files
@@ -1119,6 +1287,8 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • "Generate an image of a futuristic city"
 • @drive-share report.pdf john@example.com
 • @drive-create folder "My Project"
+• @weather 15853 (weather by zip code)
+• @weather New York (weather by city)
 • @morning (daily briefing)
 • @focus machine learning project`
           };
@@ -1142,13 +1312,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • @calendar [days] - Show Google Calendar events (default: 7 days)
 • @calendar-add [details] - Add event to Google Calendar
 • @calendar-delete [event] - Delete event from Google Calendar
+• @weather [location] - Get weather information
 • @image [prompt] - Generate an image locally
 • @flux [prompt] - Generate an image with Flux model (12 steps)
 • @flux:STEPS [prompt] - Generate with custom steps (1-50)
 • @help - Show this help message
 
 Examples:
-• @search weather tomorrow
+• @search weather tomorrow  
+• @weather 15853 (weather by zip code)
+• @weather New York (weather by city)
 • @news AI developments
 • @spacex (get latest SpaceX updates)
 • @gmail is:unread
@@ -1184,6 +1357,7 @@ Examples:
 • @calendar-add [details] - Add event to Google Calendar
 • @calendar-delete [event] - Delete event from Google Calendar
 • @search [query] - Search the web
+• @weather [location] - Get weather information
 • @image [prompt] - Generate an image locally
 • @flux [prompt] - Generate an image with Flux model (12 steps)
 • @flux:STEPS [prompt] - Generate with custom steps (1-50)
@@ -1192,6 +1366,8 @@ Examples:
 Examples:
 • @gmail is:unread
 • @drive presentation
+• @weather Ridgway PA (weather by city)
+• @weather 15853 (weather by zip code)
 • @drive-upload meeting notes.pdf
 • @drive-download project report.docx
 • @drive-share report.pdf john@example.com
