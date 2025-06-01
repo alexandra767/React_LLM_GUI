@@ -121,6 +121,12 @@ const VoiceStatus = () => {
   };
 
   const checkBarkStatus = async () => {
+    // Don't check status while Bark is generating speech to avoid interrupting TTS
+    if (window.__barkGeneratingSpeech) {
+      console.log('[VoiceStatus] Skipping status check - Bark is generating speech');
+      return;
+    }
+    
     try {
       addLog('Checking Bark TTS server...');
       const response = await fetch('http://localhost:8189/status');

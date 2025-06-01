@@ -1078,9 +1078,14 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 
 **Natural Conversation:**
 • Just talk to me naturally - no @ symbols needed!
-• I automatically handle searches, calendar, images when you ask
+• I automatically handle searches, calendar, images, weather when you ask
 • I remember our conversations and learn your preferences
 • Toggle companion mode off for basic chat
+
+**Weather Examples:**
+• "What's the weather like?" (uses your saved location)
+• "Get weather for New York" 
+• "Weather forecast for my location 123 Main St"
 
 **Aria-Specific Commands:**
 • @research [topic] - Deep research with multiple sources
@@ -1110,6 +1115,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
 • "Analyze the latest AI trends"
 • "Brainstorm marketing ideas for my startup"  
 • "What's on my calendar today?"
+• "What's the weather forecast for tomorrow?"
 • "Generate an image of a futuristic city"
 • @drive-share report.pdf john@example.com
 • @drive-create folder "My Project"

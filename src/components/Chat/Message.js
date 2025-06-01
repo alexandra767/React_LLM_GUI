@@ -22,6 +22,14 @@ const spokenMessageIds = new Set();
 export const clearSpokenMessages = () => {
   console.log('[Message] Clearing spoken messages cache, previous count:', spokenMessageIds.size);
   spokenMessageIds.clear();
+  
+  // CRITICAL FIX: Also clear any lingering global streaming content that might cause voice conflicts
+  if (window.__streamingContent) {
+    console.log('[Message] Clearing lingering streaming content to prevent voice conflicts');
+    window.__streamingContent = '';
+    window.__streamingMessageId = null;
+    window.__isStreaming = false;
+  }
 };
 
 // Export function to check if message was spoken (for debugging)
@@ -302,12 +310,35 @@ const Message = React.memo(({ message, onDelete }) => {
         return;
       }
       
+      // CRITICAL: Validate that displayContent is actually for THIS message
+      // Don't speak cached content from previous messages
+      const isValidContent = displayContent === safeMessage.content || 
+                           (isStreamingMessage && window.__streamingMessageId === safeMessage.id);
+      
+      if (!isValidContent) {
+        console.log('[Message] Skipping voice - content validation failed:', {
+          messageId: safeMessage.id,
+          isStreamingMessage,
+          streamingMessageId: window.__streamingMessageId,
+          contentMatch: displayContent === safeMessage.content
+        });
+        return;
+      }
+      
+      // Check voice settings for wait-for-complete preference
+      const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
+      const waitForComplete = voiceSettings.waitForCompleteResponse !== false; // Default to true
+      
       // Only start voice when streaming is complete or content has enough words
       const wordCount = displayContent.split(/\s+/).filter(word => word.length > 0).length;
       const isStreamingComplete = !isStreamingMessage && !safeMessage.isStreaming;
       
-      // Trigger voice if streaming is complete OR if we have enough content (10+ words)
-      if (isStreamingComplete || wordCount >= 10) {
+      // Trigger voice based on settings
+      const shouldSpeak = waitForComplete 
+        ? isStreamingComplete  // Wait for complete response
+        : (isStreamingComplete || wordCount >= 10); // Allow early speaking with 10+ words
+      
+      if (shouldSpeak) {
         console.log('[Message] Auto-speaking for companion mode:', {
           messageId: safeMessage.id,
           isStreamingComplete,
@@ -324,8 +355,15 @@ const Message = React.memo(({ message, onDelete }) => {
         // Clean text for speech
         let textToSpeak = displayContent;
         
-        // Remove thinking tags
-        textToSpeak = textToSpeak.replace(/<think>[\s\S]*?<\/think>/g, '');
+        // Remove thinking tags - more aggressive removal
+        textToSpeak = textToSpeak.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        textToSpeak = textToSpeak.replace(/<think[\s\S]*?<\/think>/gi, '');
+        textToSpeak = textToSpeak.replace(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/gi, '');
+        
+        // Remove any remaining think content that might be malformed
+        textToSpeak = textToSpeak.replace(/^<think>.*$/gm, '');
+        textToSpeak = textToSpeak.replace(/^.*<think>.*$/gm, '');
+        textToSpeak = textToSpeak.replace(/^.*<\/think>.*$/gm, '');
         
         // If it's HTML content, extract text
         if (textToSpeak.includes('<') && textToSpeak.includes('>')) {
@@ -346,6 +384,8 @@ const Message = React.memo(({ message, onDelete }) => {
         
         if (textToSpeak && textToSpeak.length > 0) {
           console.log('[Message] Starting auto-speak for text:', textToSpeak.substring(0, 100));
+          console.log('[Message] FULL TEXT TO SPEAK:', textToSpeak);
+          console.log('[Message] TEXT LENGTH:', textToSpeak.length);
           
           voiceService.speak(textToSpeak, {
             onStart: () => {
@@ -446,9 +486,12 @@ const Message = React.memo(({ message, onDelete }) => {
     }
     
     if (isSpeaking) {
-      // Stop speaking
+      // Stop speaking - but be very conservative with Bark
       try {
+        console.log('[Message] 🛑 Manual stop requested');
         await voiceService.stop();
+        // Give Bark time to clean up properly
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error) {
         console.error('Error stopping speech:', error);
       }
@@ -459,8 +502,15 @@ const Message = React.memo(({ message, onDelete }) => {
         // Extract text content from the message
         let textToSpeak = displayContent;
         
-        // Remove thinking tags
-        textToSpeak = textToSpeak.replace(/<think>[\s\S]*?<\/think>/g, '');
+        // Remove thinking tags - more aggressive removal (same as auto-voice)
+        textToSpeak = textToSpeak.replace(/<think>[\s\S]*?<\/think>/gi, '');
+        textToSpeak = textToSpeak.replace(/<think[\s\S]*?<\/think>/gi, '');
+        textToSpeak = textToSpeak.replace(/&lt;think&gt;[\s\S]*?&lt;\/think&gt;/gi, '');
+        
+        // Remove any remaining think content that might be malformed
+        textToSpeak = textToSpeak.replace(/^<think>.*$/gm, '');
+        textToSpeak = textToSpeak.replace(/^.*<think>.*$/gm, '');
+        textToSpeak = textToSpeak.replace(/^.*<\/think>.*$/gm, '');
         
         // If it's HTML content, extract text
         if (textToSpeak.includes('<') && textToSpeak.includes('>')) {

@@ -29,6 +29,18 @@ app.commandLine.appendSwitch('ignore-ssl-errors'); // Allow HTTPS connections to
 app.commandLine.appendSwitch('allow-insecure-localhost'); // Allow local connections
 app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor,RendererCodeIntegrity'); // Disable restrictions
 
+// Fix audio issues on Apple Silicon M4 MacBook Pro
+app.commandLine.appendSwitch('disable-audio-sandbox');
+app.commandLine.appendSwitch('enable-audio-service-sandbox', 'false');
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+// Additional M4-specific audio fixes
+app.commandLine.appendSwitch('disable-audio-input-sandbox');
+app.commandLine.appendSwitch('disable-audio-output-resampler');
+app.commandLine.appendSwitch('audio-buffer-size', '2048');
+
 // Process management
 let terminalProcess = null;
 const childProcesses = new Set();
@@ -140,7 +152,12 @@ function createWindow() {
         webviewTag: true,
         // Additional permissions for speech API
         plugins: true,
-        backgroundThrottling: false
+        backgroundThrottling: false,
+        // Fix audio issues on M4 MacBook Pro
+        autoplayPolicy: 'no-user-gesture-required',
+        spellcheck: false, // Reduce overhead
+        // Enable hardware acceleration for audio
+        offscreen: false
       },
       title: 'Sephia',
       icon: process.platform === 'darwin' ? path.join(__dirname, '../public/favicon.icns') : path.join(__dirname, '../public/favicon.ico')

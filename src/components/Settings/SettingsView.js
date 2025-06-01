@@ -1671,6 +1671,26 @@ const SettingsView = () => {
                   </ToggleSwitch>
                 </SettingItem>
                 
+                {voiceSettings.autoSpeak && (
+                  <SettingItem style={{ paddingLeft: '20px' }}>
+                    <SettingLabel>
+                      <Label>Wait for Complete Response</Label>
+                      <Description2>
+                        Wait for the full response before speaking (recommended to avoid interruptions)
+                      </Description2>
+                    </SettingLabel>
+                    <ToggleSwitch checked={voiceSettings.waitForCompleteResponse !== false}>
+                      <input 
+                        type="checkbox" 
+                        checked={voiceSettings.waitForCompleteResponse !== false}
+                        onChange={(e) => updateVoiceSetting('waitForCompleteResponse', e.target.checked)}
+                        disabled={!voiceSettings.voiceEnabled || !voiceSettings.autoSpeak}
+                      />
+                      <span className="slider"></span>
+                    </ToggleSwitch>
+                  </SettingItem>
+                )}
+                
                 <SettingItem>
                   <SettingLabel>
                     <Label>Test Microphone</Label>

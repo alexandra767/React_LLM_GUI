@@ -31,12 +31,17 @@ export const useStreamingContent = (messageId) => {
         if (isActive) {
           console.log('[useStreamingContent] Message no longer streaming:', messageId);
           setIsActive(false);
-          // Keep the last content when streaming stops
-          const finalContent = window.__streamingContent || '';
+          // CRITICAL FIX: Only use final content if it's for THIS message
+          // Don't use global streaming content that might be from other messages
+          const finalContent = window.__streamingMessageId === messageId ? (window.__streamingContent || '') : '';
           if (finalContent && finalContent !== lastContent) {
-            console.log('[useStreamingContent] Setting final content:', finalContent.length);
+            console.log('[useStreamingContent] Setting final content for this message:', finalContent.length);
             lastContent = finalContent;
             setContent(finalContent);
+          } else {
+            console.log('[useStreamingContent] Clearing streaming content - not for this message');
+            // Clear streaming content if it's not for this message
+            setContent('');
           }
         }
       }

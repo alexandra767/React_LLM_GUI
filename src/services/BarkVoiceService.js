@@ -13,6 +13,7 @@ class BarkVoiceService {
     this.isServerRunning = false;
     this.activeAudioElements = new Set();
     this.audioCleanupInterval = null;
+    this.isSpeaking = false;
     
     // Initialize service
     this.init();
@@ -127,6 +128,47 @@ class BarkVoiceService {
   }
 
   async speak(text, options = {}) {
+    // Prevent concurrent speech generation
+    if (this.isSpeaking) {
+      console.log('[BarkVoiceService] Already speaking, stopping current speech first');
+      await this.stop();
+    }
+    
+    this.isSpeaking = true;
+    
+    // Stop all existing audio first to prevent overlapping voices
+    await this.stop();
+    
+    // Set flag to prevent status checks during speech generation
+    window.__barkGeneratingSpeech = true;
+    
+    // Comprehensive cache clearing to prevent old content
+    if (window.__streamingContent) {
+      window.__streamingContent = '';
+    }
+    if (window.__lastSpokenMessage) {
+      window.__lastSpokenMessage = '';
+    }
+    if (window.__conversationCache) {
+      window.__conversationCache = {};
+    }
+    // Clear all possible global caches
+    if (window.__globalStreamingContent) {
+      window.__globalStreamingContent = '';
+    }
+    if (window.__streamingChunks) {
+      window.__streamingChunks = [];
+    }
+    if (window.__messageContent) {
+      window.__messageContent = '';
+    }
+    // Clear localStorage caches
+    localStorage.removeItem('lastSpokenContent');
+    localStorage.removeItem('streamingContent');
+    localStorage.removeItem('cachedResponse');
+    
+    console.log('[BarkVoiceService] Speaking text:', text.substring(0, 100) + '...');
+    
     // Check server status first
     try {
       await this.checkServerStatus();
@@ -140,6 +182,24 @@ class BarkVoiceService {
 
     if (!text || text.trim().length === 0) {
       throw new Error('Text cannot be empty');
+    }
+    
+    // Validate text doesn't contain old cached content
+    const suspiciousPatterns = [
+      'TravelAppPlan',
+      'Abraham Lincoln',
+      'application/vnd.google',
+      'File downloaded from Google Drive',
+      'Unknown command: @'
+    ];
+    
+    const containsSuspiciousContent = suspiciousPatterns.some(pattern => 
+      text.toLowerCase().includes(pattern.toLowerCase())
+    );
+    
+    if (containsSuspiciousContent) {
+      console.warn('[BarkVoiceService] Rejecting suspicious cached content:', text.substring(0, 100));
+      throw new Error('Detected old cached content, rejecting speech request');
     }
 
     // Always get the latest user-selected voice
@@ -161,25 +221,30 @@ class BarkVoiceService {
     });
 
     try {
-      // CRITICAL: Apply ultra-aggressive identity cleaning before voice synthesis
+      // Simplified identity cleaning to reduce processing delays
       let cleanedText = text.trim()
-        .replace(/Hello.*?I'm\s+Monica.*?Hi.*?I'm\s+Aria/gi, "Hi! I'm Aria")
-        .replace(/Hi.*?I'm\s+Monica.*?I'm\s+Aria/gi, "Hi! I'm Aria") 
-        .replace(/Monica.*?Aria/gi, "Aria")
-        .replace(/I'm\s+Monica.*?I'm\s+Aria/gi, "I'm Aria")
-        .replace(/Monica.*?Hi.*?I'm\s+Aria/gi, "Hi! I'm Aria")
-        .replace(/Hello.*?Monica.*?Aria/gi, "Hello! I'm Aria")
         .replace(/Monica/gi, "Aria")
         .replace(/I'm\s+Monica/gi, "I'm Aria")
-        .replace(/Hello.*?Monica/gi, "Hello! I'm Aria")
-        .replace(/Hi.*?Monica/gi, "Hi! I'm Aria");
+        // Fix common TTS pronunciation issues
+        .replace(/\bgoing\s*to\b/gi, "going to")
+        .replace(/\bwant\s*to\b/gi, "want to")
+        .replace(/\btry\s*to\b/gi, "try to")
+        .replace(/\bhave\s*to\b/gi, "have to")
+        .replace(/\bneed\s*to\b/gi, "need to")
+        .replace(/\bused\s*to\b/gi, "used to");
 
       // Add feminine context to ensure female voice characteristics  
       const contextualText = this.addFeminineContext(cleanedText, voice);
       
-      // For longer texts, use chunking but with much higher threshold
-      // Increased threshold to prevent unnecessary chunking that causes cutoffs
-      if (contextualText.length > 8000) {  // Increased to 8000 to allow longer continuous speech
+      // Validate that contextualText contains the original text to prevent cache contamination
+      if (!contextualText.includes(text.substring(0, Math.min(50, text.length)))) {
+        console.error('[BarkVoiceService] Text validation failed - contextual text does not match original');
+        throw new Error('Text validation failed - possible cache contamination');
+      }
+      
+      // For longer texts, use chunking to prevent server truncation
+      // Bark server truncates text that's too long, so we need proper chunking
+      if (contextualText.length > 1500) {  // Lowered to 1500 to prevent server truncation
         console.log('[BarkVoiceService] Processing long text:', contextualText.length, 'characters');
         return await this.speakLongText(contextualText, voice, options);
       }
@@ -233,6 +298,9 @@ class BarkVoiceService {
     } catch (error) {
       console.error('[BarkVoiceService] Speech generation error:', error);
       throw error;
+    } finally {
+      this.isSpeaking = false;
+      window.__barkGeneratingSpeech = false;
     }
   }
 
@@ -248,6 +316,14 @@ class BarkVoiceService {
     
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
+      
+      // Validate chunk belongs to original text
+      if (!text.includes(chunk.substring(0, Math.min(30, chunk.length)))) {
+        console.error(`[BarkVoiceService] Chunk ${i + 1} validation failed - does not belong to original text`);
+        console.error(`[BarkVoiceService] Contaminated chunk:`, chunk.substring(0, 100));
+        continue; // Skip this contaminated chunk
+      }
+      
       console.log(`[BarkVoiceService] Speaking chunk ${i + 1}/${chunks.length}:`, chunk.substring(0, 50) + '...');
       
       // Retry mechanism for each chunk
@@ -300,9 +376,9 @@ class BarkVoiceService {
             });
           }
           
-          // Pause between chunks for better flow
+          // Minimal pause between chunks to reduce stuttering
           if (i < chunks.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 300));
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
           
         } catch (error) {
@@ -327,7 +403,7 @@ class BarkVoiceService {
 
   // Intelligently chunk text at sentence boundaries
   chunkTextIntelligently(text) {
-    const maxChunkLength = 2000; // Increased chunk size to reduce interruptions
+    const maxChunkLength = 1200; // Smaller chunks for smoother flow and no truncation
     const chunks = [];
     
     // Split by sentences first, but handle incomplete sentences too
@@ -446,10 +522,10 @@ class BarkVoiceService {
             }
             // Remove from active elements tracking
             this.activeAudioElements.delete(audio);
-            // Add small delay to ensure audio system has fully finished
+            // Minimal delay to ensure smooth transition to next chunk
             setTimeout(() => {
               resolve();
-            }, 100);
+            }, 50);
           }
         };
         
@@ -578,44 +654,30 @@ class BarkVoiceService {
   }
 
   async stop() {
-    // Stop any currently playing audio, but be extremely conservative with ongoing Bark speech
+    // Stop ALL audio immediately to prevent multiple voices talking
     const audioElements = document.querySelectorAll('audio');
-    let barkAudioCount = 0;
-    let preservedAudioCount = 0;
+    console.log('[BarkVoiceService] Stopping all audio to prevent overlapping voices:', audioElements.length, 'elements');
     
     audioElements.forEach(audio => {
-      // Check if this is Bark-generated speech
-      if (audio.getAttribute('data-bark-speech') === 'true') {
-        barkAudioCount++;
-        
-        // Only stop Bark audio if it's clearly finished or has problems
-        if (audio.ended || (audio.paused && audio.currentTime === 0)) {
-          // Audio is clearly finished, safe to clean up
-          audio.pause();
-          audio.currentTime = 0;
-          console.log('[BarkVoiceService] Cleaned up finished Bark audio');
-        } else if (!audio.paused && audio.currentTime > 0) {
-          // Audio is actively playing - preserve it completely
-          preservedAudioCount++;
-          console.log('[BarkVoiceService] Preserving active Bark speech (playing for', audio.currentTime.toFixed(1), 'seconds)');
-        } else if (audio.paused && audio.currentTime > 0) {
-          // Audio is paused but has content - might be temporarily paused, preserve it
-          preservedAudioCount++;
-          console.log('[BarkVoiceService] Preserving paused Bark speech');
-        }
-      } else {
-        // Stop non-Bark audio immediately (browser TTS, etc.)
+      try {
         audio.pause();
         audio.currentTime = 0;
+        // Remove from active tracking
+        this.activeAudioElements.delete(audio);
+      } catch (error) {
+        console.warn('[BarkVoiceService] Error stopping audio:', error);
       }
     });
     
-    console.log('[BarkVoiceService] Conservative audio management:', {
-      totalElements: audioElements.length,
-      barkAudioElements: barkAudioCount,
-      preservedAudioElements: preservedAudioCount,
-      action: 'preserve active speech'
-    });
+    // Clear active audio tracking
+    if (this.activeAudioElements) {
+      this.activeAudioElements.clear();
+    }
+    
+    // Reset speaking flag
+    this.isSpeaking = false;
+    
+    console.log('[BarkVoiceService] All audio stopped');
   }
 
   async pause() {

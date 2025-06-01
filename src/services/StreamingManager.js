@@ -72,8 +72,13 @@ class StreamingManager {
     // Stop isolated streaming
     streamingIsolator.stopIsolatedStreaming();
     
-    // Clear global flags
+    // Clear global flags immediately to prevent voice synthesis of old content
     window.__isStreaming = false;
+    
+    // CRITICAL FIX: Clear streaming content immediately to prevent it from being picked up by other messages
+    console.log('[StreamingManager] Clearing global streaming content to prevent voice conflicts');
+    this.streamingContent = '';
+    window.__streamingContent = '';
     
     // Process deferred updates
     this.processDeferredUpdates();
@@ -81,13 +86,12 @@ class StreamingManager {
     // Notify listeners
     this.notifyListeners('stop');
     
-    // Clear state after a delay
+    // Clear remaining state after a short delay
     setTimeout(() => {
       this.streamingMessageId = null;
-      this.streamingContent = '';
       window.__streamingMessageId = null;
-      window.__streamingContent = '';
-    }, 1000);
+      console.log('[StreamingManager] All streaming state cleared');
+    }, 500);
   }
 
   deferUpdate(update) {

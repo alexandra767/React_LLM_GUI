@@ -120,7 +120,7 @@ class StartupService {
     try {
       const scripts = {
         ollama: 'ollama serve',
-        comfyui: './start-comfyui.sh',
+        comfyui: './ai-tools/ComfyUI/start-comfyui-m4.sh',
         bark: 'cd ai-tools/ComfyUI && ./start-bark-tts.sh'
       };
 

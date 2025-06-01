@@ -628,7 +628,9 @@ class CompanionService {
       'weather in', 'my location', 'current weather', 'local weather',
       'gt the weather', 'get the weather'  // Handle common typos
     ];
-    return weatherKeywords.some(keyword => message.toLowerCase().includes(keyword.toLowerCase()));
+    const hasWeatherIntent = weatherKeywords.some(keyword => message.toLowerCase().includes(keyword.toLowerCase()));
+    console.log('[Companion] 🌤️ detectWeatherIntent for message:', message, '-> Result:', hasWeatherIntent);
+    return hasWeatherIntent;
   }
 
   // Generate contextual response with integrations
@@ -1026,7 +1028,9 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
   // Execute weather command
   async executeWeatherCommand(message) {
     try {
+      console.log('[Companion] 🌤️ executeWeatherCommand called with message:', message);
       let weatherQuery = this.extractWeatherQuery(message);
+      console.log('[Companion] 🌤️ extractWeatherQuery returned:', weatherQuery);
       
       // If no specific location mentioned, try to get user's location or use default
       if (!weatherQuery || weatherQuery.trim() === '') {
@@ -1228,11 +1232,14 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     const lowerMessage = message.toLowerCase();
     let query = '';
     
+    console.log('[Companion] 🔍 Starting extractWeatherQuery with message:', message);
+    
     // FIRST: Check if "my location" is followed by a specific address
     const myLocationWithAddress = message.match(/my location\s+(.+)/i);
+    console.log('[Companion] 🔍 Testing "my location" pattern. Match:', !!myLocationWithAddress, myLocationWithAddress?.[1] || 'none');
     if (myLocationWithAddress && myLocationWithAddress[1]?.trim()) {
       const address = myLocationWithAddress[1].trim();
-      console.log('[Companion] Found specific address after "my location":', address);
+      console.log('[Companion] ✅ Found specific address after "my location":', address);
       return address;
     }
     
@@ -1245,19 +1252,27 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     // Extract location from various weather patterns
     const weatherPatterns = [
       /(?:get|gt)\s+(?:the\s+)?weather (?:for|in) (.+)/i,  // Handle "get/gt the weather for [location]"
-      /weather (?:in|for) (.+)/i,
-      /temperature (?:in|for) (.+)/i,
-      /forecast (?:in|for) (.+)/i,
-      /(?:current|today's) weather (?:in|for) (.+)/i,
-      /how(?:'s| is) the weather (?:in|for) (.+)/i,
-      /what(?:'s| is) the weather (?:like )?(?:in|for) (.+)/i
+      /weather (?:for|in) (.+)/i,
+      /temperature (?:for|in) (.+)/i,
+      /forecast (?:for|in) (.+)/i,
+      /(?:current|today's) weather (?:for|in) (.+)/i,
+      /how(?:'s| is) the weather (?:for|in) (.+)/i,
+      /what(?:'s| is) the weather (?:like )?(?:for|in) (.+)/i
     ];
+    
+    console.log('[Companion] 🔍 Testing weather patterns against message:', message);
+    
+    // Quick test for the specific case
+    const testPattern = /(?:get|gt)\s+(?:the\s+)?weather (?:for|in) (.+)/i;
+    const testMatch = message.match(testPattern);
+    console.log('[Companion] 🔍 Quick test of main pattern against message:', !!testMatch, testMatch?.[1] || 'none');
     
     for (const pattern of weatherPatterns) {
       const match = message.match(pattern);
+      console.log('[Companion] Testing pattern:', pattern, 'against message. Match:', !!match, match?.[1] || 'none');
       if (match && match[1]) {
         query = match[1].trim();
-        console.log('[Companion] Extracted weather location:', query);
+        console.log('[Companion] ✅ Extracted weather location:', query);
         return query;
       }
     }

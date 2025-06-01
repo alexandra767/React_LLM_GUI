@@ -347,8 +347,8 @@ class VoiceService {
       return Promise.resolve();
     }
 
-    // Cancel any ongoing speech
-    this.synthesis.cancel();
+    // Skip browser TTS cancellation since we only use Bark in desktop app
+    // this.synthesis.cancel(); // REMOVED: This interferes with Bark audio
 
     // Check if text is too long for browser speech synthesis
     // Different browsers have different limits, typically 4000-32000 characters
@@ -709,8 +709,8 @@ class VoiceServiceFactory {
       
       barkAudioElements.forEach(audio => {
         if (!audio.paused && !audio.ended && audio.currentTime > 0) {
-          // Only preserve if audio has been playing for less than 30 seconds (likely same message)
-          if (audio.currentTime < 30) {
+          // Preserve audio for much longer to prevent cutoffs (desktop app only)
+          if (audio.currentTime < 120) { // Increased from 30 to 120 seconds
             hasActiveBarkSpeech = true;
             console.log('[VoiceServiceFactory] Preserving ongoing Bark speech (playing for', audio.currentTime.toFixed(1), 'seconds)');
           }
@@ -722,9 +722,8 @@ class VoiceServiceFactory {
         await this.stopAllVoices();
         await new Promise(resolve => setTimeout(resolve, 100));
       } else {
-        console.log('[VoiceServiceFactory] Preserving ongoing Bark speech, will queue new speech');
-        // Wait a bit longer for current speech to potentially finish
-        await new Promise(resolve => setTimeout(resolve, 500));
+        console.log('[VoiceServiceFactory] Preserving ongoing Bark speech - no interruption');
+        // Skip the delay to avoid audio gaps
       }
     }
 
