@@ -1160,42 +1160,60 @@ class ElectronIntegrationService {
       const file = files[0]; // Use the most recently modified match
       console.log('[ElectronIntegrationService] Downloading file:', file.name, file.id);
       
-      // Try to get file content (for text files)
+      // Download the file to user's Downloads folder
       try {
-        const fileWithContent = await this.googleDriveService.getFileContent(file.id);
+        const downloadResult = await this.googleDriveService.downloadFile(file.id);
         
-        // For text files, show content inline
-        const previewLength = 500;
-        const contentPreview = fileWithContent.content.length > previewLength 
-          ? fileWithContent.content.substring(0, previewLength) + '...\n\n[Content truncated]'
-          : fileWithContent.content;
+        // Use the downloadFileToUser helper to trigger actual download
+        this.googleDriveService.downloadFileToUser(downloadResult.content, file.name);
         
         return {
-          content: `✅ Downloaded "${file.name}" from Google Drive:\n\n` +
-                   `📄 **File Content:**\n\`\`\`\n${contentPreview}\n\`\`\`\n\n` +
-                   `📊 **File Info:**\n` +
-                   `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n` +
-                   `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n` +
-                   `• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n` +
-                   `• ID: ${file.id}`
-        };
-        
-      } catch (contentError) {
-        console.log('[ElectronIntegrationService] Cannot display content inline:', contentError.message);
-        
-        // For binary files or download errors, provide alternative
-        return {
-          content: `✅ Found "${file.name}" in Google Drive:\n\n` +
+          content: `✅ Downloaded "${file.name}" from Google Drive to your Downloads folder\n\n` +
                    `📊 **File Info:**\n` +
                    `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n` +
                    `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n` +
                    `• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n` +
                    `• ID: ${file.id}\n\n` +
-                   `🔗 **Access Options:**\n` +
-                   `• View online: https://drive.google.com/file/d/${file.id}/view\n` +
-                   `• Download: Use Google Drive interface for binary files\n\n` +
-                   `💡 *Text files are displayed inline, binary files require manual download*`
+                   `💾 **Download complete!** Check your Downloads folder for "${file.name}"`
         };
+        
+      } catch (downloadError) {
+        console.log('[ElectronIntegrationService] Download failed, trying content preview:', downloadError.message);
+        
+        // Fallback: Try to get file content for preview (text files only)
+        try {
+          const fileWithContent = await this.googleDriveService.getFileContent(file.id);
+          
+          // For text files, show content inline as fallback
+          const previewLength = 500;
+          const contentPreview = fileWithContent.content.length > previewLength 
+            ? fileWithContent.content.substring(0, previewLength) + '...\n\n[Content truncated]'
+            : fileWithContent.content;
+          
+          return {
+            content: `⚠️ Could not download "${file.name}" to Downloads folder, showing content instead:\n\n` +
+                     `📄 **File Content:**\n\`\`\`\n${contentPreview}\n\`\`\`\n\n` +
+                     `📊 **File Info:**\n` +
+                     `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n` +
+                     `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n` +
+                     `• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n` +
+                     `• ID: ${file.id}\n\n` +
+                     `🔗 **Manual download:** https://drive.google.com/file/d/${file.id}/view`
+          };
+          
+        } catch (contentError) {
+          // Complete fallback: provide download link
+          return {
+            content: `❌ Could not download "${file.name}" automatically\n\n` +
+                     `📊 **File Info:**\n` +
+                     `• Size: ${this.googleDriveService.formatFileSize(parseInt(file.size || 0))}\n` +
+                     `• Type: ${this.googleDriveService.getFileTypeDisplay(file.mimeType)}\n` +
+                     `• Modified: ${new Date(file.modifiedTime).toLocaleString()}\n` +
+                     `• ID: ${file.id}\n\n` +
+                     `🔗 **Manual download:** https://drive.google.com/file/d/${file.id}/view\n\n` +
+                     `💡 *Please download manually from Google Drive web interface*`
+          };
+        }
       }
       
     } catch (error) {
