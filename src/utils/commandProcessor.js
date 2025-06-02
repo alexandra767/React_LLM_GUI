@@ -146,7 +146,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const parts = args.split(' ');
           const daysAhead = parseInt(parts[0]) || 7;
-          const calendarType = parts[1]?.toLowerCase() || 'google'; // Default to Google
+          const calendarType = 'google'; // Force Google Calendar only
           
           const startDate = new Date();
           const endDate = new Date(startDate.getTime() + daysAhead * 24 * 60 * 60 * 1000);

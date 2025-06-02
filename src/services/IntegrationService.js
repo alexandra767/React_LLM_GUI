@@ -17,7 +17,7 @@ class IntegrationService {
     // In Electron, we'll use OAuth2 flow
     const CLIENT_ID = localStorage.getItem('google_client_id') || '';
     const API_KEY = localStorage.getItem('google_api_key') || '';
-    const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar.readonly';
+    const SCOPES = 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar';
     
     if (!CLIENT_ID || !API_KEY) {
       throw new Error('Google API credentials not configured. Please add them in Settings.');

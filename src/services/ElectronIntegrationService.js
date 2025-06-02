@@ -631,7 +631,12 @@ class ElectronIntegrationService {
         
         const error = await response.text();
         console.error('[ElectronIntegrationService] Calendar creation error:', response.status, error);
-        throw new Error(`Failed to create calendar event: ${response.status}`);
+        
+        // Return error details instead of throwing
+        return {
+          content: `❌ Failed to create calendar event. Error ${response.status}: ${error}`,
+          error: true
+        };
       }
 
       const createdEvent = await response.json();
@@ -1087,11 +1092,11 @@ class ElectronIntegrationService {
       location: location,
       start: {
         dateTime: startDate.toISOString(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        timeZone: 'America/New_York'
       },
       end: {
         dateTime: endDate.toISOString(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        timeZone: 'America/New_York'
       }
     };
   }
