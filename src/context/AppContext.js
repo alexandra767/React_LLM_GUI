@@ -11,6 +11,8 @@ import proactiveIntelligenceService from '../services/ProactiveIntelligenceServi
 import advancedFeaturesService from '../services/AdvancedFeaturesService';
 import experimentalCapabilitiesService from '../services/ExperimentalCapabilitiesService';
 import learningNotificationService from '../services/LearningNotificationService';
+import memoryService from '../services/MemoryService';
+import memoryAdapter from '../services/MemoryAdapter';
 
 export const AppContext = createContext();
 
@@ -72,6 +74,84 @@ const loadProfile = () => {
       bio: '',
     };
   }
+};
+
+// Extract personal facts from user messages
+const extractPersonalFacts = (message) => {
+  const facts = [];
+  const lowerMessage = message.toLowerCase();
+  
+  // Extract friend names and relationships
+  const friendPatterns = [
+    /my friend (\w+)/gi,
+    /friend named (\w+)/gi,
+    /friend (\w+)/gi,
+    /(\w+) is my friend/gi,
+    /know (\w+), (?:who is |he\/she is |they are )?my friend/gi
+  ];
+  
+  friendPatterns.forEach(pattern => {
+    const matches = [...message.matchAll(pattern)];
+    matches.forEach(match => {
+      const name = match[1];
+      if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+        facts.push({
+          key: `friend_${name.toLowerCase()}`,
+          value: name,
+          context: `Friend mentioned in conversation: "${message.substring(0, 100)}..."`
+        });
+      }
+    });
+  });
+  
+  // Extract family relationships
+  const familyPatterns = [
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi,
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi
+  ];
+  
+  familyPatterns.forEach(pattern => {
+    const matches = [...message.matchAll(pattern)];
+    matches.forEach(match => {
+      const name = match[1];
+      const relationship = match[0].match(/my (\w+)/)[1];
+      if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+        facts.push({
+          key: `${relationship}_${name.toLowerCase()}`,
+          value: `${name} (${relationship})`,
+          context: `Family member mentioned: "${message.substring(0, 100)}..."`
+        });
+      }
+    });
+  });
+  
+  // Extract preferences and personal info
+  const preferencePatterns = [
+    /i like (\w+)/gi,
+    /i love (\w+)/gi,
+    /i work (?:at|for) (\w+)/gi,
+    /i live in (\w+)/gi,
+    /my name is (\w+)/gi,
+    /call me (\w+)/gi
+  ];
+  
+  preferencePatterns.forEach(pattern => {
+    const matches = [...message.matchAll(pattern)];
+    matches.forEach(match => {
+      const value = match[1];
+      const type = match[0].includes('like') || match[0].includes('love') ? 'preference' : 
+                   match[0].includes('work') ? 'workplace' :
+                   match[0].includes('live') ? 'location' : 'name';
+      
+      facts.push({
+        key: `${type}_${value.toLowerCase()}`,
+        value: value,
+        context: `Personal info from: "${message.substring(0, 100)}..."`
+      });
+    });
+  });
+  
+  return facts;
 };
 
 export const AppProvider = ({ children }) => {
@@ -148,6 +228,10 @@ export const AppProvider = ({ children }) => {
           // Start learning notifications
           learningNotificationService.startNotificationEngine();
           console.log('[AppContext] ✅ LearningNotificationService: Started notification engine');
+          
+          // Initialize memory service
+          memoryService.loadMemories();
+          console.log('[AppContext] ✅ MemoryService: Loaded personal memories');
           
           // Trigger immediate knowledge update for testing
           setTimeout(() => {
@@ -553,8 +637,42 @@ export const AppProvider = ({ children }) => {
         console.warn('[AppContext] Knowledge search failed:', knowledgeError);
       }
 
-      // Get AI response with knowledge context
-      const enhancedMessage = message + knowledgeContext;
+      // Get personal memory context for Aria
+      let memoryContext = '';
+      try {
+        const personalContext = await memoryAdapter.getRelevantContext(message);
+        
+        if (personalContext && (Object.keys(personalContext.personal).length > 0 || personalContext.conversations.length > 0)) {
+          memoryContext = '\n\n[Personal context from memory:]\n';
+          
+          // Add personal facts
+          if (Object.keys(personalContext.personal).length > 0) {
+            memoryContext += 'Personal facts:\n';
+            Object.entries(personalContext.personal).forEach(([key, fact]) => {
+              if (key === 'name' || key === 'user_name') {
+                memoryContext += `- User's name: ${fact.value}\n`;
+              } else if (key.includes('friend') || key.includes('relation')) {
+                memoryContext += `- ${key}: ${fact.value}\n`;
+              }
+            });
+          }
+          
+          // Add relationship information
+          if (Object.keys(personalContext.relationships).length > 0) {
+            memoryContext += 'Known relationships:\n';
+            Object.entries(personalContext.relationships).forEach(([name, relationship]) => {
+              memoryContext += `- ${name}: ${relationship.type || 'known person'}\n`;
+            });
+          }
+          
+          console.log('[AppContext] 💭 Retrieved personal memory context with', Object.keys(personalContext.personal).length, 'facts and', Object.keys(personalContext.relationships).length, 'relationships');
+        }
+      } catch (memoryError) {
+        console.warn('[AppContext] Memory context retrieval failed:', memoryError);
+      }
+
+      // Get AI response with knowledge and memory context
+      const enhancedMessage = message + knowledgeContext + memoryContext;
       const response = await llmService.sendMessage(chatId, enhancedMessage, {
         model: chat.model || currentModel,
         ...options
@@ -578,6 +696,26 @@ export const AppProvider = ({ children }) => {
       const finalChats = updatedChats.map(c => c.id === chatId ? finalChat : c);
       setChats(finalChats);
       setCurrentChat(finalChat);
+
+      // Add conversation to personal memory
+      try {
+        await memoryAdapter.addConversation(message, response.content, {
+          chatId,
+          model: chat.model || currentModel,
+          timestamp: new Date().toISOString()
+        });
+        console.log('[AppContext] 💾 Added conversation to personal memory');
+        
+        // Extract and store personal facts from the conversation
+        const personalFacts = extractPersonalFacts(message);
+        for (const fact of personalFacts) {
+          await memoryAdapter.addPersonalInfo(fact.key, fact.value, fact.context);
+          console.log('[AppContext] 📝 Stored personal fact:', fact.key, '=', fact.value);
+        }
+        
+      } catch (memoryError) {
+        console.warn('[AppContext] Failed to add conversation to memory:', memoryError);
+      }
 
       // Save to unified storage
       unifiedStorageService.set('sephia_chats', JSON.stringify(finalChats));
@@ -686,7 +824,9 @@ export const AppProvider = ({ children }) => {
         });
       };
 
-      const onComplete = () => {
+      const onComplete = async () => {
+        let finalResponse = '';
+        
         setChats(prevChats => {
           const updatedChats = prevChats.map(chat => {
             if (chat.id !== chatId) return chat;
@@ -694,6 +834,7 @@ export const AppProvider = ({ children }) => {
             const updatedMessages = (chat.messages || []).map(msg => {
               if (msg.id === aiMessageId) {
                 const { isStreaming, ...rest } = msg;
+                finalResponse = rest.content; // Capture the final response
                 return rest; // Remove isStreaming flag
               }
               return msg;
@@ -718,10 +859,58 @@ export const AppProvider = ({ children }) => {
 
           return updatedChats;
         });
+
+        // Add conversation to personal memory after streaming completes
+        try {
+          await memoryAdapter.addConversation(message, finalResponse, {
+            chatId,
+            model: chat.model || currentModel,
+            timestamp: new Date().toISOString(),
+            streamed: true
+          });
+          console.log('[AppContext] 💾 Added streamed conversation to personal memory');
+        } catch (memoryError) {
+          console.warn('[AppContext] Failed to add streamed conversation to memory:', memoryError);
+        }
       };
 
-      // Start streaming the response
-      await llmService.streamMessage(message, {
+      // Get personal memory context for streaming
+      let memoryContext = '';
+      try {
+        const personalContext = await memoryAdapter.getRelevantContext(message);
+        
+        if (personalContext && (Object.keys(personalContext.personal).length > 0 || personalContext.conversations.length > 0)) {
+          memoryContext = '\n\n[Personal context from memory:]\n';
+          
+          // Add personal facts
+          if (Object.keys(personalContext.personal).length > 0) {
+            memoryContext += 'Personal facts:\n';
+            Object.entries(personalContext.personal).forEach(([key, fact]) => {
+              if (key === 'name' || key === 'user_name') {
+                memoryContext += `- User's name: ${fact.value}\n`;
+              } else if (key.includes('friend') || key.includes('relation')) {
+                memoryContext += `- ${key}: ${fact.value}\n`;
+              }
+            });
+          }
+          
+          // Add relationship information
+          if (Object.keys(personalContext.relationships).length > 0) {
+            memoryContext += 'Known relationships:\n';
+            Object.entries(personalContext.relationships).forEach(([name, relationship]) => {
+              memoryContext += `- ${name}: ${relationship.type || 'known person'}\n`;
+            });
+          }
+          
+          console.log('[AppContext] 💭 Retrieved personal memory context for streaming with', Object.keys(personalContext.personal).length, 'facts and', Object.keys(personalContext.relationships).length, 'relationships');
+        }
+      } catch (memoryError) {
+        console.warn('[AppContext] Memory context retrieval failed for streaming:', memoryError);
+      }
+
+      // Start streaming the response with memory context
+      const enhancedMessage = message + memoryContext;
+      await llmService.streamMessage(enhancedMessage, {
         model: chat.model || currentModel,
         ...options
       }, (chunkString) => {
