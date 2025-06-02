@@ -347,13 +347,27 @@ const LearningMonitor = () => {
   };
 
   const getKnowledgeUpdates = () => {
-    if (!knowledgeData?.realTimeKnowledge) return [];
-    return Object.entries(knowledgeData.realTimeKnowledge)
+    // Check both possible data structures: realTimeKnowledge (old) and realTime (new)
+    let realTimeData = null;
+    
+    if (knowledgeData?.realTimeKnowledge) {
+      // Old format: realTimeKnowledge as object
+      realTimeData = Object.entries(knowledgeData.realTimeKnowledge);
+    } else if (knowledgeData?.realTime) {
+      // New format: realTime as array of [key, value] pairs from Map
+      realTimeData = Array.isArray(knowledgeData.realTime) 
+        ? knowledgeData.realTime 
+        : Object.entries(knowledgeData.realTime);
+    }
+    
+    if (!realTimeData || realTimeData.length === 0) return [];
+    
+    return realTimeData
       .map(([key, data]) => ({
         category: data.category || key.split(':')[0],
-        title: data.content || data.title || key,
+        title: data.value?.title || data.content || data.title || key,
         lastUpdated: data.timestamp || data.lastUpdated,
-        summary: data.summary || data.description,
+        summary: data.value?.summary || data.summary || data.description,
         source: data.source
       }))
       .filter(item => item.lastUpdated)
