@@ -325,9 +325,13 @@ class KnowledgeService {
     try {
       // Try multiple news sources for redundancy
       const newsSources = [
-        'https://feeds.feedburner.com/oreilly/radar/atom10',
         'https://rss.cnn.com/rss/edition.rss',
+        'https://feeds.washingtonpost.com/rss/politics',
         'https://feeds.washingtonpost.com/rss/world',
+        'https://feeds.npr.org/1001/rss.xml',
+        'https://feeds.bbci.co.uk/news/rss.xml',
+        'https://feeds.reuters.com/Reuters/PoliticsNews',
+        'https://feeds.feedburner.com/oreilly/radar/atom10',
         'https://www.wired.com/feed/rss'
       ];
       
@@ -389,6 +393,40 @@ class KnowledgeService {
         }
       } catch (hnError) {
         console.warn('[Knowledge] Hacker News API failed:', hnError.message);
+      }
+
+      // Try alternative news APIs as fallback
+      try {
+        // NewsAPI.org (free tier) - if available
+        const newsApiUrl = 'https://newsapi.org/v2/top-headlines?country=us&category=general&pageSize=5';
+        // Note: Would need API key for production use
+        
+        // Reddit API for politics subreddit (no auth needed for top posts)
+        const redditPoliticsUrl = 'https://www.reddit.com/r/politics/top.json?limit=5&t=day';
+        const redditResponse = await fetch(redditPoliticsUrl);
+        
+        if (redditResponse.ok) {
+          const redditData = await redditResponse.json();
+          const posts = redditData.data?.children || [];
+          
+          posts.forEach(post => {
+            const postData = post.data;
+            this.addRealTimeKnowledge('news', `Reddit Politics: ${postData.title}`, {
+              title: postData.title,
+              summary: postData.selftext?.substring(0, 200) || postData.title,
+              category: 'politics',
+              url: `https://reddit.com${postData.permalink}`,
+              publishedAt: new Date(postData.created_utc * 1000).toISOString(),
+              source: 'Reddit r/politics',
+              score: postData.score,
+              timestamp: Date.now()
+            }, 'reddit-api', 4 * 60 * 60 * 1000);
+          });
+          
+          console.log('[Knowledge] ✅ Fetched political discussions from Reddit');
+        }
+      } catch (redditError) {
+        console.warn('[Knowledge] Reddit fallback failed:', redditError.message);
       }
       
     } catch (error) {

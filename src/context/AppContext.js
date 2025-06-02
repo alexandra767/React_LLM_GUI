@@ -504,8 +504,40 @@ export const AppProvider = ({ children }) => {
         setCurrentChat(prev => ({ ...prev, description, title: description }));
       }
 
-      // Get AI response
-      const response = await llmService.sendMessage(chatId, message, {
+      // Search knowledge base for relevant information
+      let knowledgeContext = '';
+      try {
+        // Search for relevant knowledge (politics, news, current events, etc.)
+        const relevantKnowledge = knowledgeService.searchKnowledge(message, null, 5);
+        
+        if (relevantKnowledge && relevantKnowledge.length > 0) {
+          knowledgeContext = '\n\n[Relevant information from Aria\'s knowledge base:]\n';
+          relevantKnowledge.forEach((item, index) => {
+            const knowledge = item.knowledge;
+            const title = knowledge.title || knowledge.content || item.key;
+            const summary = knowledge.summary || knowledge.description || '';
+            const source = knowledge.source || 'Unknown';
+            const timestamp = knowledge.timestamp ? new Date(knowledge.timestamp).toLocaleDateString() : '';
+            
+            knowledgeContext += `${index + 1}. ${title}`;
+            if (summary && summary !== title) {
+              knowledgeContext += ` - ${summary}`;
+            }
+            if (source && timestamp) {
+              knowledgeContext += ` (${source}, ${timestamp})`;
+            }
+            knowledgeContext += '\n';
+          });
+          
+          console.log('[AppContext] 🧠 Found relevant knowledge:', relevantKnowledge.length, 'items');
+        }
+      } catch (knowledgeError) {
+        console.warn('[AppContext] Knowledge search failed:', knowledgeError);
+      }
+
+      // Get AI response with knowledge context
+      const enhancedMessage = message + knowledgeContext;
+      const response = await llmService.sendMessage(chatId, enhancedMessage, {
         model: chat.model || currentModel,
         ...options
       });

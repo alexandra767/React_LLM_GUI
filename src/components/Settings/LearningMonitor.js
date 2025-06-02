@@ -251,9 +251,11 @@ const LearningMonitor = () => {
       }
 
       // Load knowledge data
-      const knowledge = localStorage.getItem('aria_knowledge');
+      const knowledge = localStorage.getItem('aria_knowledge_base');
       if (knowledge) {
-        setKnowledgeData(JSON.parse(knowledge));
+        const parsedKnowledge = JSON.parse(knowledge);
+        console.log('[LearningMonitor] Knowledge data structure:', parsedKnowledge);
+        setKnowledgeData(parsedKnowledge);
       }
 
       // Load notifications data
@@ -345,12 +347,18 @@ const LearningMonitor = () => {
   };
 
   const getKnowledgeUpdates = () => {
-    if (!knowledgeData?.realTime) return [];
-    return Object.entries(knowledgeData.realTime)
-      .map(([category, data]) => ({ category, ...data }))
+    if (!knowledgeData?.realTimeKnowledge) return [];
+    return Object.entries(knowledgeData.realTimeKnowledge)
+      .map(([key, data]) => ({
+        category: data.category || key.split(':')[0],
+        title: data.content || data.title || key,
+        lastUpdated: data.timestamp || data.lastUpdated,
+        summary: data.summary || data.description,
+        source: data.source
+      }))
       .filter(item => item.lastUpdated)
       .sort((a, b) => new Date(b.lastUpdated) - new Date(a.lastUpdated))
-      .slice(0, 5);
+      .slice(0, 10);
   };
 
   const updatePreference = (key, value) => {
