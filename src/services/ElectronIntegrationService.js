@@ -420,7 +420,7 @@ class ElectronIntegrationService {
       // Build Gmail API URL
       const params = new URLSearchParams({
         q: query || 'is:unread',
-        maxResults: '25' // Increased from 10 to 25
+        maxResults: '50' // Increased to 50 emails
       });
       
       const url = `https://www.googleapis.com/gmail/v1/users/me/messages?${params}`;
@@ -445,9 +445,9 @@ class ElectronIntegrationService {
       const listData = await listResponse.json();
       const messageIds = listData.messages || [];
       
-      // Fetch details for each message (increased limit)
+      // Fetch details for each message (increased to 50)
       const messages = await Promise.all(
-        messageIds.slice(0, 15).map(async (msg) => {
+        messageIds.slice(0, 50).map(async (msg) => {
           const detailUrl = `https://www.googleapis.com/gmail/v1/users/me/messages/${msg.id}`;
           const detailResponse = await fetch(detailUrl, {
             headers: {
@@ -545,11 +545,94 @@ class ElectronIntegrationService {
         }
       }
       
-      return `📧 ${subject}\n` +
+      return `📧 **Email ${messages.indexOf(msg) + 1}: ${subject}**\n` +
              `   From: ${from}\n` +
              `   Date: ${date}\n` +
-             `   Content: ${body}`;
+             `   Content: ${body}` +
+             `${body.includes('...') ? '\n\n💬 *Say "tell me more about email ' + (messages.indexOf(msg) + 1) + '" for full content or summary*' : ''}`;
     }).join('\n\n');
+  }
+
+  // Get email details and summary
+  async getEmailDetails(emailNumber, action = 'show') {
+    try {
+      console.log('[ElectronIntegrationService] Getting email details:', emailNumber, action);
+      
+      // Get recent emails to find the requested one
+      const messages = await this.searchGmail('is:unread');
+      
+      if (!messages || emailNumber < 1 || emailNumber > messages.length) {
+        return {
+          content: `❌ Email ${emailNumber} not found. I only found ${messages?.length || 0} unread emails.`
+        };
+      }
+      
+      const email = messages[emailNumber - 1];
+      const headers = email.payload?.headers || [];
+      const subject = headers.find(h => h.name === 'Subject')?.value || 'No Subject';
+      const from = headers.find(h => h.name === 'From')?.value || 'Unknown';
+      const date = headers.find(h => h.name === 'Date')?.value || '';
+      
+      // Get full body using same extraction logic
+      const extractBody = (payload) => {
+        if (payload.body?.data) {
+          try {
+            return atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+          } catch (e) {
+            console.error('Failed to decode body:', e);
+          }
+        }
+        
+        if (payload.parts) {
+          for (const part of payload.parts) {
+            if (part.mimeType === 'text/plain' && part.body?.data) {
+              try {
+                return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'));
+              } catch (e) {
+                console.error('Failed to decode part:', e);
+              }
+            }
+            if (part.parts) {
+              const nestedBody = extractBody(part);
+              if (nestedBody) return nestedBody;
+            }
+          }
+        }
+        
+        return email.snippet || '';
+      };
+      
+      const fullBody = extractBody(email.payload)
+        .replace(/\r\n/g, ' ')
+        .replace(/\n/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      if (action === 'summarize') {
+        // Create a concise summary
+        const summary = fullBody.length > 300 ? 
+          fullBody.substring(0, 300) + '...\n\n📋 **Key Points:** This email appears to be about ' + 
+          (subject.toLowerCase().includes('meeting') ? 'a meeting or appointment.' :
+           subject.toLowerCase().includes('project') ? 'a project or work matter.' :
+           subject.toLowerCase().includes('invoice') || subject.toLowerCase().includes('payment') ? 'billing or payment.' :
+           'general correspondence.') :
+          fullBody;
+          
+        return {
+          content: `📧 **Email ${emailNumber} Summary:**\n\n**Subject:** ${subject}\n**From:** ${from}\n**Date:** ${new Date(date).toLocaleDateString()}\n\n**Summary:**\n${summary}`
+        };
+      } else {
+        // Show full email
+        return {
+          content: `📧 **Email ${emailNumber} - Full Content:**\n\n**Subject:** ${subject}\n**From:** ${from}\n**Date:** ${new Date(date).toLocaleDateString()}\n\n**Content:**\n${fullBody}\n\n💬 *Say "summarize email ${emailNumber}" for a summary*`
+        };
+      }
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Email details error:', error);
+      return {
+        content: `❌ Error getting email details: ${error.message}`
+      };
+    }
   }
 
   formatFileSize(bytes) {
@@ -737,7 +820,17 @@ class ElectronIntegrationService {
       });
 
       if (!searchResponse.ok) {
-        throw new Error(`Failed to search calendar events: ${searchResponse.status}`);
+        if (searchResponse.status === 401) {
+          await this.googleAuth.refreshAccessToken();
+          return this.deleteGoogleCalendarEvent(eventDetails);
+        }
+        
+        const error = await searchResponse.text();
+        console.error('[ElectronIntegrationService] Calendar search error:', searchResponse.status, error);
+        return {
+          content: `❌ Failed to search calendar events. Error ${searchResponse.status}: ${error}`,
+          error: true
+        };
       }
 
       const searchData = await searchResponse.json();
@@ -761,7 +854,17 @@ class ElectronIntegrationService {
       });
 
       if (!deleteResponse.ok) {
-        throw new Error(`Failed to delete calendar event: ${deleteResponse.status}`);
+        if (deleteResponse.status === 401) {
+          await this.googleAuth.refreshAccessToken();
+          return this.deleteGoogleCalendarEvent(eventDetails);
+        }
+        
+        const error = await deleteResponse.text();
+        console.error('[ElectronIntegrationService] Calendar deletion error:', deleteResponse.status, error);
+        return {
+          content: `❌ Failed to delete calendar event. Error ${deleteResponse.status}: ${error}`,
+          error: true
+        };
       }
 
       return {
@@ -770,8 +873,225 @@ class ElectronIntegrationService {
     } catch (error) {
       console.error('[ElectronIntegrationService] Failed to delete calendar event:', error);
       return {
-        content: `Error deleting calendar event: ${error.message}`
+        content: `❌ Error deleting calendar event: ${error.message}`,
+        error: true
       };
+    }
+  }
+
+  // Update/move Google Calendar event
+  async updateGoogleCalendarEvent(eventDetails) {
+    console.log('[ElectronIntegrationService] Updating calendar event:', eventDetails);
+    
+    try {
+      const accessToken = await this.googleAuth.getValidAccessToken();
+      
+      // Parse the update request
+      const updateInfo = this.parseEventUpdateDetails(eventDetails);
+      
+      // First, search for the event to update
+      const searchQuery = encodeURIComponent(updateInfo.searchTerm);
+      const searchUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events?q=${searchQuery}&maxResults=10`;
+      
+      const searchResponse = await fetch(searchUrl, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!searchResponse.ok) {
+        if (searchResponse.status === 401) {
+          await this.googleAuth.refreshAccessToken();
+          return this.updateGoogleCalendarEvent(eventDetails);
+        }
+        
+        const error = await searchResponse.text();
+        console.error('[ElectronIntegrationService] Calendar search error:', searchResponse.status, error);
+        return {
+          content: `❌ Failed to search calendar events. Error ${searchResponse.status}: ${error}`,
+          error: true
+        };
+      }
+
+      const searchData = await searchResponse.json();
+      const events = searchData.items || [];
+      
+      if (events.length === 0) {
+        return {
+          content: `❌ No calendar events found matching "${updateInfo.searchTerm}"`
+        };
+      }
+
+      // Get the first matching event
+      const eventToUpdate = events[0];
+      const updateUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventToUpdate.id}`;
+      
+      // Create updated event data
+      const updatedEvent = {
+        ...eventToUpdate,
+        summary: updateInfo.newTitle || eventToUpdate.summary,
+        start: updateInfo.newStart ? {
+          dateTime: updateInfo.newStart.toISOString(),
+          timeZone: 'America/New_York'
+        } : eventToUpdate.start,
+        end: updateInfo.newEnd ? {
+          dateTime: updateInfo.newEnd.toISOString(),
+          timeZone: 'America/New_York'
+        } : eventToUpdate.end,
+        description: updateInfo.newDescription || eventToUpdate.description,
+        location: updateInfo.newLocation || eventToUpdate.location
+      };
+      
+      const updateResponse = await fetch(updateUrl, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(updatedEvent)
+      });
+
+      if (!updateResponse.ok) {
+        if (updateResponse.status === 401) {
+          await this.googleAuth.refreshAccessToken();
+          return this.updateGoogleCalendarEvent(eventDetails);
+        }
+        
+        const error = await updateResponse.text();
+        console.error('[ElectronIntegrationService] Calendar update error:', updateResponse.status, error);
+        return {
+          content: `❌ Failed to update calendar event. Error ${updateResponse.status}: ${error}`,
+          error: true
+        };
+      }
+
+      const updatedEventData = await updateResponse.json();
+      
+      return {
+        content: `✅ Successfully updated calendar event: "${updatedEventData.summary}" scheduled for ${new Date(updatedEventData.start.dateTime || updatedEventData.start.date).toLocaleString()}`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to update calendar event:', error);
+      return {
+        content: `❌ Error updating calendar event: ${error.message}`,
+        error: true
+      };
+    }
+  }
+
+  // Parse event update details from natural language
+  parseEventUpdateDetails(updateDetails) {
+    console.log('[ElectronIntegrationService] Parsing event update details:', updateDetails);
+    
+    // Extract the event to search for (usually at the beginning)
+    let searchTerm = updateDetails;
+    let newTitle = null;
+    let newStart = null;
+    let newEnd = null;
+    let newDescription = null;
+    let newLocation = null;
+    
+    // Pattern: "move [event] to [new time/date]"
+    const moveMatch = updateDetails.match(/move\s+(.+?)\s+to\s+(.+)/i);
+    if (moveMatch) {
+      searchTerm = moveMatch[1].trim();
+      const newTimeStr = moveMatch[2].trim();
+      newStart = this.parseDateTime(newTimeStr);
+      if (newStart) {
+        newEnd = new Date(newStart.getTime() + 30 * 60 * 1000); // Default 30 minutes
+      }
+    }
+    
+    // Pattern: "change [event] time to [new time]"
+    const changeTimeMatch = updateDetails.match(/change\s+(.+?)\s+time\s+to\s+(.+)/i);
+    if (changeTimeMatch) {
+      searchTerm = changeTimeMatch[1].trim();
+      const newTimeStr = changeTimeMatch[2].trim();
+      newStart = this.parseDateTime(newTimeStr);
+      if (newStart) {
+        newEnd = new Date(newStart.getTime() + 30 * 60 * 1000);
+      }
+    }
+    
+    // Pattern: "rename [event] to [new name]"
+    const renameMatch = updateDetails.match(/rename\s+(.+?)\s+to\s+(.+)/i);
+    if (renameMatch) {
+      searchTerm = renameMatch[1].trim();
+      newTitle = renameMatch[2].trim();
+    }
+    
+    return {
+      searchTerm,
+      newTitle,
+      newStart,
+      newEnd,
+      newDescription,
+      newLocation
+    };
+  }
+
+  // Parse date/time from natural language
+  parseDateTime(dateTimeStr) {
+    try {
+      // Handle common formats
+      const lowerStr = dateTimeStr.toLowerCase();
+      
+      // Handle "tomorrow at 3pm", "today at 2:30pm", etc.
+      if (lowerStr.includes('tomorrow')) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const timeMatch = lowerStr.match(/(\d{1,2}):?(\d{0,2})\s*(am|pm)/);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2]) || 0;
+          const ampm = timeMatch[3];
+          
+          if (ampm === 'pm' && hours !== 12) hours += 12;
+          if (ampm === 'am' && hours === 12) hours = 0;
+          
+          tomorrow.setHours(hours, minutes, 0, 0);
+          return tomorrow;
+        }
+      }
+      
+      if (lowerStr.includes('today')) {
+        const today = new Date();
+        const timeMatch = lowerStr.match(/(\d{1,2}):?(\d{0,2})\s*(am|pm)/);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2]) || 0;
+          const ampm = timeMatch[3];
+          
+          if (ampm === 'pm' && hours !== 12) hours += 12;
+          if (ampm === 'am' && hours === 12) hours = 0;
+          
+          today.setHours(hours, minutes, 0, 0);
+          return today;
+        }
+      }
+      
+      // Try direct time parsing for formats like "3pm", "2:30pm"
+      const timeMatch = lowerStr.match(/(\d{1,2}):?(\d{0,2})\s*(am|pm)/);
+      if (timeMatch) {
+        const today = new Date();
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]) || 0;
+        const ampm = timeMatch[3];
+        
+        if (ampm === 'pm' && hours !== 12) hours += 12;
+        if (ampm === 'am' && hours === 12) hours = 0;
+        
+        today.setHours(hours, minutes, 0, 0);
+        return today;
+      }
+      
+      // Try standard date parsing as fallback
+      const parsed = new Date(dateTimeStr);
+      return isNaN(parsed.getTime()) ? null : parsed;
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to parse date/time:', error);
+      return null;
     }
   }
 

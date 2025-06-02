@@ -988,6 +988,13 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
         const eventDetails = message.replace(/remove from calendar|cancel meeting|delete event/gi, '').trim();
         const calendarCommand = `@calendar-delete ${eventDetails}`;
         return await this.commandProcessor.processCommand(calendarCommand);
+      } else if (lowerMessage.includes('move') && lowerMessage.includes('to') ||
+                 lowerMessage.includes('change') && lowerMessage.includes('time') ||
+                 lowerMessage.includes('reschedule') ||
+                 lowerMessage.includes('rename') && lowerMessage.includes('to')) {
+        // Extract event details for update/move
+        const calendarCommand = `@calendar-update ${message}`;
+        return await this.commandProcessor.processCommand(calendarCommand);
       } else {
         // Default to viewing calendar
         const calendarCommand = '@calendar 7';
@@ -1004,8 +1011,49 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     try {
       console.log('[Companion] Executing email command:', message);
       
-      const emailCommand = `@email ${message}`;
-      return await this.commandProcessor.processCommand(emailCommand);
+      const lowerMessage = message.toLowerCase();
+      
+      // Check if this is an email reading request vs sending request
+      const isReadingRequest = lowerMessage.includes('check') || 
+                              lowerMessage.includes('show') || 
+                              lowerMessage.includes('unread') || 
+                              lowerMessage.includes('inbox') || 
+                              lowerMessage.includes('recent') ||
+                              (lowerMessage.includes('email') && !lowerMessage.includes('@'));
+      
+      const isSendingRequest = lowerMessage.includes('@') || 
+                              lowerMessage.includes('send') || 
+                              lowerMessage.includes('compose') || 
+                              lowerMessage.includes('write') ||
+                              lowerMessage.includes('to ');
+      
+      // Check if this is a request for email details
+      const emailDetailMatch = lowerMessage.match(/(?:tell me more about|show me|details of|summarize) email (\d+)/);
+      const summarizeMatch = lowerMessage.match(/summarize email (\d+)/);
+      
+      if (emailDetailMatch || summarizeMatch) {
+        const emailNumber = parseInt(emailDetailMatch?.[1] || summarizeMatch?.[1]);
+        const action = summarizeMatch ? 'summarize' : 'show';
+        
+        console.log('[Companion] Getting email details for email', emailNumber, action);
+        return await this.integrationService.getEmailDetails(emailNumber, action);
+      }
+      
+      if (isReadingRequest && !isSendingRequest) {
+        // Call Gmail reading function directly
+        console.log('[Companion] Reading emails...');
+        const searchQuery = 'is:unread'; // Default to unread emails
+        const messages = await this.integrationService.searchGmail(searchQuery);
+        const formattedMessages = this.integrationService.formatGmailMessages(messages);
+        
+        return {
+          content: formattedMessages
+        };
+      } else {
+        // Call Gmail sending function directly
+        console.log('[Companion] Sending email...');
+        return await this.integrationService.sendGmailEmail(message);
+      }
     } catch (error) {
       console.error('[Companion] Email error:', error);
       return null;
