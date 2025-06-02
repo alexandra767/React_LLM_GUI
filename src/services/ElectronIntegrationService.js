@@ -1436,7 +1436,7 @@ class ElectronIntegrationService {
     let location = '';
 
     // Extract time information
-    const timeMatch = eventDetails.match(/at (\d{1,2}):?(\d{2})?\s*(am|pm)?/i);
+    const timeMatch = eventDetails.match(/(\d{1,2}):?(\d{0,2})\s*(am|pm)/i);
     if (timeMatch) {
       let hours = parseInt(timeMatch[1]);
       const minutes = parseInt(timeMatch[2] || '0');
@@ -1453,7 +1453,7 @@ class ElectronIntegrationService {
     }
 
     // Extract date information
-    const dateMatch = eventDetails.match(/(tomorrow|today|next week|this week)/i);
+    const dateMatch = eventDetails.match(/(tomorrow|today|next week|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i);
     if (dateMatch) {
       const dateRef = dateMatch[1].toLowerCase();
       if (dateRef === 'tomorrow') {
@@ -1462,13 +1462,26 @@ class ElectronIntegrationService {
       } else if (dateRef === 'next week') {
         startDate.setDate(startDate.getDate() + 7);
         endDate.setDate(endDate.getDate() + 7);
+      } else if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(dateRef)) {
+        // Find the next occurrence of this weekday
+        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const targetDay = dayNames.indexOf(dateRef);
+        const currentDay = now.getDay();
+        
+        let daysUntilTarget = targetDay - currentDay;
+        if (daysUntilTarget <= 0) {
+          daysUntilTarget += 7; // Next week if the day has passed or is today
+        }
+        
+        startDate.setDate(startDate.getDate() + daysUntilTarget);
+        endDate.setDate(endDate.getDate() + daysUntilTarget);
       }
     }
 
     // Clean up title by removing time and date references
     title = eventDetails
-      .replace(/at \d{1,2}:?\d{0,2}\s*(am|pm)?/gi, '')
-      .replace(/(tomorrow|today|next week|this week)/gi, '')
+      .replace(/(at\s+)?\d{1,2}:?\d{0,2}\s*(am|pm)/gi, '')
+      .replace(/(tomorrow|today|next week|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi, '')
       .trim();
 
     return {

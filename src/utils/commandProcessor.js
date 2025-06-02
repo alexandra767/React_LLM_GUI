@@ -241,6 +241,64 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           };
         }
 
+      case '@calendar-update':
+      case '@calendar-move':
+      case '@calendar-edit':
+        // @calendar-update [event details] - Update/move calendar event
+        try {
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide event update details. Examples:\n• @calendar-move "meeting" to tomorrow 3pm\n• @calendar-update change "lunch" time to 1pm\n• @calendar-edit rename "call" to "important call"'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.updateGoogleCalendarEvent(args);
+          return {
+            type: 'integration',
+            content: result.content
+          };
+        } catch (updateError) {
+          console.error('[Calendar] Calendar update error:', updateError);
+          return {
+            type: 'error',
+            content: `Calendar update error: ${updateError.message}`
+          };
+        }
+
+      case '@inbox':
+      case '@gmail-read':
+        // @inbox [search query] or @gmail-read [search query]
+        try {
+          console.log('[Gmail] Processing @inbox command...');
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+
+          console.log('[Gmail] Searching Gmail...');
+          const searchQuery = args || 'is:unread'; // Default to unread emails
+          const messages = await service.searchGmail(searchQuery);
+          const formattedMessages = service.formatGmailMessages(messages);
+          
+          return {
+            type: 'integration',
+            content: formattedMessages
+          };
+        } catch (gmailError) {
+          console.error('[Gmail] Gmail reading error:', gmailError);
+          return {
+            type: 'error',
+            content: `Gmail error: ${gmailError.message}`
+          };
+        }
+
       case '@email':
       case '@gmail':
         // @email [email details] or @gmail [email details]
@@ -1229,9 +1287,15 @@ If no weather data found, say "No current weather data available" and suggest ch
 
 **Natural Conversation:**
 • Just talk to me naturally - no @ symbols needed!
-• I automatically handle searches, calendar, images, weather when you ask
+• I automatically handle searches, calendar, images, weather, emails when you ask
 • I remember our conversations and learn your preferences
 • Toggle companion mode off for basic chat
+
+**Email Examples:**
+• "Check my unread emails" (shows up to 50 emails)
+• "Send an email to john@example.com saying hello"
+• "Tell me more about email 1" (full content)
+• "Summarize email 2" (smart summary)
 
 **Weather Examples:**
 • "What's the weather like?" (uses your saved location)
@@ -1253,7 +1317,8 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @news [query] - Latest news with content
 • @weather [location] - Get weather information
 • @spacex - SpaceX updates
-• @gmail [search] - Search Gmail
+• @inbox [search] - Read Gmail (up to 50 emails)
+• @gmail [details] - Send Gmail email
 • @drive [search] - Google Drive files
 • @drive-upload [file] - Upload file to Google Drive
 • @drive-download [file] - Download file from Google Drive
@@ -1286,7 +1351,9 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @search [query] - Search the web
 • @news [query] - Get latest news articles with content
 • @spacex - Get latest SpaceX news and updates
-• @gmail [search] - Search Gmail (e.g., @gmail from:john)
+• @inbox [search] - Read Gmail inbox up to 50 emails (e.g., @inbox is:unread)
+• @gmail [email details] - Send Gmail email (e.g., @gmail to:john@example.com subject "Hello" message "Hi there!")
+• @email [email details] - Send Gmail email (alias for @gmail)
 • @drive [search] - List or search Google Drive files
 • @drive-upload [file] - Upload file to Google Drive
 • @drive-download [file] - Download file from Google Drive
@@ -1309,7 +1376,8 @@ Examples:
 • @weather New York (weather by city)
 • @news AI developments
 • @spacex (get latest SpaceX updates)
-• @gmail is:unread
+• @inbox is:unread (check unread emails)
+• @gmail to:john@example.com subject "Meeting" message "Let's meet tomorrow"
 • @drive presentation
 • @drive-upload meeting notes.pdf
 • @drive-download project report.docx
@@ -1319,6 +1387,7 @@ Examples:
 • @calendar 14
 • @calendar-add Meeting with team tomorrow at 3pm
 • @calendar-delete standup meeting
+• @calendar-move "lunch meeting" to tomorrow 3pm
 • @image a beautiful sunset
 • @flux a cyberpunk city at night (uses 12 steps)
 • @flux:20 a detailed portrait (uses 20 steps)
@@ -1330,7 +1399,9 @@ Examples:
         return {
           type: 'help',
           content: `Available commands:
-• @gmail [search] - Search Gmail (e.g., @gmail from:john)
+• @inbox [search] - Read Gmail inbox up to 50 emails (e.g., @inbox is:unread)
+• @gmail [email details] - Send Gmail email
+• @email [email details] - Send Gmail email (alias for @gmail)
 • @drive [search] - List or search Google Drive files
 • @drive-upload [file] - Upload file to Google Drive
 • @drive-download [file] - Download file from Google Drive
@@ -1341,6 +1412,9 @@ Examples:
 • @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
 • @calendar-add [details] - Add event to Google Calendar
 • @calendar-delete [event] - Delete event from Google Calendar
+• @calendar-update [details] - Update/move calendar event
+• @calendar-move [event] to [new time] - Move event to new time
+• @calendar-edit rename [event] to [new name] - Rename event
 • @search [query] - Search the web
 • @weather [location] - Get weather information
 • @image [prompt] - Generate an image locally
@@ -1349,7 +1423,8 @@ Examples:
 • @help - Show this help message
 
 Examples:
-• @gmail is:unread
+• @inbox is:unread (check unread emails)
+• @gmail to:user@example.com subject "Hello" message "Hi there!"
 • @drive presentation
 • @weather Ridgway PA (weather by city)
 • @weather 15853 (weather by zip code)
@@ -1363,6 +1438,7 @@ Examples:
 • @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
 • @calendar-add Team meeting Friday at 10am
 • @calendar-delete lunch with client
+• @calendar-update change "meeting" time to 4pm
 • @search weather tomorrow
 • @image a cyberpunk city at night
 • @flux a futuristic landscape (uses 12 steps)
