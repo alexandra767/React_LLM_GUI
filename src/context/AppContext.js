@@ -131,15 +131,33 @@ export const AppProvider = ({ children }) => {
         const stats = unifiedStorageService.getStats();
         console.log('[AppContext] 📊 Storage stats:', stats);
         
-        // Initialize autonomous learning services
+        // Initialize autonomous learning services explicitly
         console.log('[AppContext] 🧠 Activating autonomous learning services...');
         
-        // These services are already instantiated and will start their background timers
-        console.log('[AppContext] ✅ KnowledgeService: Active (updates every 5-30 minutes)');
-        console.log('[AppContext] ✅ ProactiveIntelligenceService: Active (analyzes every 5 minutes)');
-        console.log('[AppContext] ✅ AdvancedFeaturesService: Active');
-        console.log('[AppContext] ✅ ExperimentalCapabilitiesService: Active');
-        console.log('[AppContext] ✅ LearningNotificationService: Active (checks every 10 minutes)');
+        // Explicitly start services and their timers
+        try {
+          // Force knowledge service initialization
+          knowledgeService.loadKnowledge();
+          knowledgeService.startUpdateScheduler();
+          console.log('[AppContext] ✅ KnowledgeService: Initialized and started');
+          
+          // Start proactive intelligence
+          proactiveIntelligenceService.startIntelligenceEngine();
+          console.log('[AppContext] ✅ ProactiveIntelligenceService: Started intelligence engine');
+          
+          // Start learning notifications
+          learningNotificationService.startNotificationEngine();
+          console.log('[AppContext] ✅ LearningNotificationService: Started notification engine');
+          
+          // Trigger immediate knowledge update for testing
+          setTimeout(() => {
+            console.log('[AppContext] 🔄 Triggering initial knowledge update...');
+            knowledgeService.updateRealTimeKnowledge();
+          }, 2000);
+          
+        } catch (serviceError) {
+          console.error('[AppContext] ❌ Service initialization failed:', serviceError);
+        }
         
         console.log('[AppContext] 🎯 Aria will now autonomously learn from:');
         console.log('[AppContext]   • RSS news feeds (O\'Reilly, Wired, CNN) - every 30 min');
