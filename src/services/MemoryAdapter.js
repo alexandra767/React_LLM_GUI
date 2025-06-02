@@ -529,7 +529,7 @@ class MemoryAdapter {
         const matches = [...message.matchAll(pattern)];
         matches.forEach(match => {
           const name = match[1];
-          const relationshipMatch = match[0].match(/(?:my )?(\w+)/);
+          const relationshipMatch = match[0].match(/my (\w+)/);
           const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
           
           if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
