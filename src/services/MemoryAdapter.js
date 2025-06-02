@@ -521,17 +521,24 @@ class MemoryAdapter {
       
       // Extract family relationships
       const familyPatterns = [
-        /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi,
-        /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi,
-        /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+) (?:called|said|told|asked|visited|came)/gi
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi, type: 'extract_from_pattern' },
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi, type: 'extract_from_pattern' },
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+) (?:called|said|told|asked|visited|came)/gi, type: 'extract_from_pattern' }
       ];
       
-      familyPatterns.forEach(pattern => {
-        const matches = [...message.matchAll(pattern)];
+      familyPatterns.forEach(patternObj => {
+        const matches = [...message.matchAll(patternObj.pattern)];
         matches.forEach(match => {
           const name = match[1];
-          const relationshipMatch = match[0].match(/my (\w+)/);
+          const relationshipMatch = match[0].match(/my (\w+)/i);
           const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
+          
+          console.log('[MemoryAdapter] 🔍 Pattern match debug:', {
+            fullMatch: match[0],
+            extractedName: name,
+            relationshipMatch: relationshipMatch,
+            finalRelationship: relationship
+          });
           
           if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
             // Capitalize the name for consistency
