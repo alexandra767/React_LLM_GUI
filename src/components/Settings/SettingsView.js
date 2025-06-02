@@ -13,6 +13,7 @@ import { Slider, Divider } from '@mui/material';
 import voiceService from '../../services/VoiceService';
 import integrationService from '../../services/IntegrationService';
 import VoiceStatus from './VoiceStatus';
+import LearningMonitor from './LearningMonitor';
 import networkStatusService from '../../services/NetworkStatusService';
 import unifiedStorageService from '../../services/UnifiedStorageService';
 import VersionInfo from '../Common/VersionInfo';
@@ -2520,6 +2521,14 @@ const SettingsView = () => {
             Refresh Status
           </ModelButton>
         </SettingItem>
+      </SettingsSection>
+
+      <SettingsSection>
+        <SectionTitle>🧠 Learning Monitor</SectionTitle>
+        <Description2 style={{ marginBottom: '16px' }}>
+          Monitor what Aria is learning from your conversations, online activities, and interactions
+        </Description2>
+        <LearningMonitor />
       </SettingsSection>
 
       <SettingsSection>

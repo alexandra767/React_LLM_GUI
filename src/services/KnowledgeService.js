@@ -318,29 +318,152 @@ class KnowledgeService {
     }
   }
 
-  // Update news knowledge (mock implementation)
+  // Update news knowledge with real data sources
   async updateNewsKnowledge() {
-    // In a real implementation, this would fetch from news APIs
-    const mockNews = [
-      {
-        title: "Latest Technology Developments",
-        summary: "Recent advances in AI and machine learning",
-        category: "technology",
-        timestamp: Date.now(),
-        source: "tech-news-api"
-      },
-      {
-        title: "Market Updates",
-        summary: "Current market trends and economic indicators",
-        category: "finance",
-        timestamp: Date.now(),
-        source: "market-api"
-      }
-    ];
+    console.log('[Knowledge] Fetching real news data...');
     
-    for (const news of mockNews) {
-      this.addRealTimeKnowledge('news', news.title, news, 'news-api', 6 * 60 * 60 * 1000); // 6 hours TTL
+    try {
+      // Try multiple news sources for redundancy
+      const newsSources = [
+        'https://feeds.feedburner.com/oreilly/radar/atom10',
+        'https://rss.cnn.com/rss/edition.rss',
+        'https://feeds.washingtonpost.com/rss/world',
+        'https://www.wired.com/feed/rss'
+      ];
+      
+      for (const sourceUrl of newsSources) {
+        try {
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(sourceUrl)}`;
+          const response = await fetch(proxyUrl);
+          
+          if (response.ok) {
+            const data = await response.json();
+            const newsData = await this.parseRSSFeed(data.contents, sourceUrl);
+            
+            for (const article of newsData.slice(0, 5)) { // Limit to 5 articles per source
+              this.addRealTimeKnowledge('news', `${article.source}: ${article.title}`, {
+                title: article.title,
+                summary: article.description || article.title,
+                category: 'news',
+                url: article.link,
+                publishedAt: article.pubDate,
+                source: article.source,
+                timestamp: Date.now()
+              }, 'rss-feed', 6 * 60 * 60 * 1000); // 6 hours TTL
+            }
+            
+            console.log(`[Knowledge] ✅ Fetched ${newsData.length} articles from ${this.getSourceName(sourceUrl)}`);
+            break; // Success, no need to try other sources
+          }
+        } catch (sourceError) {
+          console.warn(`[Knowledge] Failed to fetch from ${sourceUrl}:`, sourceError.message);
+        }
+      }
+      
+      // Fallback: Hacker News API (reliable)
+      try {
+        const hackernewsResponse = await fetch('https://hacker-news.firebaseio.com/v0/topstories.json');
+        if (hackernewsResponse.ok) {
+          const storyIds = await hackernewsResponse.json();
+          
+          // Get top 5 stories
+          for (let i = 0; i < Math.min(5, storyIds.length); i++) {
+            const storyResponse = await fetch(`https://hacker-news.firebaseio.com/v0/item/${storyIds[i]}.json`);
+            if (storyResponse.ok) {
+              const story = await storyResponse.json();
+              
+              this.addRealTimeKnowledge('news', `HN: ${story.title}`, {
+                title: story.title,
+                summary: story.title,
+                category: 'tech-news',
+                url: story.url || `https://news.ycombinator.com/item?id=${story.id}`,
+                publishedAt: new Date(story.time * 1000).toISOString(),
+                source: 'Hacker News',
+                score: story.score,
+                timestamp: Date.now()
+              }, 'hackernews-api', 4 * 60 * 60 * 1000); // 4 hours TTL
+            }
+          }
+          
+          console.log('[Knowledge] ✅ Fetched top stories from Hacker News');
+        }
+      } catch (hnError) {
+        console.warn('[Knowledge] Hacker News API failed:', hnError.message);
+      }
+      
+    } catch (error) {
+      console.error('[Knowledge] News update failed:', error);
+      
+      // Fallback to curated tech news
+      this.addRealTimeKnowledge('news', 'Tech Update', {
+        title: 'Autonomous Learning Active',
+        summary: 'Aria is continuously learning from multiple data sources including news, research, and user interactions.',
+        category: 'system',
+        timestamp: Date.now(),
+        source: 'internal'
+      }, 'fallback', 2 * 60 * 60 * 1000);
     }
+  }
+
+  // Parse RSS feed content
+  async parseRSSFeed(xmlContent, sourceUrl) {
+    try {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlContent, 'text/xml');
+      
+      const items = xmlDoc.getElementsByTagName('item') || xmlDoc.getElementsByTagName('entry');
+      const articles = [];
+      
+      for (let i = 0; i < Math.min(items.length, 10); i++) {
+        const item = items[i];
+        
+        const title = this.getTextContent(item, ['title']);
+        const description = this.getTextContent(item, ['description', 'summary', 'content']);
+        const link = this.getTextContent(item, ['link', 'id']) || this.getAttribute(item, 'link', 'href');
+        const pubDate = this.getTextContent(item, ['pubDate', 'published', 'updated']);
+        
+        if (title) {
+          articles.push({
+            title: title.substring(0, 200),
+            description: description ? description.substring(0, 300) : '',
+            link: link,
+            pubDate: pubDate,
+            source: this.getSourceName(sourceUrl)
+          });
+        }
+      }
+      
+      return articles;
+    } catch (parseError) {
+      console.error('[Knowledge] RSS parsing failed:', parseError);
+      return [];
+    }
+  }
+
+  // Helper to get text content from XML elements
+  getTextContent(item, tagNames) {
+    for (const tagName of tagNames) {
+      const element = item.getElementsByTagName(tagName)[0];
+      if (element) {
+        return element.textContent?.trim() || '';
+      }
+    }
+    return '';
+  }
+
+  // Helper to get attribute content
+  getAttribute(item, tagName, attributeName) {
+    const element = item.getElementsByTagName(tagName)[0];
+    return element?.getAttribute(attributeName) || '';
+  }
+
+  // Get friendly source name
+  getSourceName(url) {
+    if (url.includes('oreilly')) return 'O\'Reilly Radar';
+    if (url.includes('cnn')) return 'CNN';
+    if (url.includes('washingtonpost')) return 'Washington Post';
+    if (url.includes('wired')) return 'Wired';
+    return 'RSS Feed';
   }
 
   // Update weather knowledge
@@ -373,17 +496,133 @@ class KnowledgeService {
     this.addRealTimeKnowledge('market', 'current', market, 'market-api', 30 * 60 * 1000); // 30 minutes TTL
   }
 
-  // Update technology knowledge
+  // Update technology knowledge with real GitHub data
   async updateTechKnowledge() {
-    // Mock tech updates
-    const tech = {
-      trends: ["AI advancement", "Quantum computing", "Green technology"],
-      releases: "New framework releases and updates",
-      research: "Latest research papers and findings",
-      timestamp: Date.now()
-    };
+    console.log('[Knowledge] Fetching real tech/programming data...');
     
-    this.addRealTimeKnowledge('technology', 'current', tech, 'tech-api', 2 * 60 * 60 * 1000); // 2 hours TTL
+    try {
+      // Fetch trending GitHub repositories
+      const githubResponse = await fetch('https://api.github.com/search/repositories?q=created:>2024-05-01&sort=stars&order=desc&per_page=10');
+      
+      if (githubResponse.ok) {
+        const githubData = await githubResponse.json();
+        
+        for (const repo of githubData.items.slice(0, 5)) {
+          this.addRealTimeKnowledge('technology', `GitHub Trending: ${repo.name}`, {
+            title: repo.full_name,
+            summary: repo.description || `Popular ${repo.language} repository`,
+            category: 'programming',
+            url: repo.html_url,
+            language: repo.language,
+            stars: repo.stargazers_count,
+            topics: repo.topics || [],
+            updatedAt: repo.updated_at,
+            source: 'GitHub API',
+            timestamp: Date.now()
+          }, 'github-api', 4 * 60 * 60 * 1000); // 4 hours TTL
+        }
+        
+        console.log('[Knowledge] ✅ Fetched trending GitHub repositories');
+      }
+      
+      // Fetch programming language trends
+      const langResponse = await fetch('https://api.github.com/search/repositories?q=stars:>1000&sort=updated&order=desc&per_page=20');
+      
+      if (langResponse.ok) {
+        const langData = await langResponse.json();
+        const languageCount = {};
+        
+        langData.items.forEach(repo => {
+          if (repo.language) {
+            languageCount[repo.language] = (languageCount[repo.language] || 0) + 1;
+          }
+        });
+        
+        const topLanguages = Object.entries(languageCount)
+          .sort(([,a], [,b]) => b - a)
+          .slice(0, 5)
+          .map(([lang, count]) => ({ language: lang, activity: count }));
+        
+        this.addRealTimeKnowledge('technology', 'Programming Language Trends', {
+          title: 'Programming Language Activity',
+          summary: 'Current programming language trends based on GitHub activity',
+          category: 'programming-trends',
+          topLanguages: topLanguages,
+          source: 'GitHub API Analysis',
+          timestamp: Date.now()
+        }, 'github-trends', 6 * 60 * 60 * 1000); // 6 hours TTL
+        
+        console.log('[Knowledge] ✅ Analyzed programming language trends');
+      }
+      
+      // Fetch tech news from developer-focused sources
+      await this.fetchDeveloperNews();
+      
+      // Add curated tech insights
+      this.addRealTimeKnowledge('technology', 'AI Development Focus', {
+        title: 'Current AI/ML Development Trends',
+        summary: 'Focus areas: LLM optimization, multimodal AI, autonomous agents, and real-time inference',
+        category: 'ai-trends',
+        trends: ['LLM Optimization', 'Multimodal AI', 'Autonomous Agents', 'Edge AI'],
+        source: 'Trend Analysis',
+        timestamp: Date.now()
+      }, 'curated-tech', 8 * 60 * 60 * 1000); // 8 hours TTL
+      
+    } catch (error) {
+      console.error('[Knowledge] Tech knowledge update failed:', error);
+      
+      // Fallback to basic tech trends
+      this.addRealTimeKnowledge('technology', 'Tech Trends Fallback', {
+        title: 'Current Technology Focus Areas',
+        summary: 'AI/ML development, cloud computing, and developer tools continue to evolve rapidly',
+        category: 'tech-general',
+        trends: ['Artificial Intelligence', 'Cloud Computing', 'Developer Experience'],
+        source: 'Fallback Data',
+        timestamp: Date.now()
+      }, 'fallback-tech', 4 * 60 * 60 * 1000);
+    }
+  }
+
+  // Fetch developer-focused news
+  async fetchDeveloperNews() {
+    try {
+      const devSources = [
+        'https://feeds.feedburner.com/oreilly/radar/atom10',
+        'https://github.blog/feed/',
+        'https://stackoverflow.blog/feed/'
+      ];
+      
+      for (const sourceUrl of devSources) {
+        try {
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(sourceUrl)}`;
+          const response = await fetch(proxyUrl);
+          
+          if (response.ok) {
+            const data = await response.json();
+            const articles = await this.parseRSSFeed(data.contents, sourceUrl);
+            
+            for (const article of articles.slice(0, 3)) {
+              this.addRealTimeKnowledge('technology', `Dev News: ${article.title}`, {
+                title: article.title,
+                summary: article.description || article.title,
+                category: 'developer-news',
+                url: article.link,
+                publishedAt: article.pubDate,
+                source: article.source,
+                timestamp: Date.now()
+              }, 'dev-news', 4 * 60 * 60 * 1000);
+            }
+            
+            console.log(`[Knowledge] ✅ Fetched developer news from ${this.getSourceName(sourceUrl)}`);
+            break; // Success with one source is enough
+          }
+        } catch (sourceError) {
+          console.warn(`[Knowledge] Dev news source failed ${sourceUrl}:`, sourceError.message);
+        }
+      }
+    } catch (error) {
+      console.error('[Knowledge] Developer news fetch failed:', error);
+    }
   }
 
   // Start automatic update scheduler

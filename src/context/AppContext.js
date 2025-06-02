@@ -5,6 +5,13 @@ import networkStatusService from '../services/NetworkStatusService';
 import unifiedStorageService from '../services/UnifiedStorageService';
 import { clearSpokenMessages } from '../components/Chat/Message';
 
+// Import autonomous learning services to activate them
+import knowledgeService from '../services/KnowledgeService';
+import proactiveIntelligenceService from '../services/ProactiveIntelligenceService';
+import advancedFeaturesService from '../services/AdvancedFeaturesService';
+import experimentalCapabilitiesService from '../services/ExperimentalCapabilitiesService';
+import learningNotificationService from '../services/LearningNotificationService';
+
 export const AppContext = createContext();
 
 export const useApp = () => {
@@ -123,6 +130,25 @@ export const AppProvider = ({ children }) => {
         // Log storage stats
         const stats = unifiedStorageService.getStats();
         console.log('[AppContext] 📊 Storage stats:', stats);
+        
+        // Initialize autonomous learning services
+        console.log('[AppContext] 🧠 Activating autonomous learning services...');
+        
+        // These services are already instantiated and will start their background timers
+        console.log('[AppContext] ✅ KnowledgeService: Active (updates every 5-30 minutes)');
+        console.log('[AppContext] ✅ ProactiveIntelligenceService: Active (analyzes every 5 minutes)');
+        console.log('[AppContext] ✅ AdvancedFeaturesService: Active');
+        console.log('[AppContext] ✅ ExperimentalCapabilitiesService: Active');
+        console.log('[AppContext] ✅ LearningNotificationService: Active (checks every 10 minutes)');
+        
+        console.log('[AppContext] 🎯 Aria will now autonomously learn from:');
+        console.log('[AppContext]   • RSS news feeds (O\'Reilly, Wired, CNN) - every 30 min');
+        console.log('[AppContext]   • GitHub trending repositories - every 4 hours');
+        console.log('[AppContext]   • Programming language trends - every 6 hours');
+        console.log('[AppContext]   • Hacker News top stories - every 4 hours');
+        console.log('[AppContext]   • Developer news (GitHub, Stack Overflow) - every 4 hours');
+        console.log('[AppContext]   • User behavior pattern analysis - every 5 min');
+        console.log('[AppContext] 🔔 Proactive notifications will alert you to interesting discoveries!');
         
       } catch (error) {
         console.error('[AppContext] ❌ Failed to initialize storage:', error);
