@@ -577,7 +577,11 @@ class CompanionService {
     
     const emailKeywords = [
       'email', 'emails', 'inbox', 'message', 'mail',
-      'unread', 'from', 'sent', 'reply'
+      'unread', 'from', 'sent', 'reply',
+      // Email sending patterns
+      'send email', 'email to', 'send message to', 
+      'compose email', 'write email', 'draft email',
+      'send a message', 'message to', 'email about'
     ];
     return emailKeywords.some(keyword => lowerMessage.includes(keyword));
   }
@@ -995,6 +999,19 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
     }
   }
 
+  // Execute email command
+  async executeEmailCommand(message) {
+    try {
+      console.log('[Companion] Executing email command:', message);
+      
+      const emailCommand = `@email ${message}`;
+      return await this.commandProcessor.processCommand(emailCommand);
+    } catch (error) {
+      console.error('[Companion] Email error:', error);
+      return null;
+    }
+  }
+
   // Execute search command
   async executeSearchCommand(message) {
     try {
@@ -1003,18 +1020,6 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
       return await this.commandProcessor.processCommand(searchCommand);
     } catch (error) {
       console.error('[Companion] Search error:', error);
-      return null;
-    }
-  }
-
-  // Execute email command
-  async executeEmailCommand(message) {
-    try {
-      const emailQuery = this.extractEmailQuery(message);
-      const emailCommand = `@gmail ${emailQuery}`;
-      return await this.commandProcessor.processCommand(emailCommand);
-    } catch (error) {
-      console.error('[Companion] Email error:', error);
       return null;
     }
   }

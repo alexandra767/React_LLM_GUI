@@ -241,6 +241,39 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           };
         }
 
+      case '@email':
+      case '@gmail':
+        // @email [email details] or @gmail [email details]
+        try {
+          console.log('[Email] Processing @email command...');
+          
+          if (!args) {
+            return {
+              type: 'error',
+              content: 'Please provide email details. Example: @email to john@example.com subject "Hello" message "How are you?"'
+            };
+          }
+
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+
+          console.log('[Email] Sending email...');
+          const result = await service.sendGmailEmail(args);
+          
+          return {
+            type: 'integration',
+            content: result.content
+          };
+        } catch (emailError) {
+          console.error('[Email] Email sending error:', emailError);
+          return {
+            type: 'error',
+            content: `Email error: ${emailError.message}`
+          };
+        }
+
       case '@search':
       case '@web':
         // @search [query] or @web [query]

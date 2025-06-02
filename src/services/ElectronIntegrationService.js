@@ -653,6 +653,71 @@ class ElectronIntegrationService {
     }
   }
 
+  // Send Gmail email
+  async sendGmailEmail(emailDetails) {
+    console.log('[ElectronIntegrationService] Sending Gmail email:', emailDetails);
+    
+    try {
+      const accessToken = await this.googleAuth.getValidAccessToken();
+      
+      // Parse email details
+      const { to, subject, body } = this.parseEmailDetails(emailDetails);
+      
+      // Create email in RFC 2822 format
+      const email = [
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        ``,
+        body
+      ].join('\r\n');
+      
+      // Base64 encode the email
+      const encodedEmail = btoa(email).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      
+      const url = 'https://www.googleapis.com/gmail/v1/users/me/messages/send';
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          raw: encodedEmail
+        })
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          await this.googleAuth.refreshAccessToken();
+          return this.sendGmailEmail(emailDetails);
+        }
+        
+        const error = await response.text();
+        console.error('[ElectronIntegrationService] Gmail sending error:', response.status, error);
+        
+        return {
+          content: `❌ Failed to send email. Error ${response.status}: ${error}`,
+          error: true
+        };
+      }
+
+      const sentEmail = await response.json();
+      console.log('[ElectronIntegrationService] Email sent:', sentEmail.id);
+      
+      return {
+        content: `✅ Email sent successfully to ${to} with subject "${subject}"`
+      };
+    } catch (error) {
+      console.error('[ElectronIntegrationService] Failed to send email:', error);
+      return {
+        content: `❌ Error sending email: ${error.message}`,
+        error: true
+      };
+    }
+  }
+
   // Delete Google Calendar event
   async deleteGoogleCalendarEvent(eventDetails) {
     console.log('[ElectronIntegrationService] Deleting calendar event:', eventDetails);
@@ -1099,6 +1164,43 @@ class ElectronIntegrationService {
         timeZone: 'America/New_York'
       }
     };
+  }
+
+  // Parse email details from natural language
+  parseEmailDetails(emailDetails) {
+    console.log('[ElectronIntegrationService] Parsing email details:', emailDetails);
+    
+    // Extract email address
+    const emailMatch = emailDetails.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    const to = emailMatch ? emailMatch[1] : '';
+    
+    // Extract subject
+    let subject = 'Email from Aria';
+    const subjectMatch = emailDetails.match(/subject[\s:]+["']?([^"'\n]+)["']?/i) ||
+                        emailDetails.match(/with subject[\s:]+["']?([^"'\n]+)["']?/i);
+    if (subjectMatch) {
+      subject = subjectMatch[1].trim();
+    }
+    
+    // Extract body/message
+    let body = emailDetails;
+    const bodyMatch = emailDetails.match(/(?:message|body|saying)[\s:]+["']?([^"']+)["']?/i);
+    if (bodyMatch) {
+      body = bodyMatch[1].trim();
+    } else {
+      // Clean up the email details to use as body
+      body = emailDetails
+        .replace(/send.*?email.*?to.*?@.*?\.(com|org|net|edu)/i, '')
+        .replace(/with subject.*$/i, '')
+        .replace(/subject[\s:]+.*$/i, '')
+        .trim();
+      
+      if (!body) {
+        body = 'Email sent from Aria assistant.';
+      }
+    }
+    
+    return { to, subject, body };
   }
   // Get latest news using enhanced search
   async getLatestNews(query = 'latest news') {
