@@ -107,19 +107,29 @@ const extractPersonalFacts = (message) => {
   // Extract family relationships
   const familyPatterns = [
     /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi,
-    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi,
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+) (?:called|said|told|asked|visited|came)/gi
   ];
   
   familyPatterns.forEach(pattern => {
     const matches = [...message.matchAll(pattern)];
     matches.forEach(match => {
       const name = match[1];
-      const relationship = match[0].match(/my (\w+)/)[1];
+      const relationshipMatch = match[0].match(/(?:my )?(\w+)/);
+      const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
+      
       if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
         facts.push({
           key: `${relationship}_${name.toLowerCase()}`,
           value: `${name} (${relationship})`,
           context: `Family member mentioned: "${message.substring(0, 100)}..."`
+        });
+        
+        console.log('[AppContext] 👨‍👩‍👧‍👦 Extracted family relationship:', {
+          name,
+          relationship,
+          fullMatch: match[0],
+          fromMessage: message.substring(0, 50)
         });
       }
     });
@@ -747,8 +757,27 @@ export const AppProvider = ({ children }) => {
         // Extract and store personal facts from the conversation
         const personalFacts = extractPersonalFacts(message);
         for (const fact of personalFacts) {
+          // Store as personal info
           await memoryAdapter.addPersonalInfo(fact.key, fact.value, fact.context);
           console.log('[AppContext] 📝 Stored personal fact:', fact.key, '=', fact.value);
+          
+          // Also store family/friend relationships as actual relationships
+          if (fact.key.includes('friend_') || fact.key.includes('brother_') || fact.key.includes('sister_') || 
+              fact.key.includes('mom_') || fact.key.includes('dad_') || fact.key.includes('mother_') || 
+              fact.key.includes('father_') || fact.key.includes('wife_') || fact.key.includes('husband_') || 
+              fact.key.includes('partner_')) {
+            
+            const nameMatch = fact.value.match(/^(\w+)/);
+            const relationshipMatch = fact.key.match(/^(\w+)_/);
+            
+            if (nameMatch && relationshipMatch) {
+              const name = nameMatch[1];
+              const relationship = relationshipMatch[1];
+              
+              await memoryAdapter.addRelationship(name, relationship);
+              console.log('[AppContext] 👨‍👩‍👧‍👦 Stored relationship:', name, '=', relationship);
+            }
+          }
         }
         
       } catch (memoryError) {
