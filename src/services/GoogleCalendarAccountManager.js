@@ -86,7 +86,8 @@ class GoogleCalendarAccountManager {
     
     // Fall back to old format if using default account
     if (!expiry && this.currentAccountId === 'default') {
-      expiry = localStorage.getItem('google_token_expires_at');
+      expiry = localStorage.getItem('google_token_expires_at') || 
+               localStorage.getItem('google_token_expiry'); // Also check manual refresh format
     }
     
     return expiry ? parseInt(expiry, 10) : null;

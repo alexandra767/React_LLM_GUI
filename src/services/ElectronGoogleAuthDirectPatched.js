@@ -98,6 +98,13 @@ class ElectronGoogleAuthDirectPatched {
         const expiresAt = Date.now() + (expiresIn * 1000);
         accountManager.setTokenExpiry(expiresAt);
         
+        // ALSO update legacy localStorage keys for backward compatibility
+        if (accountManager.getCurrentAccountId() === 'default') {
+          localStorage.setItem('google_access_token', data.access_token);
+          localStorage.setItem('google_token_expiry', expiresAt.toString());
+          localStorage.setItem('google_token_expires_at', expiresAt.toString());
+        }
+        
         console.log('[ElectronGoogleAuthDirect] Access token refreshed successfully');
         return data.access_token;
       } else {
@@ -112,20 +119,31 @@ class ElectronGoogleAuthDirectPatched {
   async getValidAccessToken() {
     console.log('[ElectronGoogleAuthDirect] Getting valid access token for account:', accountManager.getCurrentAccountId());
     
+    // Debug token state
+    const currentToken = this.accessToken;
+    const currentRefresh = this.refreshToken;
+    const tokenExpiry = accountManager.getTokenExpiry();
+    
+    console.log('[ElectronGoogleAuthDirect] Token state debug:', {
+      hasAccessToken: !!currentToken,
+      hasRefreshToken: !!currentRefresh,
+      tokenExpiry: tokenExpiry ? new Date(tokenExpiry).toLocaleString() : 'No expiry',
+      isExpired: tokenExpiry ? Date.now() > tokenExpiry : 'Unknown'
+    });
+    
     // Check if we have a token at all
-    if (!this.accessToken && !this.refreshToken) {
+    if (!currentToken && !currentRefresh) {
       throw new Error('No Google authentication available. Please authenticate first.');
     }
     
     // If we have a refresh token but no access token, refresh immediately
-    if (!this.accessToken && this.refreshToken) {
+    if (!currentToken && currentRefresh) {
       console.log('[ElectronGoogleAuthDirect] No access token, refreshing...');
       await this.refreshAccessToken();
       return this.accessToken;
     }
     
     // Check if token is still valid (with 5 minute buffer)
-    const tokenExpiry = accountManager.getTokenExpiry();
     const now = Date.now();
     const fiveMinutes = 5 * 60 * 1000;
     
