@@ -757,8 +757,17 @@ class CompanionService {
       essentialContext = `\nUser's name: ${userName}`;
     }
     
+    // Add essential relationship information
+    if (memoryContext.relationships && Object.keys(memoryContext.relationships).length > 0) {
+      essentialContext += '\nKnown people:';
+      Object.entries(memoryContext.relationships).forEach(([name, relationship]) => {
+        const relType = typeof relationship === 'object' ? relationship.type : relationship;
+        essentialContext += ` ${name} (${relType})`;
+      });
+    }
+    
     // Streamlined prompt to reduce overthinking and improve response speed
-    const personality = `You are Aria, a helpful AI assistant.${hasUserName ? ` You are talking to ${userName}.` : ''}
+    const personality = `You are Aria, a helpful AI assistant.${hasUserName ? ` You are talking to ${userName}.` : ''}${essentialContext}
 
 IMPORTANT: Respond directly without excessive thinking. Be creative and natural.`;
 
