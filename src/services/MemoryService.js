@@ -508,6 +508,65 @@ class MemoryService {
     this.saveMemories();
     console.log('[Memory] All memories cleared');
   }
+
+  // Get personal context for chat integration
+  getPersonalContext() {
+    return {
+      personal: Object.fromEntries(this.memories.personal),
+      relationships: Object.fromEntries(this.memories.relationships),
+      conversations: this.memories.conversations.slice(-5) // Last 5 conversations
+    };
+  }
+
+  // Search memory for specific query
+  searchMemory(query) {
+    const results = [];
+    const searchTerms = query.toLowerCase().split(/\s+/);
+    
+    // Search personal info
+    this.memories.personal.forEach((value, key) => {
+      const relevance = this.calculateMemoryRelevance(searchTerms, key, value);
+      if (relevance > 0.1) {
+        results.push({
+          type: 'personal',
+          key,
+          value,
+          relevance
+        });
+      }
+    });
+    
+    // Search relationships
+    this.memories.relationships.forEach((relationship, name) => {
+      const relevance = this.calculateMemoryRelevance(searchTerms, name, relationship.relationship);
+      if (relevance > 0.1) {
+        results.push({
+          type: 'relationship',
+          key: name,
+          value: relationship,
+          relevance
+        });
+      }
+    });
+    
+    return results.sort((a, b) => b.relevance - a.relevance);
+  }
+
+  // Calculate memory relevance score
+  calculateMemoryRelevance(searchTerms, key, value) {
+    let score = 0;
+    const keyText = key.toLowerCase();
+    const valueText = typeof value === 'object' ? 
+      JSON.stringify(value).toLowerCase() : 
+      String(value).toLowerCase();
+    
+    searchTerms.forEach(term => {
+      if (keyText.includes(term)) score += 1.0;
+      if (valueText.includes(term)) score += 0.8;
+    });
+    
+    return score;
+  }
 }
 
 export default new MemoryService();

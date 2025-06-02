@@ -640,32 +640,70 @@ export const AppProvider = ({ children }) => {
       // Get personal memory context for Aria
       let memoryContext = '';
       try {
-        const personalContext = await memoryAdapter.getRelevantContext(message);
+        // Try memoryAdapter first
+        let personalContext = null;
+        try {
+          personalContext = await memoryAdapter.getRelevantContext(message);
+        } catch (adapterError) {
+          console.warn('[AppContext] MemoryAdapter failed, using direct MemoryService:', adapterError);
+        }
         
-        if (personalContext && (Object.keys(personalContext.personal).length > 0 || personalContext.conversations.length > 0)) {
+        // Fallback to direct MemoryService access
+        if (!personalContext || (Object.keys(personalContext.personal || {}).length === 0 && (personalContext.conversations || []).length === 0)) {
+          const directMemory = memoryService.getPersonalContext();
+          const searchResults = memoryService.searchMemory(message);
+          
+          personalContext = {
+            personal: directMemory.personal || {},
+            relationships: directMemory.relationships || {},
+            conversations: directMemory.conversations || [],
+            searchResults: searchResults
+          };
+          
+          console.log('[AppContext] 🔍 Direct memory search found:', searchResults.length, 'relevant items');
+        }
+        
+        if (personalContext && (Object.keys(personalContext.personal || {}).length > 0 || (personalContext.conversations || []).length > 0 || Object.keys(personalContext.relationships || {}).length > 0)) {
           memoryContext = '\n\n[Personal context from memory:]\n';
           
           // Add personal facts
-          if (Object.keys(personalContext.personal).length > 0) {
+          if (Object.keys(personalContext.personal || {}).length > 0) {
             memoryContext += 'Personal facts:\n';
             Object.entries(personalContext.personal).forEach(([key, fact]) => {
+              const value = typeof fact === 'object' ? fact.value : fact;
               if (key === 'name' || key === 'user_name') {
-                memoryContext += `- User's name: ${fact.value}\n`;
-              } else if (key.includes('friend') || key.includes('relation')) {
-                memoryContext += `- ${key}: ${fact.value}\n`;
+                memoryContext += `- User's name: ${value}\n`;
+              } else if (key.includes('friend')) {
+                memoryContext += `- Friend: ${value}\n`;
+              } else if (key.includes('relation')) {
+                memoryContext += `- ${key}: ${value}\n`;
+              } else {
+                memoryContext += `- ${key}: ${value}\n`;
               }
             });
           }
           
           // Add relationship information
-          if (Object.keys(personalContext.relationships).length > 0) {
+          if (Object.keys(personalContext.relationships || {}).length > 0) {
             memoryContext += 'Known relationships:\n';
             Object.entries(personalContext.relationships).forEach(([name, relationship]) => {
-              memoryContext += `- ${name}: ${relationship.type || 'known person'}\n`;
+              const relType = typeof relationship === 'object' ? relationship.relationship : relationship;
+              memoryContext += `- ${name}: ${relType || 'known person'}\n`;
             });
           }
           
-          console.log('[AppContext] 💭 Retrieved personal memory context with', Object.keys(personalContext.personal).length, 'facts and', Object.keys(personalContext.relationships).length, 'relationships');
+          // Add search results if available
+          if (personalContext.searchResults && personalContext.searchResults.length > 0) {
+            memoryContext += 'Relevant memory search results:\n';
+            personalContext.searchResults.slice(0, 3).forEach(result => {
+              const value = typeof result.value === 'object' ? 
+                (result.value.value || JSON.stringify(result.value)) : 
+                result.value;
+              memoryContext += `- ${result.key}: ${value}\n`;
+            });
+          }
+          
+          console.log('[AppContext] 💭 Retrieved personal memory context with', Object.keys(personalContext.personal || {}).length, 'facts and', Object.keys(personalContext.relationships || {}).length, 'relationships');
         }
       } catch (memoryError) {
         console.warn('[AppContext] Memory context retrieval failed:', memoryError);
