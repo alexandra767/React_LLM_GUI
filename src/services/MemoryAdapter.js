@@ -498,6 +498,7 @@ class MemoryAdapter {
   // Extract and store relationships from user messages
   extractAndStoreRelationships(message) {
     try {
+      console.log('[MemoryAdapter] 🔍 Extracting relationships from:', message);
       const relationships = [];
       
       // Extract friend relationships
@@ -533,14 +534,17 @@ class MemoryAdapter {
           const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
           
           if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+            // Capitalize the name for consistency
+            const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+            
             relationships.push({ 
-              name, 
+              name: capitalizedName, 
               type: relationship, 
               source: `Family member mentioned: "${message.substring(0, 50)}..."` 
             });
             
             console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Extracted family relationship:', {
-              name,
+              name: capitalizedName,
               relationship,
               fullMatch: match[0],
               fromMessage: message.substring(0, 50)
@@ -550,10 +554,14 @@ class MemoryAdapter {
       });
       
       // Store each relationship
-      relationships.forEach(rel => {
-        this.addRelationship(rel.name, rel.type, { source: rel.source });
-        console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Stored relationship:', rel.name, '=', rel.type);
-      });
+      if (relationships.length > 0) {
+        relationships.forEach(rel => {
+          this.addRelationship(rel.name, rel.type, { source: rel.source });
+          console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Stored relationship:', rel.name, '=', rel.type);
+        });
+      } else {
+        console.log('[MemoryAdapter] ❌ No relationships found in message:', message);
+      }
       
     } catch (error) {
       console.error('[MemoryAdapter] Failed to extract relationships:', error);
