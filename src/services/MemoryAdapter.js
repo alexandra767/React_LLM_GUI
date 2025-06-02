@@ -485,10 +485,78 @@ class MemoryAdapter {
         this.memories.conversations = this.memories.conversations.slice(-100);
       }
       
+      // Extract and store relationships from the conversation
+      this.extractAndStoreRelationships(userMessage);
+      
       this.saveMemories();
       console.log(`[MemoryAdapter] Added conversation (importance: ${importance.toFixed(2)})`);
     } catch (error) {
       console.error('[MemoryAdapter] Failed to add conversation:', error);
+    }
+  }
+
+  // Extract and store relationships from user messages
+  extractAndStoreRelationships(message) {
+    try {
+      const relationships = [];
+      
+      // Extract friend relationships
+      const friendPatterns = [
+        /my friend (\w+)/gi,
+        /friend named (\w+)/gi,
+        /friend (\w+)/gi,
+        /(\w+) is my friend/gi
+      ];
+      
+      friendPatterns.forEach(pattern => {
+        const matches = [...message.matchAll(pattern)];
+        matches.forEach(match => {
+          const name = match[1];
+          if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+            relationships.push({ name, type: 'friend', source: `Friend mentioned: "${message.substring(0, 50)}..."` });
+          }
+        });
+      });
+      
+      // Extract family relationships
+      const familyPatterns = [
+        /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi,
+        /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi,
+        /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+) (?:called|said|told|asked|visited|came)/gi
+      ];
+      
+      familyPatterns.forEach(pattern => {
+        const matches = [...message.matchAll(pattern)];
+        matches.forEach(match => {
+          const name = match[1];
+          const relationshipMatch = match[0].match(/(?:my )?(\w+)/);
+          const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
+          
+          if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+            relationships.push({ 
+              name, 
+              type: relationship, 
+              source: `Family member mentioned: "${message.substring(0, 50)}..."` 
+            });
+            
+            console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Extracted family relationship:', {
+              name,
+              relationship,
+              fullMatch: match[0],
+              fromMessage: message.substring(0, 50)
+            });
+          }
+        });
+      });
+      
+      // Store each relationship
+      relationships.forEach(rel => {
+        this.addRelationship(rel.name, rel.type, { source: rel.source });
+        console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Stored relationship:', rel.name, '=', rel.type);
+      });
+      
+    } catch (error) {
+      console.error('[MemoryAdapter] Failed to extract relationships:', error);
     }
   }
   
