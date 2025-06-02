@@ -227,16 +227,25 @@ class MemoryAdapter {
     try {
       await this.ensureInitialized();
       
+      console.log('[MemoryAdapter] 🔍 getRelevantContext called with message:', currentMessage?.substring(0, 50));
+      console.log('[MemoryAdapter] Memory status:', {
+        personalCount: this.memories.personal.size,
+        relationshipsCount: this.memories.relationships.size,
+        conversationsCount: this.memories.conversations.length
+      });
+      
       // Build personal facts object
       const personal = {};
       for (const [key, fact] of this.memories.personal.entries()) {
         personal[key] = fact;
+        console.log('[MemoryAdapter] Personal fact:', key, '=', fact);
       }
 
       // Build relationships object
       const relationships = {};
       for (const [name, relationshipData] of this.memories.relationships.entries()) {
         relationships[name] = relationshipData;
+        console.log('[MemoryAdapter] Relationship:', name, '=', relationshipData);
       }
 
       // Get recent conversations (cleaned) - filter by time and relevance
@@ -284,7 +293,9 @@ class MemoryAdapter {
         conversations: context.conversations.length,
         personalKeys: Object.keys(context.personal),
         relationshipCount: Object.keys(context.relationships).length,
-        userName: context.personal.name?.value || context.personal.user_name?.value
+        userName: context.personal.name?.value || context.personal.user_name?.value,
+        friendKeys: Object.keys(context.personal).filter(key => key.includes('friend')),
+        allPersonalEntries: context.personal
       });
 
       return context;

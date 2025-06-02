@@ -567,6 +567,56 @@ class MemoryService {
     
     return score;
   }
+
+  // Get relevant context for CompanionService compatibility
+  async getRelevantContext(message) {
+    const context = this.getPersonalContext();
+    const searchResults = this.searchMemory(message);
+    
+    // Convert search results into context format
+    const relevantPersonal = {};
+    const relevantRelationships = {};
+    
+    // Add all personal facts
+    Object.entries(context.personal).forEach(([key, value]) => {
+      relevantPersonal[key] = { 
+        value: typeof value === 'object' ? value.value : value,
+        timestamp: typeof value === 'object' ? value.timestamp : Date.now()
+      };
+    });
+    
+    // Add all relationships
+    Object.entries(context.relationships).forEach(([key, value]) => {
+      relevantRelationships[key] = value;
+    });
+    
+    // Add highly relevant search results to personal facts
+    searchResults.slice(0, 5).forEach(result => {
+      if (result.relevance > 0.5) {
+        const value = typeof result.value === 'object' ? result.value.value : result.value;
+        relevantPersonal[result.key] = {
+          value: value,
+          timestamp: Date.now(),
+          relevance: result.relevance
+        };
+      }
+    });
+    
+    console.log('[MemoryService] getRelevantContext found:', {
+      personalFacts: Object.keys(relevantPersonal).length,
+      relationships: Object.keys(relevantRelationships).length,
+      searchResults: searchResults.length
+    });
+    
+    return {
+      personal: relevantPersonal,
+      relationships: relevantRelationships,
+      conversations: context.conversations,
+      preferences: {
+        topInterests: this.learningState.topicInterests || {}
+      }
+    };
+  }
 }
 
 export default new MemoryService();
