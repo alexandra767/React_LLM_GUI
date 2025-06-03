@@ -516,13 +516,9 @@ class ImageGenerationService {
       "3": {
         "inputs": {
           "filename_prefix": "Sephia_video_luma",
-          "fps": fps,
-          "lossless": false,
-          "quality": 85,
-          "method": "default",
-          "images": ["2", 0]
+          "video": ["2", 0]
         },
-        "class_type": "SaveAnimatedWEBP"
+        "class_type": "SaveVideo"
       }
     };
 
