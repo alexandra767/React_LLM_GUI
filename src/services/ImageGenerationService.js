@@ -450,9 +450,31 @@ class ImageGenerationService {
     // First, upload the image to ComfyUI
     const imageName = await this.uploadImage(inputImage);
 
-    // Create FLUX Redux workflow for better image-to-image with person preservation
+    // Create enhanced Flux img2img workflow
     const workflow = {
-      "11": {
+      "3": {
+        "inputs": {
+          "seed": seed,
+          "steps": steps,
+          "cfg": cfg,
+          "sampler_name": sampler,
+          "scheduler": scheduler,
+          "denoise": 0.75, // img2img strength
+          "model": ["4", 0],
+          "positive": ["6", 0],
+          "negative": ["7", 0],
+          "latent_image": ["10", 0]
+        },
+        "class_type": "KSampler"
+      },
+      "4": {
+        "inputs": {
+          "unet_name": "flux1-dev.safetensors",
+          "weight_dtype": "default"
+        },
+        "class_type": "UNETLoader"
+      },
+      "5": {
         "inputs": {
           "clip_name1": "t5xxl_fp16.safetensors",
           "clip_name2": "clip_l.safetensors",
@@ -460,139 +482,53 @@ class ImageGenerationService {
         },
         "class_type": "DualCLIPLoader"
       },
-      "17": {
+      "6": {
         "inputs": {
-          "model": ["30", 0],
-          "scheduler": scheduler,
-          "steps": steps,
-          "denoise": 1
+          "text": prompt,
+          "clip": ["5", 0]
         },
-        "class_type": "BasicScheduler"
+        "class_type": "CLIPTextEncode"
       },
-      "16": {
+      "7": {
         "inputs": {
-          "sampler_name": sampler
+          "text": "",
+          "clip": ["5", 0]
         },
-        "class_type": "KSamplerSelect"
-      },
-      "26": {
-        "inputs": {
-          "conditioning": ["6", 0],
-          "guidance": cfg
-        },
-        "class_type": "FluxGuidance"
-      },
-      "13": {
-        "inputs": {
-          "noise": ["25", 0],
-          "guider": ["22", 0],
-          "sampler": ["16", 0],
-          "sigmas": ["17", 0],
-          "latent_image": ["27", 0]
-        },
-        "class_type": "SamplerCustomAdvanced"
-      },
-      "25": {
-        "inputs": {
-          "noise_seed": seed
-        },
-        "class_type": "RandomNoise"
+        "class_type": "CLIPTextEncode"
       },
       "8": {
         "inputs": {
-          "samples": ["13", 0],
-          "vae": ["10", 0]
+          "samples": ["3", 0],
+          "vae": ["12", 0]
         },
         "class_type": "VAEDecode"
       },
-      "30": {
-        "inputs": {
-          "model": ["12", 0],
-          "max_shift": 1.15,
-          "base_shift": 0.5,
-          "width": width,
-          "height": height
-        },
-        "class_type": "ModelSamplingFlux"
-      },
-      "27": {
-        "inputs": {
-          "width": width,
-          "height": height,
-          "batch_size": 1
-        },
-        "class_type": "EmptySD3LatentImage"
-      },
-      "12": {
-        "inputs": {
-          "unet_name": "flux1-dev.safetensors",
-          "weight_dtype": "default"
-        },
-        "class_type": "UNETLoader"
-      },
       "9": {
         "inputs": {
-          "filename_prefix": "Sephia_redux",
+          "filename_prefix": "Sephia_img2img",
           "images": ["8", 0]
         },
         "class_type": "SaveImage"
       },
       "10": {
         "inputs": {
-          "vae_name": "ae.safetensors"
+          "pixels": ["11", 0],
+          "vae": ["12", 0]
         },
-        "class_type": "VAELoader"
+        "class_type": "VAEEncode"
       },
-      "39": {
-        "inputs": {
-          "clip_vision": ["38", 0],
-          "image": ["40", 0],
-          "crop": "center"
-        },
-        "class_type": "CLIPVisionEncode"
-      },
-      "40": {
+      "11": {
         "inputs": {
           "image": imageName,
           "upload": "image"
         },
         "class_type": "LoadImage"
       },
-      "42": {
+      "12": {
         "inputs": {
-          "style_model_name": "flux1-redux-dev.safetensors"
+          "vae_name": "ae.safetensors"
         },
-        "class_type": "StyleModelLoader"
-      },
-      "38": {
-        "inputs": {
-          "clip_vision_name": "sigclip_vision_patch14_384.safetensors"
-        },
-        "class_type": "CLIPVisionLoader"
-      },
-      "41": {
-        "inputs": {
-          "conditioning": ["26", 0],
-          "style_model": ["42", 0],
-          "clip_vision_output": ["39", 0],
-          "strength": styleStrength,
-          "composition": "multiply"
-        },
-        "class_type": "StyleModelApply"
-      },
-      "22": {
-        "inputs": {
-          "model": ["30", 0],
-          "conditioning": ["41", 0]
-        },
-        "class_type": "BasicGuider"
-      },
-      "6": {
-        "inputs": {
-          "text": prompt,
-          "clip": ["11", 0]
-        },
-        "class_type": "CLIPTextEncode"
+        "class_type": "VAELoader"
       }
     };
 
@@ -601,7 +537,7 @@ class ImageGenerationService {
 
     // Create promise to track completion
     return new Promise((resolve, reject) => {
-      console.log('[ImageGen] Creating promise for FLUX Redux promptId:', promptId);
+      console.log('[ImageGen] Creating promise for Flux img2img promptId:', promptId);
       this.pendingRequests.set(promptId, {
         resolve,
         reject,
