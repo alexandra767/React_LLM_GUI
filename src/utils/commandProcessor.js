@@ -996,9 +996,19 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             });
           }
           
+          // Enhance prompt with quality modifiers for video
+          const qualityEnhancers = ', high quality, smooth motion, cinematic, natural movement, realistic animation, professional video quality, detailed frames, consistent motion, fluid animation';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
+          // Update generation options with enhanced prompt
+          const enhancedGenerationOptions = {
+            ...generationOptions,
+            prompt: enhancedPrompt
+          };
+          
           // Upload image and generate video
           const imageName = await imageGen.uploadImage(attachedImage.content);
-          const videos = await imageGen.generateVideoFromImage(imageName, generationOptions);
+          const videos = await imageGen.generateVideoFromImage(imageName, enhancedGenerationOptions);
           
           console.log('[Img2Video] Generation result:', videos);
           
