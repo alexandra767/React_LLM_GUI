@@ -495,89 +495,34 @@ class ImageGenerationService {
       imageName = imageUrl;
     }
 
-    // Create proper SVD workflow using UNETLoader
+    // Use Luma AI cloud video generation instead of problematic local SVD
     const workflow = {
-      "3": {
-        "inputs": {
-          "seed": seed,
-          "steps": 20,
-          "cfg": 2.5,
-          "sampler_name": "euler",
-          "scheduler": "karras",
-          "denoise": 1,
-          "model": ["4", 0],
-          "positive": ["5", 0],
-          "negative": ["5", 1],
-          "latent_image": ["6", 0]
-        },
-        "class_type": "KSampler"
-      },
-      "4": {
-        "inputs": {
-          "unet_name": "svd_xt.safetensors",
-          "weight_dtype": "default"
-        },
-        "class_type": "UNETLoader"
-      },
-      "5": {
-        "inputs": {
-          "width": 1024,
-          "height": 576,
-          "video_frames": frames,
-          "motion_bucket_id": motionBucketId,
-          "fps": fps,
-          "augmentation_level": augLevel,
-          "clip_vision": ["11", 0],
-          "init_image": ["7", 0],
-          "vae": ["10", 0]
-        },
-        "class_type": "SVD_img2vid_Conditioning"
-      },
-      "6": {
-        "inputs": {
-          "width": 1024,
-          "height": 576,
-          "video_frames": frames,
-          "batch_size": 1
-        },
-        "class_type": "EmptySD3LatentImage"
-      },
-      "7": {
+      "1": {
         "inputs": {
           "image": imageName,
           "upload": "image"
         },
         "class_type": "LoadImage"
       },
-      "8": {
+      "2": {
         "inputs": {
-          "filename_prefix": "Sephia_video",
+          "images": ["1", 0],
+          "aspect_ratio": "16:9",
+          "loop": false,
+          "output_duration": "5s"
+        },
+        "class_type": "LumaImageToVideoNode"
+      },
+      "3": {
+        "inputs": {
+          "filename_prefix": "Sephia_video_luma",
           "fps": fps,
           "lossless": false,
           "quality": 85,
           "method": "default",
-          "images": ["9", 0]
+          "images": ["2", 0]
         },
         "class_type": "SaveAnimatedWEBP"
-      },
-      "9": {
-        "inputs": {
-          "samples": ["3", 0],
-          "vae": ["10", 0]
-        },
-        "class_type": "VAEDecode"
-      },
-      "10": {
-        "inputs": {
-          "vae_name": "ae.safetensors"
-        },
-        "class_type": "VAELoader"
-      },
-      "11": {
-        "inputs": {
-          "clip_name": "sigclip_vision_patch14_384.safetensors"
-        },
-        "class_type": "CLIPVisionLoader"
       }
     };
 
