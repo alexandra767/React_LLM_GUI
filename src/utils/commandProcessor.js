@@ -669,7 +669,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
             console.log('[Image] Using attached image for img2img generation');
             generationOptions.inputImage = attachedImage.content;
-            generationOptions.styleStrength = 1.0; // FLUX Redux style strength
+            generationOptions.denoise = 0.5; // Lower denoise to preserve your appearance better
             
             // Set initial progress for img2img
             if (setImageGenerationProgress) {
@@ -692,13 +692,27 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             }
           }
           
-          // Enhance prompt with quality modifiers (same as @flux)
-          const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, 8k resolution, masterpiece, best quality, extremely detailed, sharp focus, professional photography, cinematic lighting, photorealistic';
-          const enhancedPrompt = actualArgs + qualityEnhancers;
+          // Enhance prompt with quality modifiers (different for img2img vs text2img)
+          let enhancedPrompt;
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            // For img2img: focus on preserving the person while applying changes
+            const preservationEnhancers = ', same person, same face, same identity, maintain facial features, ' + actualArgs + ', high quality, detailed, professional photography, cinematic lighting, photorealistic';
+            enhancedPrompt = preservationEnhancers;
+          } else {
+            // For text2img: use full quality enhancers
+            const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, 8k resolution, masterpiece, best quality, extremely detailed, sharp focus, professional photography, cinematic lighting, photorealistic';
+            enhancedPrompt = actualArgs + qualityEnhancers;
+          }
           
-          // Generate the image
-          console.log('[Image] Generating image with enhanced prompt:', enhancedPrompt);
-          const images = await imageGen.generateImage(enhancedPrompt, generationOptions);
+          // Generate the image (choose method based on whether we have an attached image)
+          let images;
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            console.log('[Image] Using image-to-image generation with enhanced prompt:', enhancedPrompt);
+            images = await imageGen.generateImageFromImage(enhancedPrompt, generationOptions);
+          } else {
+            console.log('[Image] Using text-to-image generation with enhanced prompt:', enhancedPrompt);
+            images = await imageGen.generateImage(enhancedPrompt, generationOptions);
+          }
           
           console.log('[Image] Generation result:', images);
           console.log('[Image] Generation result details:', JSON.stringify(images));

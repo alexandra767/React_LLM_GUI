@@ -631,7 +631,7 @@ class ImageGenerationService {
           "cfg": cfg,
           "sampler_name": sampler,
           "scheduler": scheduler,
-          "denoise": 0.75, // img2img strength
+          "denoise": 0.6, // Lower denoise to preserve more of original image
           "model": ["4", 0],
           "positive": ["6", 0],
           "negative": ["7", 0],
