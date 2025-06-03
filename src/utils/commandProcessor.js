@@ -493,9 +493,19 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             console.log('[Flux] No steps match found, using default steps:', steps);
           }
           
+          // Detect if full body is requested and adjust aspect ratio
+          let width = 768;
+          let height = 768;
+          if (actualArgs.toLowerCase().includes('full body') || actualArgs.toLowerCase().includes('full-body') || 
+              actualArgs.toLowerCase().includes('whole body') || actualArgs.toLowerCase().includes('standing')) {
+            width = 576;   // Narrower width
+            height = 1024; // Taller height for full body
+            console.log('[Flux] Detected full body request, using portrait aspect ratio:', { width, height });
+          }
+          
           const generationOptions = {
-            width: 768,
-            height: 768,
+            width: width,
+            height: height,
             steps: steps,
             model: 'flux-dev', // Use the new Flux model
             onProgress: (progress) => {
@@ -640,9 +650,19 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             console.log('[Image] No steps match found, using default steps:', steps);
           }
           
+          // Detect if full body is requested and adjust aspect ratio
+          let width = 1024;
+          let height = 1024;
+          if (actualArgs.toLowerCase().includes('full body') || actualArgs.toLowerCase().includes('full-body') || 
+              actualArgs.toLowerCase().includes('whole body') || actualArgs.toLowerCase().includes('standing')) {
+            width = 768;   // Narrower width
+            height = 1344; // Taller height for full body (16:22 aspect ratio)
+            console.log('[Image] Detected full body request, using portrait aspect ratio:', { width, height });
+          }
+          
           const generationOptions = {
-            width: 1024,
-            height: 1024,
+            width: width,
+            height: height,
             steps: steps,
             cfg: 3.5,
             sampler: 'euler',
