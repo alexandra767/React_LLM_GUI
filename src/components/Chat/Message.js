@@ -1552,6 +1552,75 @@ const Message = React.memo(({ message, onDelete }) => {
             </Box>
           )}
 
+          {/* Render video frame sequence if present */}
+          {safeMessage.isFrameSequence && safeMessage.videoFrames && (
+            <Box sx={{ marginTop: 2 }}>
+              <Box sx={{ 
+                marginBottom: 2,
+                padding: 2,
+                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                border: '1px solid rgba(255, 193, 7, 0.3)',
+                borderRadius: '8px'
+              }}>
+                <div style={{ color: '#FFC107', fontWeight: 600, marginBottom: '8px' }}>
+                  🎬 Video Generated ({safeMessage.videoFrames.length} frames)
+                </div>
+                <div style={{ color: '#FFFFFF', fontSize: '14px', marginBottom: '12px' }}>
+                  Your video has been generated as {safeMessage.videoFrames.length} individual frames. 
+                  You can view them in sequence below, or use external tools to combine them into a video file.
+                </div>
+                <div style={{ color: '#FFFFFF', fontSize: '13px', opacity: 0.8 }}>
+                  💡 Tip: You can download all frames and use tools like FFmpeg to create an MP4: 
+                  <code style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '2px 4px', borderRadius: '3px', marginLeft: '4px' }}>
+                    ffmpeg -framerate 6 -i frame_%05d.png output.mp4
+                  </code>
+                </div>
+              </Box>
+              
+              <Box sx={{ 
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                gap: 1,
+                maxHeight: '400px',
+                overflowY: 'auto',
+                padding: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                borderRadius: '8px'
+              }}>
+                {safeMessage.videoFrames.map((frame, index) => (
+                  <Box key={index} sx={{ position: 'relative' }}>
+                    <img 
+                      src={frame.url}
+                      alt={`Frame ${index + 1}`}
+                      style={{
+                        width: '100%',
+                        height: 'auto',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => {
+                        // Open frame in new tab for full view
+                        window.open(frame.url, '_blank');
+                      }}
+                    />
+                    <div style={{
+                      position: 'absolute',
+                      bottom: '2px',
+                      right: '2px',
+                      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                      color: 'white',
+                      fontSize: '10px',
+                      padding: '1px 4px',
+                      borderRadius: '2px'
+                    }}>
+                      {index + 1}
+                    </div>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+
           {/* Render image if present */}
           {safeMessage.imageUrl && (
             <Box sx={{ 

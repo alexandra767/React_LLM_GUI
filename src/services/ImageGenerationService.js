@@ -147,6 +147,46 @@ class ImageGenerationService {
     console.log('[ImageGen] WebSocket message:', message);
     const { type, data } = message;
     
+    // Handle video frame generation differently - check for multiple images first
+    if (type === 'executed' && data?.prompt_id && data.output && data.output.images && Array.isArray(data.output.images) && data.output.images.length > 1) {
+      const request = this.pendingRequests.get(data.prompt_id);
+      if (request && !request.resolved && !request.cancelled) {
+        console.log('[ImageGen] Video frames generated:', data.output.images.length, 'frames');
+        
+        // For video, create a special response with all frames
+        const videoFrames = data.output.images.map((img, index) => ({
+          filename: img.filename,
+          subfolder: img.subfolder || '',
+          type: img.type || 'output',
+          url: `${this.baseUrl}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`,
+          frameNumber: index + 1
+        }));
+        
+        request.onProgress?.({ 
+          currentStep: request.totalSteps || 20, 
+          totalSteps: request.totalSteps || 20,
+          message: `Video frames generated! (${data.output.images.length} frames)`,
+          status: 'complete'
+        });
+        
+        request.resolved = true;
+        
+        setTimeout(() => {
+          // Return with video flag so the UI knows this is a video sequence
+          request.resolve({
+            isVideo: true,
+            frames: videoFrames,
+            frameCount: data.output.images.length,
+            // Use first frame as preview
+            previewUrl: videoFrames[0].url
+          });
+          this.pendingRequests.delete(data.prompt_id);
+          this.isGenerating = false;
+        }, 500);
+        return;
+      }
+    }
+    
     if (type === 'executing' && data?.prompt_id) {
       const request = this.pendingRequests.get(data.prompt_id);
       if (request) {
@@ -495,7 +535,8 @@ class ImageGenerationService {
       imageName = imageUrl;
     }
 
-    // Use Luma AI cloud video generation instead of problematic local SVD
+    // Use local SVD (Stable Video Diffusion) for free video generation
+    // Note: This will generate video frames as individual images since no video combining node is available
     const workflow = {
       "1": {
         "inputs": {
@@ -506,19 +547,52 @@ class ImageGenerationService {
       },
       "2": {
         "inputs": {
-          "images": ["1", 0],
-          "aspect_ratio": "16:9",
-          "loop": false,
-          "output_duration": "5s"
+          "ckpt_name": "svd_xt.safetensors"
         },
-        "class_type": "LumaImageToVideoNode"
+        "class_type": "ImageOnlyCheckpointLoader"
       },
       "3": {
         "inputs": {
-          "filename_prefix": "Sephia_video_luma",
-          "video": ["2", 0]
+          "clip_vision": ["2", 1],
+          "init_image": ["1", 0],
+          "vae": ["2", 2],
+          "width": 1024,
+          "height": 576,
+          "video_frames": frames,
+          "motion_bucket_id": motionBucketId,
+          "fps": fps,
+          "augmentation_level": augLevel
         },
-        "class_type": "SaveVideo"
+        "class_type": "SVD_img2vid_Conditioning"
+      },
+      "4": {
+        "inputs": {
+          "seed": seed,
+          "steps": 20,
+          "cfg": 2.5,
+          "sampler_name": "euler",
+          "scheduler": "karras",
+          "denoise": 1.0,
+          "model": ["2", 0],
+          "positive": ["3", 0],
+          "negative": ["3", 1],
+          "latent_image": ["3", 2]
+        },
+        "class_type": "KSampler"
+      },
+      "5": {
+        "inputs": {
+          "samples": ["4", 0],
+          "vae": ["2", 2]
+        },
+        "class_type": "VAEDecode"
+      },
+      "6": {
+        "inputs": {
+          "filename_prefix": "Sephia_video_svd",
+          "images": ["5", 0]
+        },
+        "class_type": "SaveImage"
       }
     };
 

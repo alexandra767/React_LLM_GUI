@@ -972,6 +972,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const generationOptions = {
             frames: frames,
             fps: fps,
+            prompt: actualArgs,
             onProgress: (progress) => {
               if (setImageGenerationProgress) {
                 const progressData = {
@@ -1001,18 +1002,31 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           console.log('[Img2Video] Generation result:', videos);
           
-          if (videos && videos.length > 0) {
+          // Handle both single videos and video frame sequences
+          if (videos && (videos.length > 0 || videos.isVideo)) {
             // Clear progress on success
             if (setImageGenerationProgress) {
               setImageGenerationProgress(null);
             }
             
-            const videoUrl = videos[0].url;
-            return {
-              type: 'video',
-              content: `Generated video from attached image`,
-              videoUrl: videoUrl
-            };
+            if (videos.isVideo) {
+              // Handle video frame sequence
+              return {
+                type: 'video',
+                content: `Generated video from attached image (${videos.frameCount} frames)`,
+                videoFrames: videos.frames,
+                previewUrl: videos.previewUrl,
+                isFrameSequence: true
+              };
+            } else {
+              // Handle single video file
+              const videoUrl = videos[0].url;
+              return {
+                type: 'video',
+                content: `Generated video from attached image`,
+                videoUrl: videoUrl
+              };
+            }
           } else {
             // Clear progress on failure
             if (setImageGenerationProgress) {
