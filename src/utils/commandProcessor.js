@@ -55,7 +55,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
   let command = parts[0].toLowerCase();
   let args = parts.slice(1).join(' ');
   
-  // Handle @flux:STEPS and @image:STEPS syntax
+  // Handle @flux:STEPS, @image:STEPS, and @video:FRAMES:FPS syntax
   if (command.startsWith('@flux:')) {
     const colonParts = command.split(':');
     command = colonParts[0]; // @flux
@@ -64,6 +64,23 @@ export const processCommand = async (message, attachments = [], { setImageGenera
     const colonParts = command.split(':');
     command = colonParts[0]; // @image or @img
     args = colonParts[1] + ' ' + args; // :20 prompt becomes "20 prompt"
+  } else if (command.startsWith('@video:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @video
+    // Handle @video:frames:fps or @video:frames format
+    if (colonParts.length === 3) {
+      args = colonParts[1] + ':' + colonParts[2] + ' ' + args; // :25:8 prompt becomes "25:8 prompt"
+    } else {
+      args = colonParts[1] + ' ' + args; // :25 prompt becomes "25 prompt"
+    }
+  } else if (command.startsWith('@img2video:') || command.startsWith('@image2video:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @img2video or @image2video
+    if (colonParts.length === 3) {
+      args = colonParts[1] + ':' + colonParts[2] + ' ' + args;
+    } else {
+      args = colonParts[1] + ' ' + args;
+    }
   }
 
   try {
@@ -763,6 +780,230 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           };
         }
 
+      case '@video':
+        // @video [prompt] - Generate a video from text
+        if (!args) {
+          return {
+            type: 'error',
+            content: 'Please provide a video description.\nExamples:\n  @video a cat walking (14 frames, 6fps)\n  @video:25 a busy street scene (25 frames)\n  @video:30:8 ocean waves (30 frames, 8fps)'
+          };
+        }
+        
+        try {
+          console.log('[Video] Starting video generation for:', args);
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          console.log('[Video] Checking ComfyUI status...');
+          const status = await imageGen.checkStatus();
+          console.log('[Video] ComfyUI status:', status);
+          
+          if (!status.running) {
+            return {
+              type: 'error',
+              content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Parse frames and fps from command if specified (e.g., @video:25:8 prompt)
+          let frames = 14; // Default
+          let fps = 6; // Default  
+          let actualArgs = args;
+          console.log('[Video] Parsing args:', args);
+          const videoMatch = args.match(/^(\d+)(?::(\d+))?\s+(.+)/);
+          if (videoMatch) {
+            frames = Math.min(Math.max(parseInt(videoMatch[1], 10), 10), 30); // Clamp between 10-30
+            fps = videoMatch[2] ? Math.min(Math.max(parseInt(videoMatch[2], 10), 6), 12) : 6; // Clamp between 6-12
+            actualArgs = videoMatch[3];
+            console.log('[Video] Parsed frames:', frames, 'fps:', fps, 'actualArgs:', actualArgs);
+          } else {
+            console.log('[Video] No video parameters match found, using defaults:', { frames, fps });
+          }
+          
+          const generationOptions = {
+            frames: frames,
+            fps: fps,
+            steps: 20,
+            onProgress: (progress) => {
+              console.log('[Video Generation] Progress:', progress);
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: progress.totalSteps || 30,
+                  message: progress.message || `Generating video (${frames} frames, ${fps}fps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                console.log('[Video Generation] Setting progress:', progressData);
+                setImageGenerationProgress(progressData);
+              }
+            }
+          };
+          
+          // Set initial progress
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress({
+              currentStep: 0,
+              totalSteps: 30,
+              message: `Starting video generation (${frames} frames, ${fps}fps)...`,
+              estimatedTime: '~3-4 minutes'
+            });
+          }
+          
+          // Enhance prompt with quality modifiers
+          const qualityEnhancers = ', high quality, detailed, cinematic, smooth motion, professional video';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
+          // Generate the video
+          console.log('[Video] Generating video with enhanced prompt:', enhancedPrompt);
+          const videos = await imageGen.generateVideo(enhancedPrompt, generationOptions);
+          
+          console.log('[Video] Generation result:', videos);
+          
+          if (videos && videos.length > 0) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            const videoUrl = videos[0].url;
+            console.log('[Video] Video URL:', videoUrl);
+            return {
+              type: 'video',
+              content: `Generated video for: "${args}"`,
+              videoUrl: videoUrl
+            };
+          } else {
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            return {
+              type: 'error',
+              content: 'Video was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (videoError) {
+          console.error('[Video] Video generation error:', videoError);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
+          return {
+            type: 'error',
+            content: `Video generation error: ${videoError.message}`
+          };
+        }
+
+      case '@img2video':
+      case '@image2video':
+        // @img2video [description] - Generate video from attached image
+        try {
+          console.log('[Img2Video] Starting image-to-video generation');
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          const status = await imageGen.checkStatus();
+          if (!status.running) {
+            return {
+              type: 'error',
+              content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Check if we have an attached image
+          const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
+          if (!attachedImage || !attachedImage.content?.startsWith('data:image/')) {
+            return {
+              type: 'error',
+              content: 'Please attach an image to generate video from. Use the attach button (📎) to add an image.'
+            };
+          }
+          
+          // Parse frames and fps from command if specified  
+          let frames = 14;
+          let fps = 6;
+          let actualArgs = args || 'animate this image with natural motion';
+          const videoMatch = args?.match(/^(\d+)(?::(\d+))?\s+(.+)/);
+          if (videoMatch) {
+            frames = Math.min(Math.max(parseInt(videoMatch[1], 10), 10), 30);
+            fps = videoMatch[2] ? Math.min(Math.max(parseInt(videoMatch[2], 10), 6), 12) : 6;
+            actualArgs = videoMatch[3];
+          }
+          
+          const generationOptions = {
+            frames: frames,
+            fps: fps,
+            onProgress: (progress) => {
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: 20,
+                  message: `Creating video from image (${frames} frames, ${fps}fps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                setImageGenerationProgress(progressData);
+              }
+            }
+          };
+          
+          // Set initial progress
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress({
+              currentStep: 0,
+              totalSteps: 20,
+              message: `Starting image-to-video generation (${frames} frames, ${fps}fps)...`,
+              estimatedTime: '~2-3 minutes'
+            });
+          }
+          
+          // Upload image and generate video
+          const imageName = await imageGen.uploadImage(attachedImage.content);
+          const videos = await imageGen.generateVideoFromImage(imageName, generationOptions);
+          
+          console.log('[Img2Video] Generation result:', videos);
+          
+          if (videos && videos.length > 0) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            const videoUrl = videos[0].url;
+            return {
+              type: 'video',
+              content: `Generated video from attached image`,
+              videoUrl: videoUrl
+            };
+          } else {
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            return {
+              type: 'error',
+              content: 'Video was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (img2videoError) {
+          console.error('[Img2Video] Error:', img2videoError);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
+          return {
+            type: 'error',
+            content: `Image-to-video generation error: ${img2videoError.message}`
+          };
+        }
+
       case '@calendar-add':
         // @calendar-add [event details] - Add event to calendar
         try {
@@ -1394,6 +1635,9 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers
 • @flux [prompt] - Flux model generation (12 steps, 768x768)
 • @flux:STEPS [prompt] - Flux with custom steps (1-50)
+• @video [prompt] - Generate video from text (14 frames, 6fps)
+• @video:FRAMES:FPS [prompt] - Custom video settings (10-30 frames, 6-12fps)
+• @img2video [description] - Create video from attached image
 • @help - Show this help message
 
 Examples:
@@ -1418,6 +1662,9 @@ Examples:
 • @image:30 detailed portrait (30 steps with quality enhancers)
 • @flux a cyberpunk city at night (uses 12 steps)
 • @flux:20 a detailed portrait (uses 20 steps)
+• @video a cat walking through a garden (14 frames, 6fps)
+• @video:25:8 ocean waves crashing (25 frames, 8fps)
+• @img2video (attach image) animate with natural motion
 • @help`
           };
         }
@@ -1470,7 +1717,10 @@ Examples:
 • @image a cyberpunk city at night (high quality, 20 steps)
 • @image:40 complex landscape (40 steps with quality enhancers)
 • @flux a futuristic landscape (uses 12 steps)
-• @flux:20 a detailed portrait (uses 20 steps)`
+• @flux:20 a detailed portrait (uses 20 steps)
+• @video a busy street with people walking (14 frames, 6fps)
+• @video:20:10 time-lapse sunset (20 frames, 10fps)
+• @img2video (attach image) add gentle movement`
         };
 
       default:

@@ -421,6 +421,178 @@ class ImageGenerationService {
     });
   }
 
+  async generateVideo(prompt, options = {}) {
+    console.log('[ImageGen] generateVideo called with:', { prompt, options });
+    
+    // First generate an image, then create video from it
+    const imageOptions = {
+      width: 1024,
+      height: 576, // 16:9 aspect ratio for video
+      steps: options.steps || 20,
+      cfg: 3.5,
+      sampler: 'euler',
+      scheduler: 'simple',
+      model: 'flux-dev',
+      onProgress: (progress) => {
+        if (options.onProgress) {
+          const progressData = {
+            currentStep: progress.currentStep || 0,
+            totalSteps: (options.steps || 20) + 10, // Image + video steps
+            message: progress.currentStep <= (options.steps || 20) ? 
+              'Generating base image...' : 'Creating video from image...',
+            estimatedTime: progress.estimatedTime || null
+          };
+          options.onProgress(progressData);
+        }
+      }
+    };
+
+    // Generate base image first
+    const images = await this.generateImage(prompt, imageOptions);
+    if (!images || images.length === 0) {
+      throw new Error('Failed to generate base image for video');
+    }
+
+    // Now create video from the generated image
+    return this.generateVideoFromImage(images[0].url, options);
+  }
+
+  async generateVideoFromImage(imageUrl, options = {}) {
+    console.log('[ImageGen] generateVideoFromImage called with:', { imageUrl, options });
+    
+    // Ensure we're connected
+    if (!this.isConnected) {
+      console.log('[ImageGen] Not connected, attempting to connect...');
+      const connected = await this.connect();
+      if (!connected) {
+        throw new Error('Failed to connect to ComfyUI. Make sure it\'s running with: ./start-comfyui.sh');
+      }
+    }
+
+    const {
+      frames = 14,
+      fps = 6,
+      motionBucketId = 127,
+      augLevel = 0.0,
+      seed = Math.floor(Math.random() * 1000000),
+      onProgress = null
+    } = options;
+
+    // Download image from URL to upload to ComfyUI
+    let imageName;
+    if (imageUrl.startsWith('http')) {
+      // Download the image first
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      const base64 = await new Promise(resolve => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      imageName = await this.uploadImage(base64);
+    } else {
+      // Assume it's already an image name
+      imageName = imageUrl;
+    }
+
+    // Create SVD workflow
+    const workflow = {
+      "3": {
+        "inputs": {
+          "seed": seed,
+          "steps": 20,
+          "cfg": 2.5,
+          "sampler_name": "euler",
+          "scheduler": "karras",
+          "denoise": 1,
+          "model": ["4", 0],
+          "positive": ["6", 0],
+          "negative": ["7", 0],
+          "latent_image": ["5", 0]
+        },
+        "class_type": "KSampler"
+      },
+      "4": {
+        "inputs": {
+          "ckpt_name": "svd_xt.safetensors"
+        },
+        "class_type": "CheckpointLoaderSimple"
+      },
+      "5": {
+        "inputs": {
+          "width": 1024,
+          "height": 576,
+          "video_frames": frames,
+          "batch_size": 1
+        },
+        "class_type": "SVD_img2vid_Conditioning"
+      },
+      "6": {
+        "inputs": {
+          "width": 1024,
+          "height": 576,
+          "video_frames": frames,
+          "motion_bucket_id": motionBucketId,
+          "fps": fps,
+          "augmentation_level": augLevel,
+          "clip": ["4", 1],
+          "init_image": ["8", 0],
+          "vae": ["4", 2]
+        },
+        "class_type": "SVD_img2vid_Conditioning"
+      },
+      "7": {
+        "inputs": {
+          "text": "",
+          "clip": ["4", 1]
+        },
+        "class_type": "CLIPTextEncode"
+      },
+      "8": {
+        "inputs": {
+          "image": imageName,
+          "upload": "image"
+        },
+        "class_type": "LoadImage"
+      },
+      "9": {
+        "inputs": {
+          "filename_prefix": "Sephia_video",
+          "fps": fps,
+          "lossless": false,
+          "quality": 85,
+          "method": "default",
+          "images": ["10", 0]
+        },
+        "class_type": "SaveAnimatedWEBP"
+      },
+      "10": {
+        "inputs": {
+          "samples": ["3", 0],
+          "vae": ["4", 2]
+        },
+        "class_type": "VAEDecode"
+      }
+    };
+
+    // Submit the workflow
+    const promptId = await this.queuePrompt(workflow);
+
+    // Create promise to track completion
+    return new Promise((resolve, reject) => {
+      console.log('[ImageGen] Creating promise for SVD video promptId:', promptId);
+      this.pendingRequests.set(promptId, {
+        resolve,
+        reject,
+        onProgress,
+        resolved: false,
+        totalSteps: 20
+      });
+
+      // No timeout - let generation run as long as needed
+    });
+  }
+
   async generateImageFromImage(prompt, options = {}) {
     console.log('[ImageGen] generateImageFromImage called with:', { prompt, options });
     

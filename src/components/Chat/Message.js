@@ -694,6 +694,61 @@ const Message = React.memo(({ message, onDelete }) => {
       setDownloadStatus(false);
     }
   };
+
+  const handleDownloadVideo = async (videoUrl) => {
+    try {
+      console.log('[Message] Downloading video from URL:', videoUrl);
+      setDownloadStatus(true);
+      
+      // Fetch the video
+      const response = await fetch(videoUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch video');
+      }
+      
+      const blob = await response.blob();
+      
+      // Check if we're in Electron environment
+      if (window.electron && window.electron.saveVideoDialog) {
+        // Use Electron's save dialog for video
+        const buffer = await blob.arrayBuffer();
+        const result = await window.electron.saveVideoDialog(buffer, 'sephia-video.webp');
+        if (result) {
+          console.log('[Message] Video saved successfully via Electron');
+        } else {
+          console.log('[Message] User cancelled save dialog');
+        }
+      } else {
+        // Use browser download
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        link.download = `sephia-video-${timestamp}.webp`;
+        
+        // Trigger download
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up
+        window.URL.revokeObjectURL(url);
+        console.log('[Message] Video downloaded via browser');
+      }
+      
+      // Reset download status after delay
+      setTimeout(() => {
+        setDownloadStatus(false);
+      }, 2000);
+      
+    } catch (error) {
+      console.error('[Message] Failed to download video:', error);
+      alert('Failed to download video. Please try again.');
+      setDownloadStatus(false);
+    }
+  };
   
   // Custom renderer for code blocks
   const components = {
@@ -1422,6 +1477,81 @@ const Message = React.memo(({ message, onDelete }) => {
         <>
           {renderThinkingSection()}
           {renderMainContent()}
+          {/* Render video if present */}
+          {safeMessage.videoUrl && (
+            <Box sx={{ 
+              marginTop: 2, 
+              position: 'relative',
+              display: 'inline-block',
+              maxWidth: '768px',
+              '&:hover .video-action-button': {
+                opacity: 1,
+                visibility: 'visible',
+              }
+            }}>
+              <video 
+                src={safeMessage.videoUrl} 
+                controls
+                autoPlay={false}
+                loop={false}
+                muted={false}
+                style={{
+                  width: '100%',
+                  maxWidth: '768px',
+                  height: 'auto',
+                  display: 'block',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                  backgroundColor: '#000'
+                }}
+                onError={(e) => {
+                  console.error('[Message] Video failed to load:', {
+                    src: e.target.src,
+                    error: e.type,
+                    message: e.message
+                  });
+                  e.target.style.display = 'none';
+                }}
+                onLoadedData={(e) => {
+                  console.log('[Message] Video loaded successfully:', e.target.src);
+                }}
+              />
+              
+              {/* Video action buttons */}
+              <Box className="video-action-button" sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                display: 'flex',
+                gap: 0.5,
+                opacity: 0,
+                visibility: 'hidden',
+                transition: 'opacity 0.2s ease-in-out, visibility 0.2s ease-in-out',
+                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                borderRadius: '6px',
+                padding: '4px'
+              }}>
+                
+                {/* Download video button */}
+                <Tooltip title="Download Video" arrow>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleDownloadVideo(safeMessage.videoUrl)}
+                    sx={{
+                      color: 'white',
+                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)'
+                      }
+                    }}
+                  >
+                    <DownloadIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </Box>
+          )}
+
           {/* Render image if present */}
           {safeMessage.imageUrl && (
             <Box sx={{ 
