@@ -958,27 +958,33 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             };
           }
           
-          // Parse frames and fps from command if specified  
+          // Parse frames, fps, and steps from command if specified  
           let frames = 14;
           let fps = 6;
+          let steps = 20;
           let actualArgs = args || 'animate this image with natural motion';
-          const videoMatch = args?.match(/^(\d+)(?::(\d+))?\s+(.+)/);
+          
+          // Support formats: FRAMES:FPS:STEPS prompt or FRAMES:FPS prompt
+          const videoMatch = args?.match(/^(\d+)(?::(\d+))?(?::(\d+))?\s+(.+)/);
           if (videoMatch) {
             frames = Math.min(Math.max(parseInt(videoMatch[1], 10), 10), 30);
             fps = videoMatch[2] ? Math.min(Math.max(parseInt(videoMatch[2], 10), 6), 12) : 6;
-            actualArgs = videoMatch[3];
+            steps = videoMatch[3] ? Math.min(Math.max(parseInt(videoMatch[3], 10), 1), 50) : 20;
+            actualArgs = videoMatch[4];
+            console.log('[Img2Video] Parsed parameters:', { frames, fps, steps, actualArgs });
           }
           
           const generationOptions = {
             frames: frames,
             fps: fps,
+            steps: steps,
             prompt: actualArgs,
             onProgress: (progress) => {
               if (setImageGenerationProgress) {
                 const progressData = {
                   currentStep: progress.currentStep || 0,
-                  totalSteps: 20,
-                  message: `Creating video from image (${frames} frames, ${fps}fps)...`,
+                  totalSteps: steps,
+                  message: `Creating video from image (${frames} frames, ${fps}fps, ${steps} steps)...`,
                   estimatedTime: progress.estimatedTime || null
                 };
                 setImageGenerationProgress(progressData);
@@ -988,11 +994,12 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           // Set initial progress
           if (setImageGenerationProgress) {
+            const estimatedMinutes = Math.round(steps * 1.5); // Rough estimate: 1.5 minutes per step
             setImageGenerationProgress({
               currentStep: 0,
-              totalSteps: 20,
-              message: `Starting image-to-video generation (${frames} frames, ${fps}fps)...`,
-              estimatedTime: '~2-3 minutes'
+              totalSteps: steps,
+              message: `Starting image-to-video generation (${frames} frames, ${fps}fps, ${steps} steps)...`,
+              estimatedTime: `~${estimatedMinutes} minutes`
             });
           }
           
@@ -1012,7 +1019,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           console.log('[Img2Video] Generation result:', videos);
           
-          // Handle both single videos and video frame sequences
+          // Handle video files, frame sequences, and arrays
           if (videos && (videos.length > 0 || videos.isVideo)) {
             // Clear progress on success
             if (setImageGenerationProgress) {
@@ -1020,7 +1027,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             }
             
             if (videos.isVideo) {
-              // Handle video frame sequence
+              // Handle video frame sequence (fallback)
               return {
                 type: 'video',
                 content: `Generated video from attached image (${videos.frameCount} frames)`,
@@ -1028,8 +1035,17 @@ export const processCommand = async (message, attachments = [], { setImageGenera
                 previewUrl: videos.previewUrl,
                 isFrameSequence: true
               };
+            } else if (videos.length > 0 && videos[0].isVideoFile) {
+              // Handle actual video file (MP4, WEBM, etc.)
+              const videoUrl = videos[0].url;
+              return {
+                type: 'video',
+                content: `Generated video from attached image: ${videos[0].filename}`,
+                videoUrl: videoUrl,
+                isActualVideo: true
+              };
             } else {
-              // Handle single video file
+              // Handle single video file (legacy format)
               const videoUrl = videos[0].url;
               return {
                 type: 'video',
@@ -1695,7 +1711,9 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @flux:STEPS [prompt] - Flux with custom steps (1-50)
 • @video [prompt] - Generate video from text (14 frames, 6fps)
 • @video:FRAMES:FPS [prompt] - Custom video settings (10-30 frames, 6-12fps)
-• @img2video [description] - Create video from attached image
+• @img2video [description] - Create MP4 video from attached image (14 frames, 6fps, 20 steps)
+• @img2video:FRAMES:FPS [description] - Custom video settings (10-30 frames, 6-12fps, 20 steps)
+• @img2video:FRAMES:FPS:STEPS [description] - Full custom settings (frames, fps, quality steps 1-50)
 • @help - Show this help message
 
 Examples:
@@ -1723,6 +1741,8 @@ Examples:
 • @video a cat walking through a garden (14 frames, 6fps)
 • @video:25:8 ocean waves crashing (25 frames, 8fps)
 • @img2video (attach image) animate with natural motion
+• @img2video:20:8 (attach image) subtle movement and blinking
+• @img2video:25:6:40 (attach image) high quality smooth animation
 • @help`
           };
         }

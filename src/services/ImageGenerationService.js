@@ -147,43 +147,93 @@ class ImageGenerationService {
     console.log('[ImageGen] WebSocket message:', message);
     const { type, data } = message;
     
-    // Handle video frame generation differently - check for multiple images first
-    if (type === 'executed' && data?.prompt_id && data.output && data.output.images && Array.isArray(data.output.images) && data.output.images.length > 1) {
-      const request = this.pendingRequests.get(data.prompt_id);
-      if (request && !request.resolved && !request.cancelled) {
-        console.log('[ImageGen] Video frames generated:', data.output.images.length, 'frames');
-        
-        // For video, create a special response with all frames
-        const videoFrames = data.output.images.map((img, index) => ({
-          filename: img.filename,
-          subfolder: img.subfolder || '',
-          type: img.type || 'output',
-          url: `${this.baseUrl}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`,
-          frameNumber: index + 1
-        }));
-        
-        request.onProgress?.({ 
-          currentStep: request.totalSteps || 20, 
-          totalSteps: request.totalSteps || 20,
-          message: `Video frames generated! (${data.output.images.length} frames)`,
-          status: 'complete'
-        });
-        
-        request.resolved = true;
-        
-        setTimeout(() => {
-          // Return with video flag so the UI knows this is a video sequence
-          request.resolve({
-            isVideo: true,
-            frames: videoFrames,
-            frameCount: data.output.images.length,
-            // Use first frame as preview
-            previewUrl: videoFrames[0].url
-          });
-          this.pendingRequests.delete(data.prompt_id);
-          this.isGenerating = false;
-        }, 500);
-        return;
+    // Handle actual video file generation (MP4, WEBM, etc.)
+    if (type === 'executed' && data?.prompt_id && data.output && data.output.images && Array.isArray(data.output.images)) {
+      // Check if this is a video file (has .mp4, .webm, etc. extension or animated flag)
+      const hasVideoFile = data.output.images.some(img => 
+        img.filename && (
+          img.filename.includes('.mp4') || 
+          img.filename.includes('.webm') || 
+          img.filename.includes('video_') ||
+          img.filename.includes('Sephia_video_')
+        )
+      );
+      
+      // Check if this is a frame sequence (multiple images or video-specific naming)
+      const hasFrameSequence = data.output.images.length > 1 || 
+        (data.output.images.length > 0 && data.output.images[0].filename && 
+         (data.output.images[0].filename.includes('video_frames') || data.output.images[0].filename.includes('svd_')));
+      
+      if (hasVideoFile || hasFrameSequence) {
+        const request = this.pendingRequests.get(data.prompt_id);
+        if (request && !request.resolved && !request.cancelled) {
+          
+          if (hasVideoFile) {
+            // Handle actual video file
+            console.log('[ImageGen] Video file generated:', data.output.images[0].filename);
+            
+            const videoFile = data.output.images[0];
+            const videoUrl = `${this.baseUrl}/view?filename=${videoFile.filename}&subfolder=${videoFile.subfolder || ''}&type=${videoFile.type || 'output'}`;
+            
+            request.onProgress?.({ 
+              currentStep: request.totalSteps || 20, 
+              totalSteps: request.totalSteps || 20,
+              message: 'Video file generated successfully!',
+              status: 'complete'
+            });
+            
+            request.resolved = true;
+            
+            setTimeout(() => {
+              // Return actual video file
+              request.resolve([{
+                filename: videoFile.filename,
+                subfolder: videoFile.subfolder || '',
+                type: videoFile.type || 'output',
+                url: videoUrl,
+                isVideoFile: true
+              }]);
+              this.pendingRequests.delete(data.prompt_id);
+              this.isGenerating = false;
+            }, 500);
+            return;
+            
+          } else {
+            // Handle frame sequence (fallback)
+            console.log('[ImageGen] Video frames generated:', data.output.images.length, 'frames');
+            
+            const videoFrames = data.output.images.map((img, index) => ({
+              filename: img.filename,
+              subfolder: img.subfolder || '',
+              type: img.type || 'output',
+              url: `${this.baseUrl}/view?filename=${img.filename}&subfolder=${img.subfolder || ''}&type=${img.type || 'output'}`,
+              frameNumber: index + 1
+            }));
+            
+            request.onProgress?.({ 
+              currentStep: request.totalSteps || 20, 
+              totalSteps: request.totalSteps || 20,
+              message: `Video frames generated! (${data.output.images.length} frames)`,
+              status: 'complete'
+            });
+            
+            request.resolved = true;
+            
+            setTimeout(() => {
+              // Return with video flag so the UI knows this is a video sequence
+              request.resolve({
+                isVideo: true,
+                frames: videoFrames,
+                frameCount: data.output.images.length,
+                // Use first frame as preview
+                previewUrl: videoFrames[0].url
+              });
+              this.pendingRequests.delete(data.prompt_id);
+              this.isGenerating = false;
+            }, 500);
+            return;
+          }
+        }
       }
     }
     
@@ -535,8 +585,8 @@ class ImageGenerationService {
       imageName = imageUrl;
     }
 
-    // Use local SVD (Stable Video Diffusion) for free video generation
-    // Note: This will generate video frames as individual images since no video combining node is available
+    // Use local SVD (Stable Video Diffusion) with video file creation
+    // Enhanced workflow that creates actual video files, not just frames
     const workflow = {
       "1": {
         "inputs": {
@@ -568,7 +618,7 @@ class ImageGenerationService {
       "4": {
         "inputs": {
           "seed": seed,
-          "steps": 20,
+          "steps": options.steps || 20,
           "cfg": 2.5,
           "sampler_name": "euler",
           "scheduler": "karras",
@@ -589,10 +639,19 @@ class ImageGenerationService {
       },
       "6": {
         "inputs": {
-          "filename_prefix": "Sephia_video_svd",
-          "images": ["5", 0]
+          "images": ["5", 0],
+          "fps": fps
         },
-        "class_type": "SaveImage"
+        "class_type": "CreateVideo"
+      },
+      "7": {
+        "inputs": {
+          "video": ["6", 0],
+          "filename_prefix": `Sephia_video_${Date.now()}`,
+          "format": "mp4",
+          "codec": "h264"
+        },
+        "class_type": "SaveVideo"
       }
     };
 
