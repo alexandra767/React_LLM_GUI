@@ -582,7 +582,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         if (!args) {
           return {
             type: 'error',
-            content: 'Please provide an image description. Example: @image a sunset over mountains'
+            content: 'Please provide an image description.\nExamples:\n  @image a sunset over mountains (uses 20 steps)\n  @image:30 a detailed portrait (uses 30 steps)\n  @image:50 complex scene with many details (uses 50 steps)'
           };
         }
         
@@ -606,20 +606,37 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           // Check if we have an attached image for img2img
           const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
           
+          // Parse steps from command if specified (e.g., @image:30 prompt)
+          let steps = 20; // Default
+          let actualArgs = args;
+          console.log('[Image] Parsing args:', args);
+          const stepsMatch = args.match(/^(\d+)\s+(.+)/);
+          if (stepsMatch) {
+            steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
+            actualArgs = stepsMatch[2];
+            console.log('[Image] Parsed steps:', steps, 'actualArgs:', actualArgs);
+          } else {
+            console.log('[Image] No steps match found, using default steps:', steps);
+          }
+          
           const generationOptions = {
-            width: 512,
-            height: 512,
-            steps: 20,
+            width: 1024,
+            height: 1024,
+            steps: steps,
+            cfg: 3.5,
+            sampler: 'euler',
+            scheduler: 'simple',
+            model: 'flux-dev',
             onProgress: (progress) => {
               console.log('[Image Generation] Progress:', progress);
               console.log('[Image Generation] setImageGenerationProgress available:', !!setImageGenerationProgress);
               if (setImageGenerationProgress) {
                 const progressData = {
                   currentStep: progress.currentStep || 0,
-                  totalSteps: 20,
+                  totalSteps: steps,
                   message: attachedImage ? 
-                    `Processing image-to-image (${20} steps)...` : 
-                    `Generating image (${20} steps)...`,
+                    `Processing high-quality image-to-image (${steps} steps)...` : 
+                    `Generating high-quality image (${steps} steps)...`,
                   estimatedTime: progress.estimatedTime || null
                 };
                 console.log('[Image Generation] Setting progress:', progressData);
@@ -631,15 +648,15 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
             console.log('[Image] Using attached image for img2img generation');
             generationOptions.inputImage = attachedImage.content;
-            generationOptions.denoise = 0.75; // Default denoise strength
+            generationOptions.styleStrength = 1.0; // FLUX Redux style strength
             
             // Set initial progress for img2img
             if (setImageGenerationProgress) {
               setImageGenerationProgress({
                 currentStep: 0,
-                totalSteps: 20,
-                message: 'Starting image-to-image generation...',
-                estimatedTime: '~2 minutes'
+                totalSteps: steps,
+                message: `Starting image-to-image generation (${steps} steps)...`,
+                estimatedTime: steps <= 20 ? '~2 minutes' : `~${Math.round(steps * 0.1)} minutes`
               });
             }
           } else {
@@ -647,16 +664,20 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             if (setImageGenerationProgress) {
               setImageGenerationProgress({
                 currentStep: 0,
-                totalSteps: 20,
-                message: 'Starting image generation...',
-                estimatedTime: '~2 minutes'
+                totalSteps: steps,
+                message: `Starting image generation (${steps} steps)...`,
+                estimatedTime: steps <= 20 ? '~2 minutes' : `~${Math.round(steps * 0.1)} minutes`
               });
             }
           }
           
+          // Enhance prompt with quality modifiers (same as @flux)
+          const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, 8k resolution, masterpiece, best quality, extremely detailed, sharp focus, professional photography, cinematic lighting, photorealistic';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
           // Generate the image
-          console.log('[Image] Generating image with prompt:', args);
-          const images = await imageGen.generateImage(args, generationOptions);
+          console.log('[Image] Generating image with enhanced prompt:', enhancedPrompt);
+          const images = await imageGen.generateImage(enhancedPrompt, generationOptions);
           
           console.log('[Image] Generation result:', images);
           console.log('[Image] Generation result details:', JSON.stringify(images));
@@ -1365,9 +1386,10 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @calendar-add [details] - Add event to Google Calendar
 • @calendar-delete [event] - Delete event from Google Calendar
 • @weather [location] - Get weather information
-• @image [prompt] - Generate an image locally
-• @flux [prompt] - Generate an image with Flux model (12 steps)
-• @flux:STEPS [prompt] - Generate with custom steps (1-50)
+• @image [prompt] - High-quality image generation (20 steps, 1024x1024)
+• @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers
+• @flux [prompt] - Flux model generation (12 steps, 768x768)
+• @flux:STEPS [prompt] - Flux with custom steps (1-50)
 • @help - Show this help message
 
 Examples:
@@ -1388,10 +1410,10 @@ Examples:
 • @calendar-add Meeting with team tomorrow at 3pm
 • @calendar-delete standup meeting
 • @calendar-move "lunch meeting" to tomorrow 3pm
-• @image a beautiful sunset
+• @image a beautiful sunset (high quality, 20 steps)
+• @image:30 detailed portrait (30 steps with quality enhancers)
 • @flux a cyberpunk city at night (uses 12 steps)
 • @flux:20 a detailed portrait (uses 20 steps)
-• @flux:30 complex scene with many details (uses 30 steps)
 • @help`
           };
         }
@@ -1417,9 +1439,10 @@ Examples:
 • @calendar-edit rename [event] to [new name] - Rename event
 • @search [query] - Search the web
 • @weather [location] - Get weather information
-• @image [prompt] - Generate an image locally
-• @flux [prompt] - Generate an image with Flux model (12 steps)
-• @flux:STEPS [prompt] - Generate with custom steps (1-50)
+• @image [prompt] - High-quality image generation (20 steps, 1024x1024)
+• @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers  
+• @flux [prompt] - Flux model generation (12 steps, 768x768)
+• @flux:STEPS [prompt] - Flux with custom steps (1-50)
 • @help - Show this help message
 
 Examples:
@@ -1440,10 +1463,10 @@ Examples:
 • @calendar-delete lunch with client
 • @calendar-update change "meeting" time to 4pm
 • @search weather tomorrow
-• @image a cyberpunk city at night
+• @image a cyberpunk city at night (high quality, 20 steps)
+• @image:40 complex landscape (40 steps with quality enhancers)
 • @flux a futuristic landscape (uses 12 steps)
-• @flux:20 a detailed portrait (uses 20 steps)
-• @flux:30 complex scene with many details (uses 30 steps)`
+• @flux:20 a detailed portrait (uses 20 steps)`
         };
 
       default:

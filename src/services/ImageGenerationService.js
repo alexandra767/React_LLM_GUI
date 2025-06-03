@@ -435,100 +435,164 @@ class ImageGenerationService {
 
     const {
       inputImage,
-      width = 512,
-      height = 512,
+      width = 1024,
+      height = 1024,
       steps = 20,
       cfg = 3.5,  // Better for Flux models
       sampler = 'euler',
       scheduler = 'simple',  // Better for Flux models
       seed = Math.floor(Math.random() * 1000000),
-      model = 'sd15',
-      denoise = 0.75, // How much to change the image (0=no change, 1=complete change)
+      model = 'flux-redux',
+      styleStrength = 1.0, // How strongly to apply the image style
       onProgress = null
     } = options;
 
     // First, upload the image to ComfyUI
     const imageName = await this.uploadImage(inputImage);
 
-    // Create img2img workflow using Flux
+    // Create FLUX Redux workflow for better image-to-image with person preservation
     const workflow = {
-      "3": {
+      "11": {
         "inputs": {
-          "seed": seed,
-          "steps": steps,
-          "cfg": cfg,
-          "sampler_name": sampler,
-          "scheduler": scheduler,
-          "denoise": denoise,
-          "model": ["4", 0],
-          "positive": ["6", 0],
-          "negative": ["7", 0],
-          "latent_image": ["10", 0]  // Changed to use encoded image
-        },
-        "class_type": "KSampler"
-      },
-      "4": {
-        "inputs": {
-          "unet_name": this.getModelName(model),
-          "weight_dtype": "default"
-        },
-        "class_type": "UNETLoader"
-      },
-      "5": {
-        "inputs": {
-          "clip_name1": "clip_l.safetensors",
-          "clip_name2": "t5xxl_fp16.safetensors",
+          "clip_name1": "t5xxl_fp16.safetensors",
+          "clip_name2": "clip_l.safetensors",
           "type": "flux"
         },
         "class_type": "DualCLIPLoader"
       },
-      "6": {
+      "17": {
         "inputs": {
-          "text": prompt,
-          "clip": ["5", 0]
+          "model": ["30", 0],
+          "scheduler": scheduler,
+          "steps": steps,
+          "denoise": 1
         },
-        "class_type": "CLIPTextEncode"
+        "class_type": "BasicScheduler"
       },
-      "7": {
+      "16": {
         "inputs": {
-          "text": "",
-          "clip": ["5", 0]
+          "sampler_name": sampler
         },
-        "class_type": "CLIPTextEncode"
+        "class_type": "KSamplerSelect"
+      },
+      "26": {
+        "inputs": {
+          "conditioning": ["6", 0],
+          "guidance": cfg
+        },
+        "class_type": "FluxGuidance"
+      },
+      "13": {
+        "inputs": {
+          "noise": ["25", 0],
+          "guider": ["22", 0],
+          "sampler": ["16", 0],
+          "sigmas": ["17", 0],
+          "latent_image": ["27", 0]
+        },
+        "class_type": "SamplerCustomAdvanced"
+      },
+      "25": {
+        "inputs": {
+          "noise_seed": seed
+        },
+        "class_type": "RandomNoise"
       },
       "8": {
         "inputs": {
-          "samples": ["3", 0],
-          "vae": ["12", 0]
+          "samples": ["13", 0],
+          "vae": ["10", 0]
         },
         "class_type": "VAEDecode"
       },
+      "30": {
+        "inputs": {
+          "model": ["12", 0],
+          "max_shift": 1.15,
+          "base_shift": 0.5,
+          "width": width,
+          "height": height
+        },
+        "class_type": "ModelSamplingFlux"
+      },
+      "27": {
+        "inputs": {
+          "width": width,
+          "height": height,
+          "batch_size": 1
+        },
+        "class_type": "EmptySD3LatentImage"
+      },
+      "12": {
+        "inputs": {
+          "unet_name": "flux1-dev.safetensors",
+          "weight_dtype": "default"
+        },
+        "class_type": "UNETLoader"
+      },
       "9": {
         "inputs": {
-          "filename_prefix": "Sephia_img2img",
+          "filename_prefix": "Sephia_redux",
           "images": ["8", 0]
         },
         "class_type": "SaveImage"
       },
       "10": {
         "inputs": {
-          "pixels": ["11", 0],
-          "vae": ["12", 0]
+          "vae_name": "ae.safetensors"
         },
-        "class_type": "VAEEncode"
+        "class_type": "VAELoader"
       },
-      "11": {
+      "39": {
+        "inputs": {
+          "clip_vision": ["38", 0],
+          "image": ["40", 0],
+          "crop": "center"
+        },
+        "class_type": "CLIPVisionEncode"
+      },
+      "40": {
         "inputs": {
           "image": imageName,
           "upload": "image"
         },
         "class_type": "LoadImage"
       },
-      "12": {
+      "42": {
         "inputs": {
-          "vae_name": "ae.safetensors"
+          "style_model_name": "flux1-redux-dev.safetensors"
         },
-        "class_type": "VAELoader"
+        "class_type": "StyleModelLoader"
+      },
+      "38": {
+        "inputs": {
+          "clip_vision_name": "sigclip_vision_patch14_384.safetensors"
+        },
+        "class_type": "CLIPVisionLoader"
+      },
+      "41": {
+        "inputs": {
+          "conditioning": ["26", 0],
+          "style_model": ["42", 0],
+          "clip_vision_output": ["39", 0],
+          "strength": styleStrength,
+          "composition": "multiply"
+        },
+        "class_type": "StyleModelApply"
+      },
+      "22": {
+        "inputs": {
+          "model": ["30", 0],
+          "conditioning": ["41", 0]
+        },
+        "class_type": "BasicGuider"
+      },
+      "6": {
+        "inputs": {
+          "text": prompt,
+          "clip": ["11", 0]
+        },
+        "class_type": "CLIPTextEncode"
       }
     };
 
@@ -537,7 +601,7 @@ class ImageGenerationService {
 
     // Create promise to track completion
     return new Promise((resolve, reject) => {
-      console.log('[ImageGen] Creating promise for img2img promptId:', promptId);
+      console.log('[ImageGen] Creating promise for FLUX Redux promptId:', promptId);
       this.pendingRequests.set(promptId, {
         resolve,
         reject,
