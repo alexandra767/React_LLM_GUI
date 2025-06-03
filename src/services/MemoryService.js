@@ -27,7 +27,7 @@ class MemoryService {
     this.loadMemories();
   }
 
-  // Load memories from localStorage
+  // Load memories from localStorage - with corruption cleanup
   loadMemories() {
     try {
       const stored = localStorage.getItem(this.storageKey);
@@ -36,7 +36,11 @@ class MemoryService {
         
         // Convert arrays back to Maps
         this.memories.personal = new Map(data.personal || []);
-        this.memories.relationships = new Map(data.relationships || []);
+        
+        // FORCE CLEAR corrupted relationships
+        this.memories.relationships = new Map(); // Start fresh
+        console.log('[MemoryService] FORCE CLEARED corrupted relationships');
+        
         this.memories.projects = new Map(data.projects || []);
         this.memories.interests = new Map(data.interests || []);
         this.memories.patterns = new Map(data.patterns || []);

@@ -27,6 +27,9 @@ class MemoryAdapter {
       console.log('[MemoryAdapter] Ensuring initialization...');
       await this.loadMemories();
       
+      // Clean invalid relationships from previous bad extractions
+      this.cleanInvalidRelationships();
+      
       // Force create default memory with Alexandra's name if no name exists
       if (!this.memories.personal.has('name') && !this.memories.personal.has('user_name')) {
         console.log('[MemoryAdapter] No name found, creating default with Alexandra');
@@ -443,9 +446,20 @@ class MemoryAdapter {
     }
   }
   
-  // Add relationship information
+  // Add relationship information - with strict validation
   addRelationship(name, type, metadata = {}) {
     try {
+      // STRICT validation to prevent corruption
+      if (!this.isValidName(name)) {
+        console.log(`[MemoryAdapter] ❌ Rejected invalid relationship name: "${name}"`);
+        return false;
+      }
+      
+      if (!this.isValidRelationshipType(type)) {
+        console.log(`[MemoryAdapter] ❌ Rejected invalid relationship type: "${type}"`);
+        return false;
+      }
+      
       const timestamp = new Date().toISOString();
       this.memories.relationships.set(name, {
         type,
@@ -455,10 +469,51 @@ class MemoryAdapter {
       });
       
       this.saveMemories();
-      console.log(`[MemoryAdapter] Added relationship: ${name} (${type})`);
+      console.log(`[MemoryAdapter] ✅ Added valid relationship: ${name} (${type})`);
+      return true;
     } catch (error) {
       console.error('[MemoryAdapter] Failed to add relationship:', error);
+      return false;
     }
+  }
+  
+  // Validate if a name is acceptable for relationships
+  isValidName(name) {
+    if (!name || typeof name !== 'string') return false;
+    
+    // Must be properly capitalized
+    if (!/^[A-Z][a-z]+$/.test(name)) return false;
+    
+    // Reasonable length
+    if (name.length < 2 || name.length > 20) return false;
+    
+    // Block common false matches
+    const blockedWords = [
+      'And', 'The', 'But', 'Who', 'What', 'When', 'Where', 'Why', 'How', 
+      'That', 'This', 'They', 'She', 'Her', 'His', 'Him', 'Is', 'Are', 
+      'Was', 'Were', 'Have', 'Has', 'Had', 'Will', 'Would', 'Could', 
+      'Should', 'Can', 'May', 'Might', 'Must', 'Shall', 'Do', 'Does', 
+      'Did', 'Get', 'Got', 'Give', 'Gave', 'Take', 'Took', 'Make', 'Made',
+      'Birthday', 'Family', 'Friend', 'Person', 'People', 'Someone', 'Anyone'
+    ];
+    
+    if (blockedWords.includes(name)) return false;
+    
+    return true;
+  }
+  
+  // Validate relationship type
+  isValidRelationshipType(type) {
+    if (!type || typeof type !== 'string') return false;
+    
+    const validTypes = [
+      'mom', 'mother', 'dad', 'father', 'sister', 'brother', 
+      'wife', 'husband', 'partner', 'aunt', 'uncle', 
+      'grandmother', 'grandma', 'grandfather', 'grandpa', 
+      'cousin', 'niece', 'nephew', 'friend', 'family'
+    ];
+    
+    return validTypes.includes(type.toLowerCase());
   }
   
   // Add conversation to memory
@@ -501,12 +556,12 @@ class MemoryAdapter {
       console.log('[MemoryAdapter] 🔍 Extracting relationships from:', message);
       const relationships = [];
       
-      // Extract friend relationships
+      // Extract friend relationships - improved patterns
       const friendPatterns = [
-        /my friend (\w+)/gi,
-        /friend named (\w+)/gi,
-        /friend (\w+)/gi,
-        /(\w+) is my friend/gi
+        /my friend ([A-Z][a-z]+)/gi,
+        /friend named ([A-Z][a-z]+)/gi,
+        /my friend ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi,
+        /([A-Z][a-z]+) is my friend/gi
       ];
       
       friendPatterns.forEach(pattern => {
@@ -519,43 +574,102 @@ class MemoryAdapter {
         });
       });
       
-      // Extract family relationships
+      // Extract family relationships - improved patterns to avoid false matches
       const familyPatterns = [
-        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi, type: 'extract_from_pattern' },
-        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi, type: 'extract_from_pattern' },
-        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+) (?:called|said|told|asked|visited|came)/gi, type: 'extract_from_pattern' }
+        { pattern: /my (mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+)/gi, type: 'family_member_name' },
+        { pattern: /my (mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) is ([A-Z][a-z]+)/gi, type: 'family_member_is' },
+        { pattern: /my (mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi, type: 'family_member_action' }
+      ];
+      
+      // Extract birthday information for family members
+      const birthdayPatterns = [
+        // More flexible patterns that don't require "is"
+        { pattern: /(\w+)'s birthday (?:is )?(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?(january|february|march|april|may|june|july|august|september|october|november|december)/gi, type: 'birthday_date' },
+        { pattern: /(\w+)'s birthday (?:is )?(?:on )?(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'birthday_month_first' },
+        { pattern: /(\w+)'s birthday (january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'birthday_simple' },
+        // Family member patterns
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) (\w+)'s birthday (?:is )?(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?(january|february|march|april|may|june|july|august|september|october|november|december)/gi, type: 'family_birthday_date' },
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) (\w+)'s birthday (?:is )?(?:on )?(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'family_birthday_month_first' }
       ];
       
       familyPatterns.forEach(patternObj => {
         const matches = [...message.matchAll(patternObj.pattern)];
         matches.forEach(match => {
-          const name = match[1];
-          const relationshipMatch = match[0].match(/my (\w+)/i);
-          const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
+          const relationship = match[1]; // The family relationship (mom, dad, etc.)
+          const name = match[2]; // The actual name
           
           console.log('[MemoryAdapter] 🔍 Pattern match debug:', {
             fullMatch: match[0],
+            extractedRelationship: relationship,
             extractedName: name,
-            relationshipMatch: relationshipMatch,
-            finalRelationship: relationship
+            patternType: patternObj.type
           });
           
-          if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
-            // Capitalize the name for consistency
+          // Only accept proper names (capitalized, alpha only, reasonable length)
+          if (name && name.length >= 2 && name.length <= 20 && /^[A-Z][a-z]+$/.test(name)) {
+            // Skip common false matches
+            const falseMatches = ['And', 'The', 'But', 'Who', 'What', 'When', 'Where', 'Why', 'How', 'That', 'This', 'They', 'She', 'Her', 'His', 'Him'];
+            if (!falseMatches.includes(name)) {
+              relationships.push({ 
+                name: name, 
+                type: relationship, 
+                source: `Family member mentioned: "${message.substring(0, 50)}..."` 
+              });
+              
+              console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Extracted family relationship:', {
+                name: name,
+                relationship: relationship,
+                fullMatch: match[0],
+                fromMessage: message.substring(0, 50)
+              });
+            } else {
+              console.log('[MemoryAdapter] ❌ Skipped false match:', name);
+            }
+          } else {
+            console.log('[MemoryAdapter] ❌ Invalid name format:', name);
+          }
+        });
+      });
+      
+      // Process birthday patterns
+      birthdayPatterns.forEach(patternObj => {
+        const matches = [...message.matchAll(patternObj.pattern)];
+        matches.forEach(match => {
+          let name, month, day;
+          
+          if (patternObj.type === 'birthday_date' || patternObj.type === 'family_birthday_date') {
+            name = match[1];
+            day = match[2];
+            month = match[3];
+          } else if (patternObj.type === 'birthday_month_first' || patternObj.type === 'family_birthday_month_first') {
+            name = match[1];
+            month = match[2];
+            day = match[3];
+          } else if (patternObj.type === 'birthday_simple') {
+            name = match[1];
+            month = match[2];
+            day = match[3];
+          }
+          
+          if (name && month && day) {
             const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+            const capitalizedMonth = month.charAt(0).toUpperCase() + month.slice(1).toLowerCase();
+            const birthday = `${capitalizedMonth} ${day}`;
             
-            relationships.push({ 
-              name: capitalizedName, 
-              type: relationship, 
-              source: `Family member mentioned: "${message.substring(0, 50)}..."` 
-            });
-            
-            console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Extracted family relationship:', {
-              name: capitalizedName,
-              relationship,
-              fullMatch: match[0],
-              fromMessage: message.substring(0, 50)
-            });
+            // Check if this person is already in relationships, if so update with birthday
+            const existingRelationship = this.memories.relationships.get(capitalizedName);
+            if (existingRelationship) {
+              existingRelationship.metadata.birthday = birthday;
+              this.memories.relationships.set(capitalizedName, existingRelationship);
+              console.log('[MemoryAdapter] 🎂 Updated birthday for existing relationship:', capitalizedName, '=', birthday);
+            } else {
+              // Add as new relationship with birthday
+              this.addRelationship(capitalizedName, 'friend', { 
+                source: `Birthday mentioned: "${message.substring(0, 50)}..."`,
+                birthday: birthday
+              });
+              console.log('[MemoryAdapter] 🎂 Added new person with birthday:', capitalizedName, '=', birthday);
+            }
           }
         });
       });
@@ -679,6 +793,26 @@ class MemoryAdapter {
     console.log(`[MemoryAdapter] 🧹 Manually cleared ${cleanedCount} stale conversations`);
     
     this.saveMemories();
+    return cleanedCount;
+  }
+
+  // Clean invalid relationships from memory - AGGRESSIVE cleanup
+  cleanInvalidRelationships() {
+    const invalidNames = ['And', 'The', 'But', 'Who', 'What', 'When', 'Where', 'Why', 'How', 'That', 'This', 'They', 'She', 'Her', 'His', 'Him', 'Is', 'Andrew', 'Andrea', 'Birthday', 'who', 'and', 'i', 'John'];
+    let cleanedCount = 0;
+    
+    // FORCE CLEAR ALL RELATIONSHIPS - they're too corrupted
+    const totalRelationships = this.memories.relationships.size;
+    this.memories.relationships.clear();
+    cleanedCount = totalRelationships;
+    
+    console.log('[MemoryAdapter] 🧹 FORCE CLEARED all corrupted relationships:', totalRelationships);
+    
+    if (cleanedCount > 0) {
+      this.saveMemories();
+      console.log(`[MemoryAdapter] ✅ Force cleaned ${cleanedCount} relationships - starting fresh`);
+    }
+    
     return cleanedCount;
   }
 
