@@ -217,6 +217,11 @@ export const AppProvider = ({ children }) => {
         
         console.log('[AppContext] ✅ Unified storage initialized');
         
+        // CRITICAL: Initialize memory adapter to ensure Alexandra's name is available
+        console.log('[AppContext] 🧠 Initializing memory adapter...');
+        await memoryAdapter.ensureInitialized();
+        console.log('[AppContext] ✅ Memory adapter initialized');
+        
         // Log storage stats
         const stats = unifiedStorageService.getStats();
         console.log('[AppContext] 📊 Storage stats:', stats);

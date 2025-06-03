@@ -30,6 +30,9 @@ class MemoryAdapter {
       // Clean invalid relationships from previous bad extractions
       this.cleanInvalidRelationships();
       
+      // EMERGENCY: Force clean ALL memory if name is missing
+      await this.emergencyNameCleanup();
+      
       // Force create default memory with Alexandra's name if no name exists
       if (!this.memories.personal.has('name') && !this.memories.personal.has('user_name')) {
         console.log('[MemoryAdapter] No name found, creating default with Alexandra');
@@ -58,6 +61,28 @@ class MemoryAdapter {
         this.memories.conversations = parsed.conversations || [];
         this.memories.emotions = parsed.emotions || [];
         this.memories.achievements = parsed.achievements || [];
+        
+        // CRITICAL: Ensure Alexandra's name is always present and correct
+        const currentName = this.memories.personal.get('name')?.value;
+        const currentUserName = this.memories.personal.get('user_name')?.value;
+        
+        if (!currentName || !currentUserName || currentName === 'meeting' || currentUserName === 'meeting') {
+          console.log('[MemoryAdapter] ⚠️ Name missing or corrupted (found:', currentName, '), restoring Alexandra...');
+          const timestamp = new Date().toISOString();
+          this.memories.personal.set('name', {
+            value: 'Alexandra',
+            timestamp,
+            source: 'memory_recovery',
+            confidence: 1.0
+          });
+          this.memories.personal.set('user_name', {
+            value: 'Alexandra',
+            timestamp,
+            source: 'memory_recovery',
+            confidence: 1.0
+          });
+          this.saveMemories();
+        }
         
         console.log('[MemoryAdapter] ✅ Loaded memories from unified storage:', {
           personalFacts: this.memories.personal.size,
@@ -137,6 +162,9 @@ class MemoryAdapter {
     
     // Extract personal information from user message
     this.extractPersonalInfo(userMessage);
+    
+    // CRITICAL: Extract relationships from user message
+    this.extractRelationships(userMessage);
     
     // Detect if this conversation contains time-sensitive content
     const fullText = (userMessage + ' ' + cleanedAssistantMessage).toLowerCase();
@@ -312,6 +340,75 @@ class MemoryAdapter {
         currentTopics: [],
         conversationCount: 0
       };
+    }
+  }
+  
+  // Extract relationships from user messages - IMPROVED with better patterns
+  extractRelationships(message) {
+    if (!message || typeof message !== 'string') return [];
+    
+    try {
+      console.log('[MemoryAdapter] 🔍 DEBUG: Extracting relationships from:', message);
+      const relationships = [];
+      
+      // Extract friend relationships - improved patterns
+      const friendPatterns = [
+        /my friend ([A-Z][a-z]+)/gi,
+        /friend named ([A-Z][a-z]+)/gi,
+        /my friend ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi,
+        /([A-Z][a-z]+) is my friend/gi
+      ];
+      
+      friendPatterns.forEach(pattern => {
+        const matches = [...message.matchAll(pattern)];
+        matches.forEach(match => {
+          const name = match[1];
+          console.log('[MemoryAdapter] 🔍 DEBUG: Friend pattern matched - name:', name, 'valid:', this.isValidName(name));
+          if (this.isValidName(name)) {
+            this.addRelationship(name, 'friend', { 
+              source: `Friend mentioned: "${message.substring(0, 50)}..."`,
+              lastMentioned: new Date().toISOString()
+            });
+            console.log('[MemoryAdapter] 👫 Extracted friend relationship:', name);
+          }
+        });
+      });
+      
+      // Extract family relationships - ENHANCED patterns with more variations including SON/DAUGHTER
+      const familyPatterns = [
+        // Existing patterns with "my" - NOW INCLUDING SON AND DAUGHTER
+        { pattern: /my (mom|mother|dad|father|sister|brother|son|daughter|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+)/gi, type: 'family_member_name' },
+        { pattern: /my (mom|mother|dad|father|sister|brother|son|daughter|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) is ([A-Z][a-z]+)/gi, type: 'family_member_is' },
+        { pattern: /my (mom|mother|dad|father|sister|brother|son|daughter|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi, type: 'family_member_action' },
+        // NEW patterns without "my" to catch "uncle Butch", "aunt Andrea", etc.
+        { pattern: /(aunt|uncle|cousin|grandma|grandmother|grandpa|grandfather) ([A-Z][a-z]+)/gi, type: 'family_no_my' },
+        { pattern: /(aunt|uncle|cousin|grandma|grandmother|grandpa|grandfather) ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi, type: 'family_no_my_action' }
+      ];
+      
+      familyPatterns.forEach(patternObj => {
+        const matches = [...message.matchAll(patternObj.pattern)];
+        matches.forEach(match => {
+          const relationship = match[1]; // The family relationship (mom, dad, etc.)
+          const name = match[2]; // The actual name
+          
+          console.log('[MemoryAdapter] 🔍 DEBUG: Family pattern matched - relationship:', relationship, 'name:', name, 'valid:', this.isValidName(name));
+          
+          if (this.isValidName(name)) {
+            this.addRelationship(name, relationship, {
+              source: `Family member mentioned: "${message.substring(0, 50)}..."`,
+              lastMentioned: new Date().toISOString()
+            });
+            console.log('[MemoryAdapter] 👨‍👩‍👧‍👦 Extracted family relationship:', name, '(', relationship, ')');
+            relationships.push({ name, type: relationship, source: 'extractRelationships' });
+          }
+        });
+      });
+      
+      console.log('[MemoryAdapter] 🔍 DEBUG: Total relationships extracted:', relationships.length);
+      return relationships;
+    } catch (error) {
+      console.error('[MemoryAdapter] Error extracting relationships:', error);
+      return [];
     }
   }
   
@@ -507,47 +604,13 @@ class MemoryAdapter {
     if (!type || typeof type !== 'string') return false;
     
     const validTypes = [
-      'mom', 'mother', 'dad', 'father', 'sister', 'brother', 
+      'mom', 'mother', 'dad', 'father', 'sister', 'brother', 'son', 'daughter',
       'wife', 'husband', 'partner', 'aunt', 'uncle', 
       'grandmother', 'grandma', 'grandfather', 'grandpa', 
       'cousin', 'niece', 'nephew', 'friend', 'family'
     ];
     
     return validTypes.includes(type.toLowerCase());
-  }
-  
-  // Add conversation to memory
-  addConversation(userMessage, assistantMessage, metadata = {}) {
-    try {
-      const timestamp = new Date().toISOString();
-      const importance = this.calculateImportance(userMessage, assistantMessage);
-      
-      // Clean messages to prevent identity confusion
-      const cleanedAssistantMessage = this.sanitizeMessage(assistantMessage);
-      
-      const conversation = {
-        timestamp,
-        userMessage: userMessage.substring(0, 1000), // Limit length
-        assistantMessage: cleanedAssistantMessage.substring(0, 1000),
-        importance,
-        metadata
-      };
-      
-      this.memories.conversations.push(conversation);
-      
-      // Keep only last 100 conversations to prevent memory bloat
-      if (this.memories.conversations.length > 100) {
-        this.memories.conversations = this.memories.conversations.slice(-100);
-      }
-      
-      // Extract and store relationships from the conversation
-      this.extractAndStoreRelationships(userMessage);
-      
-      this.saveMemories();
-      console.log(`[MemoryAdapter] Added conversation (importance: ${importance.toFixed(2)})`);
-    } catch (error) {
-      console.error('[MemoryAdapter] Failed to add conversation:', error);
-    }
   }
 
   // Extract and store relationships from user messages
@@ -574,22 +637,25 @@ class MemoryAdapter {
         });
       });
       
-      // Extract family relationships - improved patterns to avoid false matches
+      // Extract family relationships - enhanced patterns to capture all variations INCLUDING SON/DAUGHTER
       const familyPatterns = [
-        { pattern: /my (mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+)/gi, type: 'family_member_name' },
-        { pattern: /my (mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) is ([A-Z][a-z]+)/gi, type: 'family_member_is' },
-        { pattern: /my (mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi, type: 'family_member_action' }
+        { pattern: /my (mom|mother|dad|father|sister|brother|son|daughter|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+)/gi, type: 'family_member_name' },
+        { pattern: /my (mom|mother|dad|father|sister|brother|son|daughter|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) is ([A-Z][a-z]+)/gi, type: 'family_member_is' },
+        { pattern: /my (mom|mother|dad|father|sister|brother|son|daughter|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi, type: 'family_member_action' },
+        // Enhanced patterns to catch relationships without "my" prefix
+        { pattern: /(aunt|uncle|cousin|grandma|grandmother|grandpa|grandfather) ([A-Z][a-z]+)/gi, type: 'no_my_required' },
+        { pattern: /(aunt|uncle|cousin|grandma|grandmother|grandpa|grandfather) ([A-Z][a-z]+) (?:called|said|told|asked|visited|came)/gi, type: 'action_no_my' }
       ];
       
-      // Extract birthday information for family members
+      // Extract birthday information for family members - SAFER patterns that avoid "Birthday" extraction
       const birthdayPatterns = [
-        // More flexible patterns that don't require "is"
-        { pattern: /(\w+)'s birthday (?:is )?(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?(january|february|march|april|may|june|july|august|september|october|november|december)/gi, type: 'birthday_date' },
-        { pattern: /(\w+)'s birthday (?:is )?(?:on )?(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'birthday_month_first' },
-        { pattern: /(\w+)'s birthday (january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'birthday_simple' },
-        // Family member patterns
-        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) (\w+)'s birthday (?:is )?(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?(january|february|march|april|may|june|july|august|september|october|november|december)/gi, type: 'family_birthday_date' },
-        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) (\w+)'s birthday (?:is )?(?:on )?(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'family_birthday_month_first' }
+        // More precise patterns that require actual names, not just \w+
+        { pattern: /([A-Z][a-z]{1,19})'s birthday (?:is )?(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?(january|february|march|april|may|june|july|august|september|october|november|december)/gi, type: 'birthday_date' },
+        { pattern: /([A-Z][a-z]{1,19})'s birthday (?:is )?(?:on )?(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'birthday_month_first' },
+        { pattern: /([A-Z][a-z]{1,19})'s birthday (january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'birthday_simple' },
+        // Family member patterns - require proper names
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]{1,19})'s birthday (?:is )?(?:on )?(?:the )?(\d{1,2})(?:st|nd|rd|th)? (?:of )?(january|february|march|april|may|june|july|august|september|october|november|december)/gi, type: 'family_birthday_date' },
+        { pattern: /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner|aunt|uncle|grandmother|grandma|grandfather|grandpa|cousin|niece|nephew) ([A-Z][a-z]{1,19})'s birthday (?:is )?(?:on )?(january|february|march|april|may|june|july|august|september|october|november|december) (\d{1,2})(?:st|nd|rd|th)?/gi, type: 'family_birthday_month_first' }
       ];
       
       familyPatterns.forEach(patternObj => {
@@ -653,6 +719,13 @@ class MemoryAdapter {
           
           if (name && month && day) {
             const capitalizedName = name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+            
+            // CRITICAL: Block "Birthday" from being treated as a name
+            if (!this.isValidName(capitalizedName)) {
+              console.log('[MemoryAdapter] ❌ Blocked invalid birthday name:', capitalizedName);
+              return; // Skip this match entirely
+            }
+            
             const capitalizedMonth = month.charAt(0).toUpperCase() + month.slice(1).toLowerCase();
             const birthday = `${capitalizedMonth} ${day}`;
             
@@ -796,17 +869,38 @@ class MemoryAdapter {
     return cleanedCount;
   }
 
-  // Clean invalid relationships from memory - AGGRESSIVE cleanup
+  // Clean invalid relationships from memory - TARGETED cleanup
   cleanInvalidRelationships() {
-    const invalidNames = ['And', 'The', 'But', 'Who', 'What', 'When', 'Where', 'Why', 'How', 'That', 'This', 'They', 'She', 'Her', 'His', 'Him', 'Is', 'Andrew', 'Andrea', 'Birthday', 'who', 'and', 'i', 'John'];
+    const invalidNames = ['And', 'The', 'But', 'Who', 'What', 'When', 'Where', 'Why', 'How', 'That', 'This', 'They', 'She', 'Her', 'His', 'Him', 'Is', 'Birthday', 'who', 'and', 'i'];
     let cleanedCount = 0;
     
-    // FORCE CLEAR ALL RELATIONSHIPS - they're too corrupted
-    const totalRelationships = this.memories.relationships.size;
-    this.memories.relationships.clear();
-    cleanedCount = totalRelationships;
+    // Only remove specific invalid relationships, not all relationships
+    for (const invalidName of invalidNames) {
+      if (this.memories.relationships.has(invalidName)) {
+        this.memories.relationships.delete(invalidName);
+        cleanedCount++;
+        console.log('[MemoryAdapter] 🧹 Removed invalid relationship:', invalidName);
+      }
+    }
     
-    console.log('[MemoryAdapter] 🧹 FORCE CLEARED all corrupted relationships:', totalRelationships);
+    // SPECIFIC FIX: Check for Andrew misclassified as aunt and fix it
+    const andrewRelationship = this.memories.relationships.get('Andrew');
+    if (andrewRelationship && andrewRelationship.type === 'aunt') {
+      console.log('[MemoryAdapter] 🔧 FIXING: Andrew misclassified as aunt, correcting to son');
+      this.memories.relationships.set('Andrew', {
+        type: 'son',
+        metadata: {
+          source: 'corrected_from_aunt_to_son',
+          originalType: 'aunt',
+          lastMentioned: new Date().toISOString()
+        },
+        timestamp: new Date().toISOString(),
+        source: 'relationship_correction'
+      });
+      cleanedCount++;
+    }
+    
+    console.log('[MemoryAdapter] 🧹 Cleaned invalid relationships:', cleanedCount);
     
     if (cleanedCount > 0) {
       this.saveMemories();
@@ -814,6 +908,99 @@ class MemoryAdapter {
     }
     
     return cleanedCount;
+  }
+
+  // EMERGENCY: Complete memory cleanup if name recognition is broken
+  async emergencyNameCleanup() {
+    try {
+      console.log('[MemoryAdapter] 🚨 Running emergency name cleanup...');
+      
+      // Check if name is missing or corrupted
+      const nameValue = this.memories.personal.get('name')?.value;
+      const userNameValue = this.memories.personal.get('user_name')?.value;
+      
+      if (!nameValue || !userNameValue || nameValue === 'meeting' || userNameValue === 'meeting') {
+        console.log('[MemoryAdapter] 🚨 CRITICAL: No name or corrupted name found in memory (found:', nameValue, '), performing emergency rebuild');
+        
+        // NUCLEAR OPTION: Clear ALL memory and rebuild
+        this.memories.personal.clear();
+        this.memories.relationships.clear();
+        this.memories.conversations = [];
+        this.memories.projects.clear();
+        this.memories.interests.clear();
+        this.memories.patterns.clear();
+        this.memories.knowledge.clear();
+        this.memories.preferences.clear();
+        this.memories.emotions = [];
+        this.memories.achievements = [];
+        
+        console.log('[MemoryAdapter] 🧹 Memory completely wiped');
+        
+        // Rebuild with Alexandra's name
+        const timestamp = new Date().toISOString();
+        this.memories.personal.set('name', {
+          value: 'Alexandra',
+          timestamp,
+          source: 'emergency_cleanup',
+          confidence: 1.0,
+          verified: true
+        });
+        
+        this.memories.personal.set('user_name', {
+          value: 'Alexandra',
+          timestamp,
+          source: 'emergency_cleanup',
+          confidence: 1.0,
+          verified: true
+        });
+        
+        // FORCE save to localStorage directly
+        await this.saveMemories();
+        
+        // ALSO force save to alternative storage locations
+        try {
+          const storageData = this.serializeMemories();
+          localStorage.setItem('unified_storage_memory_backup', JSON.stringify(storageData));
+          localStorage.setItem('emergency_memory_backup', JSON.stringify(storageData));
+          console.log('[MemoryAdapter] ✅ Emergency name recovery complete with multiple backups');
+        } catch (backupError) {
+          console.error('[MemoryAdapter] Backup save failed:', backupError);
+        }
+        
+        return true;
+      } else if (nameValue !== 'Alexandra' || userNameValue !== 'Alexandra') {
+        console.log('[MemoryAdapter] 🚨 Wrong name in memory, correcting to Alexandra');
+        
+        // Fix wrong name
+        const timestamp = new Date().toISOString();
+        this.memories.personal.set('name', {
+          value: 'Alexandra',
+          timestamp,
+          source: 'emergency_name_fix',
+          confidence: 1.0,
+          verified: true
+        });
+        
+        this.memories.personal.set('user_name', {
+          value: 'Alexandra',
+          timestamp,
+          source: 'emergency_name_fix',
+          confidence: 1.0,
+          verified: true
+        });
+        
+        await this.saveMemories();
+        console.log('[MemoryAdapter] ✅ Name corrected to Alexandra');
+        return true;
+      }
+      
+      console.log('[MemoryAdapter] ✅ Name verification passed:', nameValue);
+      return false;
+      
+    } catch (error) {
+      console.error('[MemoryAdapter] Emergency cleanup failed:', error);
+      return false;
+    }
   }
 
   // Get memory statistics

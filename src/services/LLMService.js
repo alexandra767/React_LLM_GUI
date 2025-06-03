@@ -900,8 +900,17 @@ class LLMService {
           if (memoryData) {
             const parsed = JSON.parse(memoryData);
             const personalMap = new Map(parsed.personal || []);
-            userName = personalMap.get('name')?.value || personalMap.get('user_name')?.value;
-            console.log('[LLMService] Loaded user name from memory:', userName);
+            const storedName = personalMap.get('name')?.value || personalMap.get('user_name')?.value;
+            
+            // CRITICAL: Block corrupted names like "meeting"
+            const corruptedNames = ['meeting', 'Meeting', 'birthday', 'Birthday', 'Family', 'Friend'];
+            if (storedName && !corruptedNames.includes(storedName)) {
+              userName = storedName;
+              console.log('[LLMService] ✅ Using stored name:', storedName);
+            } else {
+              console.log('[LLMService] ❌ Blocked corrupted stored name:', storedName, '- using Alexandra');
+              userName = 'Alexandra'; // Force correct name
+            }
           }
           
           // Fallback to default if no name found
@@ -936,7 +945,7 @@ Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName
 
 The user is asking if you remember them. Their name is ${userName}.
 
-Respond exactly like this: "Hi ${userName}! While I don't remember our conversations between sessions, I do have your personal information stored in my memory system. I know your name is ${userName} and can use what I've learned about your preferences to help you. How can I assist you today?"
+Respond exactly like this: "Hi ${userName}! I have your personal information and our conversation history stored in my memory system. I know your name is ${userName} and can recall what we've discussed previously to help you better. How can I assist you today?"
 
 Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
       }

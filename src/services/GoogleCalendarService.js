@@ -86,6 +86,39 @@ class GoogleCalendarService {
     }
   }
 
+  // Create a calendar event
+  async createEvent(accessToken, eventData) {
+    console.log('[GoogleCalendar] Creating event:', eventData.summary);
+    
+    try {
+      // Use primary calendar by default
+      const calendarId = 'primary';
+      const url = `${this.baseUrl}/calendars/${calendarId}/events`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(eventData)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to create event: ${response.status} ${errorText}`);
+      }
+
+      const createdEvent = await response.json();
+      console.log('[GoogleCalendar] Event created successfully:', createdEvent.id);
+      return createdEvent;
+    } catch (error) {
+      console.error('[GoogleCalendar] Failed to create event:', error);
+      throw error;
+    }
+  }
+
   // Format events for display
   formatEvents(events) {
     if (!events || events.length === 0) {

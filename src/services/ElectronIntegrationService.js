@@ -1470,29 +1470,61 @@ class ElectronIntegrationService {
       endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
     }
 
-    // Extract date information
-    const dateMatch = eventDetails.match(/(tomorrow|today|next week|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i);
-    if (dateMatch) {
-      const dateRef = dateMatch[1].toLowerCase();
-      if (dateRef === 'tomorrow') {
-        startDate.setDate(startDate.getDate() + 1);
-        endDate.setDate(endDate.getDate() + 1);
-      } else if (dateRef === 'next week') {
-        startDate.setDate(startDate.getDate() + 7);
-        endDate.setDate(endDate.getDate() + 7);
-      } else if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(dateRef)) {
-        // Find the next occurrence of this weekday
-        const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-        const targetDay = dayNames.indexOf(dateRef);
-        const currentDay = now.getDay();
-        
-        let daysUntilTarget = targetDay - currentDay;
-        if (daysUntilTarget <= 0) {
-          daysUntilTarget += 7; // Next week if the day has passed or is today
+    // Extract specific date information (month day format)
+    const specificDateMatch = eventDetails.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(st|nd|rd|th)?/i);
+    if (specificDateMatch) {
+      const monthNames = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+      const month = monthNames.indexOf(specificDateMatch[1].toLowerCase());
+      const day = parseInt(specificDateMatch[2]);
+      
+      // Create date for this year, or next year if the date has passed
+      const targetDate = new Date(now.getFullYear(), month, day);
+      if (targetDate < now) {
+        targetDate.setFullYear(now.getFullYear() + 1);
+      }
+      
+      // For birthdays and all-day events, make it all-day
+      if (eventDetails.toLowerCase().includes('birthday')) {
+        return {
+          summary: title.replace(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(st|nd|rd|th)?/gi, '').trim() || 'New Event',
+          description: description,
+          location: location,
+          start: {
+            date: targetDate.toISOString().split('T')[0] // All-day format
+          },
+          end: {
+            date: new Date(targetDate.getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+          }
+        };
+      }
+      
+      startDate = targetDate;
+      endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+    } else {
+      // Extract relative date information
+      const dateMatch = eventDetails.match(/(tomorrow|today|next week|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i);
+      if (dateMatch) {
+        const dateRef = dateMatch[1].toLowerCase();
+        if (dateRef === 'tomorrow') {
+          startDate.setDate(startDate.getDate() + 1);
+          endDate.setDate(endDate.getDate() + 1);
+        } else if (dateRef === 'next week') {
+          startDate.setDate(startDate.getDate() + 7);
+          endDate.setDate(endDate.getDate() + 7);
+        } else if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].includes(dateRef)) {
+          // Find the next occurrence of this weekday
+          const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+          const targetDay = dayNames.indexOf(dateRef);
+          const currentDay = now.getDay();
+          
+          let daysUntilTarget = targetDay - currentDay;
+          if (daysUntilTarget <= 0) {
+            daysUntilTarget += 7; // Next week if the day has passed or is today
+          }
+          
+          startDate.setDate(startDate.getDate() + daysUntilTarget);
+          endDate.setDate(endDate.getDate() + daysUntilTarget);
         }
-        
-        startDate.setDate(startDate.getDate() + daysUntilTarget);
-        endDate.setDate(endDate.getDate() + daysUntilTarget);
       }
     }
 
@@ -1500,6 +1532,7 @@ class ElectronIntegrationService {
     title = eventDetails
       .replace(/(at\s+)?\d{1,2}:?\d{0,2}\s*(am|pm)/gi, '')
       .replace(/(tomorrow|today|next week|this week|monday|tuesday|wednesday|thursday|friday|saturday|sunday)/gi, '')
+      .replace(/(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}(st|nd|rd|th)?/gi, '')
       .trim();
 
     return {

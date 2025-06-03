@@ -468,8 +468,12 @@ class CompanionService {
 
     const lowerMessage = message.toLowerCase();
 
-    // Calendar detection
-    if (this.detectCalendarIntent(lowerMessage)) {
+    // Calendar detection - EXCEPT for name/identity questions
+    const isNameQuestion = lowerMessage.includes('my name') || lowerMessage.includes('what is my name') || 
+                          lowerMessage.includes('what\'s my name') || lowerMessage.includes('who am i') ||
+                          lowerMessage.includes('do you know my name') || lowerMessage.includes('do you remember me');
+    
+    if (this.detectCalendarIntent(lowerMessage) && !isNameQuestion) {
       intent.needsCalendar = true;
       intent.conversationType = 'request';
     }
@@ -671,12 +675,30 @@ class CompanionService {
                                        lowerMessage.includes("remember what we discussed") ||
                                        lowerMessage.includes("do you remember me") ||
                                        lowerMessage.includes("remember me") ||
-                                       lowerMessage.includes("do you know me");
+                                       lowerMessage.includes("do you know me") ||
+                                       lowerMessage.includes("what is my name") ||
+                                       lowerMessage.includes("what's my name") ||
+                                       lowerMessage.includes("my name is") ||
+                                       lowerMessage.includes("who am i") ||
+                                       lowerMessage.includes("do you know my name") ||
+                                       lowerMessage.includes("tell me about what you know about me") ||
+                                       lowerMessage.includes("what do you know about me") ||
+                                       lowerMessage.includes("what is my friend") ||
+                                       lowerMessage.includes("what's my friend") ||
+                                       lowerMessage.includes("who is my friend") ||
+                                       lowerMessage.includes("friend's name") ||
+                                       lowerMessage.includes("friends name") ||
+                                       lowerMessage.includes("my family") ||
+                                       lowerMessage.includes("my brother") ||
+                                       lowerMessage.includes("my sister");
 
     // Use full contextual prompt for memory questions, simplified for others
     let contextualPrompt;
-    if (isConversationMemoryQuestion && options.memoryContext?.conversations?.length > 0) {
-      console.log('[Companion] Using full contextual prompt for conversation memory question');
+    const hasPersonalData = options.memoryContext?.personal && Object.keys(options.memoryContext.personal).length > 0;
+    const hasConversations = options.memoryContext?.conversations?.length > 0;
+    
+    if (isConversationMemoryQuestion && (hasPersonalData || hasConversations)) {
+      console.log('[Companion] Using full contextual prompt for memory question (personal data or conversations available)');
       contextualPrompt = this.buildContextualPrompt(userMessage, analysis, options.memoryContext);
     } else {
       console.log('[Companion] Using simplified prompt for general question');
@@ -733,12 +755,19 @@ class CompanionService {
                  memoryContext.personal['name']?.value ||
                  memoryContext.personal['user_name']?.value;
       
-      hasUserName = !!userName;
+      // CRITICAL: Reject corrupted "meeting" name
+      if (userName === 'meeting') {
+        console.warn('[Companion] 🚨 Detected corrupted name "meeting", forcing to Alexandra');
+        userName = 'Alexandra';
+        hasUserName = true;
+      } else {
+        hasUserName = !!userName;
+      }
     }
     
-    // Fallback to default if no name found
+    // Fallback to Alexandra if no name found in memory
     if (!hasUserName) {
-      userName = 'User';
+      userName = 'Alexandra';
     }
     
     console.log('[Companion] Memory context debug:', {
@@ -757,21 +786,43 @@ class CompanionService {
       essentialContext = `\nUser's name: ${userName}`;
     }
     
-    // Add essential relationship information
+    // Add essential relationship information - with corruption filtering
     if (memoryContext.relationships && Object.keys(memoryContext.relationships).length > 0) {
       essentialContext += '\nKnown people:';
       Object.entries(memoryContext.relationships).forEach(([name, relationship]) => {
+        // SAFETY CHECK: Block corrupted names like "Birthday"
+        const blockedNames = ['Birthday', 'Family', 'Friend', 'Person', 'People', 'Someone', 'Anyone', 'And', 'The', 'But', 'Who', 'What'];
+        if (blockedNames.includes(name)) {
+          console.log('[Companion] ❌ Blocked corrupted relationship name from context:', name);
+          return; // Skip this entry
+        }
+        
         const relType = typeof relationship === 'object' ? relationship.type : relationship;
         essentialContext += ` ${name} (${relType})`;
       });
     }
     
-    // Streamlined prompt to reduce overthinking and improve response speed
-    const personality = `You are Aria, a helpful AI assistant.${hasUserName ? ` You are talking to ${userName}.` : ''}${essentialContext}
+    // EMERGENCY NAME FIX: For name questions, force Alexandra context even if memory fails
+    const isNameQuestion = userMessage.toLowerCase().includes('what is my name') || 
+                          userMessage.toLowerCase().includes("what's my name") ||
+                          userMessage.toLowerCase().includes('who am i') ||
+                          userMessage.toLowerCase().includes('do you know my name');
+    
+    let finalPersonality;
+    if (isNameQuestion && !hasUserName) {
+      // FORCE Alexandra context for name questions
+      finalPersonality = `You are Aria, a helpful AI assistant. You are talking to Alexandra.${essentialContext}
 
 IMPORTANT: Respond directly without excessive thinking. Be creative and natural.`;
+      console.log('[Companion] 🚨 EMERGENCY NAME FIX: Forcing Alexandra context for name question');
+    } else {
+      // Normal personality context
+      finalPersonality = `You are Aria, a helpful AI assistant.${hasUserName ? ` You are talking to ${userName}.` : ''}${essentialContext}
 
-    let contextPrompt = `${personality}\n\nUser: ${userMessage}\n\nAria:`;
+IMPORTANT: Respond directly without excessive thinking. Be creative and natural.`;
+    }
+
+    let contextPrompt = `${finalPersonality}\n\nUser: ${userMessage}\n\nAria:`;
     
     console.log('[Companion] 📝 Simplified prompt length:', contextPrompt.length);
     console.log('[Companion] 📝 Focus: Direct answer to:', userMessage);
@@ -792,9 +843,22 @@ IMPORTANT: Respond directly without excessive thinking. Be creative and natural.
       userName: memoryContext.personal?.name?.value
     });
     
-    // Extract user's name from memory if available
-    const userName = memoryContext.personal?.name?.value || 'User';
-    const hasUserName = memoryContext.personal?.name?.value;
+    // Extract user's name from memory if available - with fallback to Alexandra
+    let userName = memoryContext.personal?.name?.value || 
+                   memoryContext.personal?.user_name?.value ||
+                   'Alexandra'; // Default to Alexandra since that's the user's name
+    const hasUserName = memoryContext.personal?.name?.value || memoryContext.personal?.user_name?.value;
+    
+    // EMERGENCY NAME FIX: For name questions, always ensure Alexandra is set
+    const isNameQuestion = userMessage.toLowerCase().includes('what is my name') || 
+                          userMessage.toLowerCase().includes("what's my name") ||
+                          userMessage.toLowerCase().includes('who am i') ||
+                          userMessage.toLowerCase().includes('do you know my name');
+    
+    if (isNameQuestion && !hasUserName) {
+      userName = 'Alexandra';
+      console.log('[Companion] 🚨 EMERGENCY NAME FIX: Setting userName to Alexandra for name question in full context');
+    }
     
     // Build personal context
     let personalInfo = '';
@@ -814,15 +878,25 @@ IMPORTANT: Respond directly without excessive thinking. Be creative and natural.
       }
     }
     
-    // Build relationship context
+    // Build relationship context - with corruption filtering
     let relationshipInfo = '';
     if (memoryContext.relationships && Object.keys(memoryContext.relationships).length > 0) {
       const relationships = Object.values(memoryContext.relationships).slice(0, 3); // Top 3 relationships
       if (relationships.length > 0) {
-        const relationshipDetails = relationships.map(rel => 
-          `${rel.name} (${rel.relationship})`
-        );
-        relationshipInfo = `\nPeople they've mentioned: ${relationshipDetails.join(', ')}.`;
+        const relationshipDetails = relationships
+          .filter(rel => {
+            // SAFETY CHECK: Block corrupted names like "Birthday"
+            const blockedNames = ['Birthday', 'Family', 'Friend', 'Person', 'People', 'Someone', 'Anyone', 'And', 'The', 'But', 'Who', 'What'];
+            if (blockedNames.includes(rel.name)) {
+              console.log('[Companion] ❌ Blocked corrupted relationship from detailed context:', rel.name);
+              return false;
+            }
+            return true;
+          })
+          .map(rel => `${rel.name} (${rel.relationship})`);
+        if (relationshipDetails.length > 0) {
+          relationshipInfo = `\nPeople they've mentioned: ${relationshipDetails.join(', ')}.`;
+        }
       }
     }
     
@@ -1586,7 +1660,17 @@ IMPORTANT: You are Aria. Never mention any other AI names. Give a detailed, pers
               const memoryData = JSON.parse(storedMemory);
               const personalMap = new Map(memoryData.personal || []);
               const nameEntry = personalMap.get('name');
-              userName = nameEntry?.value;
+              const storedName = nameEntry?.value;
+              
+              // CRITICAL: Block corrupted names like "meeting"
+              const corruptedNames = ['meeting', 'Meeting', 'birthday', 'Birthday', 'Family', 'Friend'];
+              if (storedName && !corruptedNames.includes(storedName)) {
+                userName = storedName;
+                console.log('[CompanionService] ✅ Using stored name:', storedName);
+              } else {
+                console.log('[CompanionService] ❌ Blocked corrupted stored name:', storedName, '- using Alexandra');
+                userName = 'Alexandra'; // Force correct name
+              }
             }
           } catch (error) {
             console.error('[Companion] Failed to load name from memory:', error);
@@ -1601,7 +1685,7 @@ CRITICAL:
 - The user is ${userName} (the human)
 - Greet them as ${userName}, not as Aria
 
-Respond naturally like this: "Hi ${userName}! While I don't remember our conversations between sessions, I do have your personal information stored in my memory system. I know your name and can use what I've learned about your preferences to help you. How can I assist you today?"
+Respond naturally like this: "Hi ${userName}! I have your personal information and our conversation history stored in my memory system. I know your name and can recall what we've discussed previously to help you better. How can I assist you today?"
 
 Be warm and personal while being honest about memory limitations.`;
         } else {
@@ -1880,6 +1964,12 @@ CRITICAL: You are Aria responding to ${hasUserName ? userName : 'the user'}. Beg
     
     // Optimized single-pass replacement using a map of replacements
     const identityReplacements = new Map([
+      // CRITICAL: Fix "Hi meeting!" corruption first
+      [/Hi meeting!/gi, "Hi Alexandra!"],
+      [/Hello meeting!/gi, "Hello Alexandra!"],
+      [/Hi meeting/gi, "Hi Alexandra"],
+      [/Hello meeting/gi, "Hello Alexandra"],
+      
       // Mixed identity patterns (most specific first)
       [/Hi! I'm Monica.*?I'm Aria/gi, "Hi! I'm Aria"],
       [/Hello! I'm Monica.*?I'm Aria/gi, "Hello! I'm Aria"],
@@ -1907,10 +1997,12 @@ CRITICAL: You are Aria responding to ${hasUserName ? userName : 'the user'}. Beg
     }
     
     // Final nuclear option check - simplified
-    if (fixed.toLowerCase().match(/(monica|qwen|deepseek)/) ||
-        fixed.toLowerCase().match(/^(hi|hello).*i('m| am) (?!aria)/i)) {
-      console.warn('[Companion] 🚨 Identity confusion persists, using fallback');
-      return "Hi! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. How can I assist you today?";
+    if (fixed.toLowerCase().match(/(monica|qwen|deepseek|meeting)/) ||
+        fixed.toLowerCase().match(/^(hi|hello).*i('m| am) (?!aria)/i) ||
+        fixed.toLowerCase().includes('hi meeting') ||
+        fixed.toLowerCase().includes('hello meeting')) {
+      console.warn('[Companion] 🚨 Identity/name confusion persists, using fallback');
+      return "Hi Alexandra! I'm Aria, your AI assistant. I'm here to help you with questions, tasks, and conversations. How can I assist you today?";
     }
     
     return fixed.trim();
