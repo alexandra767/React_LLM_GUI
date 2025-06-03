@@ -527,6 +527,7 @@ class ImageGenerationService {
           "motion_bucket_id": motionBucketId,
           "fps": fps,
           "augmentation_level": augLevel,
+          "clip_vision": ["11", 0],
           "init_image": ["7", 0],
           "vae": ["10", 0]
         },
@@ -571,6 +572,12 @@ class ImageGenerationService {
           "vae_name": "ae.safetensors"
         },
         "class_type": "VAELoader"
+      },
+      "11": {
+        "inputs": {
+          "clip_name": "sigclip_vision_patch14_384.safetensors"
+        },
+        "class_type": "CLIPVisionLoader"
       }
     };
 
