@@ -495,7 +495,7 @@ class ImageGenerationService {
       imageName = imageUrl;
     }
 
-    // Create simplified SVD workflow
+    // Create proper SVD workflow using UNETLoader
     const workflow = {
       "3": {
         "inputs": {
@@ -507,16 +507,17 @@ class ImageGenerationService {
           "denoise": 1,
           "model": ["4", 0],
           "positive": ["5", 0],
-          "negative": ["6", 0],
-          "latent_image": ["5", 1]
+          "negative": ["5", 1],
+          "latent_image": ["6", 0]
         },
         "class_type": "KSampler"
       },
       "4": {
         "inputs": {
-          "ckpt_name": "svd_xt.safetensors"
+          "unet_name": "svd_xt.safetensors",
+          "weight_dtype": "default"
         },
-        "class_type": "CheckpointLoaderSimple"
+        "class_type": "UNETLoader"
       },
       "5": {
         "inputs": {
@@ -526,18 +527,19 @@ class ImageGenerationService {
           "motion_bucket_id": motionBucketId,
           "fps": fps,
           "augmentation_level": augLevel,
-          "clip": ["4", 1],
           "init_image": ["7", 0],
-          "vae": ["4", 2]
+          "vae": ["10", 0]
         },
         "class_type": "SVD_img2vid_Conditioning"
       },
       "6": {
         "inputs": {
-          "text": "",
-          "clip": ["4", 1]
+          "width": 1024,
+          "height": 576,
+          "video_frames": frames,
+          "batch_size": 1
         },
-        "class_type": "CLIPTextEncode"
+        "class_type": "EmptySD3LatentImage"
       },
       "7": {
         "inputs": {
@@ -560,9 +562,15 @@ class ImageGenerationService {
       "9": {
         "inputs": {
           "samples": ["3", 0],
-          "vae": ["4", 2]
+          "vae": ["10", 0]
         },
         "class_type": "VAEDecode"
+      },
+      "10": {
+        "inputs": {
+          "vae_name": "ae.safetensors"
+        },
+        "class_type": "VAELoader"
       }
     };
 
