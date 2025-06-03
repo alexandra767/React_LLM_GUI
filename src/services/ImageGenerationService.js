@@ -495,7 +495,7 @@ class ImageGenerationService {
       imageName = imageUrl;
     }
 
-    // Create SVD workflow
+    // Create simplified SVD workflow
     const workflow = {
       "3": {
         "inputs": {
@@ -506,9 +506,9 @@ class ImageGenerationService {
           "scheduler": "karras",
           "denoise": 1,
           "model": ["4", 0],
-          "positive": ["6", 0],
-          "negative": ["7", 0],
-          "latent_image": ["5", 0]
+          "positive": ["5", 0],
+          "negative": ["6", 0],
+          "latent_image": ["5", 1]
         },
         "class_type": "KSampler"
       },
@@ -523,50 +523,41 @@ class ImageGenerationService {
           "width": 1024,
           "height": 576,
           "video_frames": frames,
-          "batch_size": 1
-        },
-        "class_type": "SVD_img2vid_Conditioning"
-      },
-      "6": {
-        "inputs": {
-          "width": 1024,
-          "height": 576,
-          "video_frames": frames,
           "motion_bucket_id": motionBucketId,
           "fps": fps,
           "augmentation_level": augLevel,
           "clip": ["4", 1],
-          "init_image": ["8", 0],
+          "init_image": ["7", 0],
           "vae": ["4", 2]
         },
         "class_type": "SVD_img2vid_Conditioning"
       },
-      "7": {
+      "6": {
         "inputs": {
           "text": "",
           "clip": ["4", 1]
         },
         "class_type": "CLIPTextEncode"
       },
-      "8": {
+      "7": {
         "inputs": {
           "image": imageName,
           "upload": "image"
         },
         "class_type": "LoadImage"
       },
-      "9": {
+      "8": {
         "inputs": {
           "filename_prefix": "Sephia_video",
           "fps": fps,
           "lossless": false,
           "quality": 85,
           "method": "default",
-          "images": ["10", 0]
+          "images": ["9", 0]
         },
         "class_type": "SaveAnimatedWEBP"
       },
-      "10": {
+      "9": {
         "inputs": {
           "samples": ["3", 0],
           "vae": ["4", 2]
