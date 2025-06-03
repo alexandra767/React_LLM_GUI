@@ -55,10 +55,14 @@ export const processCommand = async (message, attachments = [], { setImageGenera
   let command = parts[0].toLowerCase();
   let args = parts.slice(1).join(' ');
   
-  // Handle @flux:STEPS syntax
+  // Handle @flux:STEPS and @image:STEPS syntax
   if (command.startsWith('@flux:')) {
     const colonParts = command.split(':');
     command = colonParts[0]; // @flux
+    args = colonParts[1] + ' ' + args; // :20 prompt becomes "20 prompt"
+  } else if (command.startsWith('@image:') || command.startsWith('@img:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @image or @img
     args = colonParts[1] + ' ' + args; // :20 prompt becomes "20 prompt"
   }
 
