@@ -526,6 +526,12 @@ class CompanionService {
       intent.conversationType = 'weather';
     }
 
+    // Model information detection
+    if (this.detectModelIntent(lowerMessage)) {
+      intent.needsModelInfo = true;
+      intent.conversationType = 'question';
+    }
+
     return intent;
   }
 
@@ -653,6 +659,20 @@ class CompanionService {
     const hasWeatherIntent = weatherKeywords.some(keyword => message.toLowerCase().includes(keyword.toLowerCase()));
     console.log('[Companion] 🌤️ detectWeatherIntent for message:', message, '-> Result:', hasWeatherIntent);
     return hasWeatherIntent;
+  }
+
+  // Model intent detection
+  detectModelIntent(message) {
+    const lowerMessage = message.toLowerCase();
+    const modelKeywords = [
+      'what model', 'which model', 'what version', 'which version',
+      'model are you', 'model do you use', 'running on', 'powered by',
+      'are you claude', 'are you opus', 'are you gpt', 'are you llama',
+      'what ai', 'which ai', 'what llm', 'which llm',
+      'model information', 'version information', 'your model', 'your version',
+      'using claude', 'using opus', 'running claude', 'running opus'
+    ];
+    return modelKeywords.some(keyword => lowerMessage.includes(keyword));
   }
 
   // Generate contextual response with integrations
@@ -1043,6 +1063,12 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
         if (weatherResult) results.push({ type: 'weather', data: weatherResult });
       }
 
+      // Model information
+      if (analysis.needsModelInfo) {
+        const modelResult = await this.executeModelCommand(userMessage);
+        if (modelResult) results.push({ type: 'model', data: modelResult });
+      }
+
     } catch (error) {
       console.error('[Companion] Integration error:', error);
       results.push({ type: 'error', data: { message: error.message } });
@@ -1313,6 +1339,32 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
       
       return {
         content: `I'm sorry, I'm having trouble getting weather information right now. You can try:\n\n• Asking again in a moment\n• Checking weather.com directly\n• Using Google search for "${locationForError} weather"\n\nError: ${error.message}`,
+        error: error.message
+      };
+    }
+  }
+
+  // Execute model information command
+  async executeModelCommand(message) {
+    try {
+      console.log('[Companion] 🤖 Executing model command');
+      
+      // Call the @model command directly
+      const modelCommand = '@model';
+      const result = await this.commandProcessor.processCommand(modelCommand);
+      
+      if (result && result.content) {
+        return {
+          content: result.content,
+          hasIntegration: true
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[Companion] Model info error:', error);
+      return {
+        content: `I'm having trouble getting model information right now. Error: ${error.message}`,
         error: error.message
       };
     }
@@ -1946,7 +1998,8 @@ CRITICAL: You are Aria responding to ${hasUserName ? userName : 'the user'}. Beg
            analysis.needsCurrentEvents ||
            analysis.needsResearch ||
            analysis.needsTaskManagement ||
-           analysis.needsWeather;
+           analysis.needsWeather ||
+           analysis.needsModelInfo;
   }
 
   // Force Aria identity in any response - optimized for performance

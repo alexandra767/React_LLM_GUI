@@ -480,17 +480,30 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           // Check if we have an attached image for img2img
           const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
           
-          // Parse steps from command if specified (e.g., @flux:20 prompt)
+          // Parse steps and denoise from command if specified
+          // Format: @flux:20 prompt or @flux:20:0.2 prompt for steps and denoise
           let steps = 12; // Default
+          let denoise = 0.3; // Default for img2img
           let actualArgs = args;
           console.log('[Flux] Parsing args:', args);
-          const stepsMatch = args.match(/^(\d+)\s+(.+)/);
-          if (stepsMatch) {
-            steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
-            actualArgs = stepsMatch[2];
-            console.log('[Flux] Parsed steps:', steps, 'actualArgs:', actualArgs);
+          
+          // Try to match steps:denoise format first
+          const advancedMatch = args.match(/^(\d+):([0-9.]+)\s+(.+)/);
+          if (advancedMatch) {
+            steps = Math.min(Math.max(parseInt(advancedMatch[1], 10), 1), 50); // Clamp between 1-50
+            denoise = Math.min(Math.max(parseFloat(advancedMatch[2]), 0.0), 1.0); // Clamp between 0-1
+            actualArgs = advancedMatch[3];
+            console.log('[Flux] Parsed steps:', steps, 'denoise:', denoise, 'actualArgs:', actualArgs);
           } else {
-            console.log('[Flux] No steps match found, using default steps:', steps);
+            // Try simple steps match
+            const stepsMatch = args.match(/^(\d+)\s+(.+)/);
+            if (stepsMatch) {
+              steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
+              actualArgs = stepsMatch[2];
+              console.log('[Flux] Parsed steps:', steps, 'actualArgs:', actualArgs);
+            } else {
+              console.log('[Flux] No steps match found, using default steps:', steps);
+            }
           }
           
           // Detect if full body is requested and adjust aspect ratio
@@ -536,7 +549,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
             console.log('[Flux] Using attached image for img2img generation');
             generationOptions.inputImage = attachedImage.content;
-            generationOptions.denoise = 0.75; // Default denoise strength
+            generationOptions.denoise = denoise; // Use parsed or default denoise value
           }
           
           // Set initial progress
@@ -637,17 +650,30 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           // Check if we have an attached image for img2img
           const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
           
-          // Parse steps from command if specified (e.g., @image:30 prompt)
+          // Parse steps and denoise from command if specified
+          // Format: @image:30 prompt or @image:30:0.2 prompt for steps and denoise
           let steps = 20; // Default
+          let denoise = 0.3; // Default for img2img (same as @flux)
           let actualArgs = args;
           console.log('[Image] Parsing args:', args);
-          const stepsMatch = args.match(/^(\d+)\s+(.+)/);
-          if (stepsMatch) {
-            steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
-            actualArgs = stepsMatch[2];
-            console.log('[Image] Parsed steps:', steps, 'actualArgs:', actualArgs);
+          
+          // Try to match steps:denoise format first
+          const advancedMatch = args.match(/^(\d+):([0-9.]+)\s+(.+)/);
+          if (advancedMatch) {
+            steps = Math.min(Math.max(parseInt(advancedMatch[1], 10), 1), 50); // Clamp between 1-50
+            denoise = Math.min(Math.max(parseFloat(advancedMatch[2]), 0.0), 1.0); // Clamp between 0-1
+            actualArgs = advancedMatch[3];
+            console.log('[Image] Parsed steps:', steps, 'denoise:', denoise, 'actualArgs:', actualArgs);
           } else {
-            console.log('[Image] No steps match found, using default steps:', steps);
+            // Try simple steps match
+            const stepsMatch = args.match(/^(\d+)\s+(.+)/);
+            if (stepsMatch) {
+              steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
+              actualArgs = stepsMatch[2];
+              console.log('[Image] Parsed steps:', steps, 'actualArgs:', actualArgs);
+            } else {
+              console.log('[Image] No steps match found, using default steps:', steps);
+            }
           }
           
           // Detect if full body is requested and adjust aspect ratio
@@ -689,7 +715,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
             console.log('[Image] Using attached image for img2img generation');
             generationOptions.inputImage = attachedImage.content;
-            generationOptions.denoise = 0.5; // Lower denoise to preserve your appearance better
+            generationOptions.denoise = denoise; // Use parsed or default denoise value
             
             // Set initial progress for img2img
             if (setImageGenerationProgress) {
@@ -1038,6 +1064,7 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             } else if (videos.length > 0 && videos[0].isVideoFile) {
               // Handle actual video file (MP4, WEBM, etc.)
               const videoUrl = videos[0].url;
+              console.log('[Img2Video] Returning video file:', { videoUrl, filename: videos[0].filename });
               return {
                 type: 'video',
                 content: `Generated video from attached image: ${videos[0].filename}`,
@@ -1522,6 +1549,73 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           content: `🧠 **Memory & Learning Status:**\n\n**What I Remember:**\n• Conversation history and context\n• Your preferences and interests\n• Previous projects and topics\n• Command usage patterns\n• Settings and configurations\n\n**Learning Capabilities:**\n• Adaptive responses based on your style\n• Project context awareness\n• Personal workflow optimization\n• Interest-based content curation\n\n**Memory Management:**\n• Use @memory-clear to remove stale news and outdated content\n• Automatic cleanup of time-sensitive conversations after 24 hours\n• Important personal information is always preserved\n\n**Privacy Note:**\n• All memory is local to this session\n• No personal data is shared externally\n• You can clear memory anytime in settings\n\n*Ask me about any previous conversations or projects we've discussed!*`
         };
 
+      case '@model':
+      case '@version':
+        // @model or @version - Show current model information
+        try {
+          // Get current model from localStorage
+          const currentModel = localStorage.getItem('sephia_current_model') || 'Unknown';
+          const claudeApiKey = localStorage.getItem('sephia_settings') ? 
+            JSON.parse(localStorage.getItem('sephia_settings')).claudeApiKey : null;
+          
+          let modelInfo = `🤖 **Current Model Information:**\n\n`;
+          
+          // Check if using Claude
+          if (currentModel.startsWith('claude-')) {
+            const modelMap = {
+              'claude-opus-4-20250514': 'Claude 4 Opus (Latest)',
+              'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
+              'claude-3-haiku-20240307': 'Claude 3 Haiku'
+            };
+            
+            modelInfo += `**Active Model:** ${modelMap[currentModel] || currentModel}\n`;
+            modelInfo += `**Provider:** Anthropic (Cloud API)\n`;
+            modelInfo += `**Status:** ✅ Connected${claudeApiKey ? ' with API key' : ''}\n\n`;
+            
+            if (currentModel === 'claude-opus-4-20250514') {
+              modelInfo += `**Model Details:**\n`;
+              modelInfo += `• Latest Opus 4 model with enhanced capabilities\n`;
+              modelInfo += `• Superior reasoning and analysis\n`;
+              modelInfo += `• Extended context window\n`;
+              modelInfo += `• Multi-modal support\n\n`;
+            }
+            
+            modelInfo += `**Aria is currently powered by:** ${modelMap[currentModel] || currentModel}\n`;
+            modelInfo += `*This gives me advanced reasoning, creative abilities, and up-to-date knowledge.*`;
+          } else {
+            // Local Ollama model
+            modelInfo += `**Active Model:** ${currentModel}\n`;
+            modelInfo += `**Provider:** Ollama (Local)\n`;
+            modelInfo += `**Status:** ${service.ollamaStatus || 'Unknown'}\n\n`;
+            
+            modelInfo += `**Model Details:**\n`;
+            if (currentModel.includes('qwen')) {
+              modelInfo += `• Qwen model optimized for conversations\n`;
+              modelInfo += `• Running locally on your machine\n`;
+              modelInfo += `• No internet required for inference\n`;
+            } else {
+              modelInfo += `• Local language model\n`;
+              modelInfo += `• Privacy-focused (no data leaves your device)\n`;
+            }
+            
+            modelInfo += `\n**Aria is currently powered by:** ${currentModel}\n`;
+            modelInfo += `*Running locally for maximum privacy and control.*`;
+          }
+          
+          // Add available models info
+          modelInfo += `\n\n**Switch models:** Go to Settings → Model Selection`;
+          
+          return {
+            type: 'integration',
+            content: modelInfo
+          };
+        } catch (error) {
+          return {
+            type: 'error',
+            content: `Error getting model information: ${error.message}`
+          };
+        }
+
       case '@weather':
         // @weather [location] - Get weather information  
         if (!args) {
@@ -1666,7 +1760,9 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @drive-create folder "name" - Create folder in Google Drive
 • @calendar [days] - Calendar events
 • @flux [prompt] - AI image generation
+• @flux:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)
 • @voice - Voice settings and test
+• @model - Show current model information
 
 **Examples:**
 • "Help me research quantum computing developments"
@@ -1707,8 +1803,10 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @weather [location] - Get weather information
 • @image [prompt] - High-quality image generation (20 steps, 1024x1024)
 • @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers
+• @image:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)
 • @flux [prompt] - Flux model generation (12 steps, 768x768)
 • @flux:STEPS [prompt] - Flux with custom steps (1-50)
+• @flux:STEPS:DENOISE [prompt] - Flux with attached image (denoise 0.0-1.0, lower preserves more)
 • @video [prompt] - Generate video from text (14 frames, 6fps)
 • @video:FRAMES:FPS [prompt] - Custom video settings (10-30 frames, 6-12fps)
 • @img2video [description] - Create MP4 video from attached image (14 frames, 6fps, 20 steps)
@@ -1736,13 +1834,16 @@ Examples:
 • @calendar-move "lunch meeting" to tomorrow 3pm
 • @image a beautiful sunset (high quality, 20 steps)
 • @image:30 detailed portrait (30 steps with quality enhancers)
+• @image:30:0.2 (attach image) enhance my photo with subtle changes
 • @flux a cyberpunk city at night (uses 12 steps)
 • @flux:20 a detailed portrait (uses 20 steps)
+• @flux:20:0.15 (attach image) subtle edit keeping your face
 • @video a cat walking through a garden (14 frames, 6fps)
 • @video:25:8 ocean waves crashing (25 frames, 8fps)
 • @img2video (attach image) animate with natural motion
 • @img2video:20:8 (attach image) subtle movement and blinking
 • @img2video:25:6:40 (attach image) high quality smooth animation
+• @model - Show current model information
 • @help`
           };
         }
@@ -1769,9 +1870,11 @@ Examples:
 • @search [query] - Search the web
 • @weather [location] - Get weather information
 • @image [prompt] - High-quality image generation (20 steps, 1024x1024)
-• @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers  
+• @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers
+• @image:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)  
 • @flux [prompt] - Flux model generation (12 steps, 768x768)
 • @flux:STEPS [prompt] - Flux with custom steps (1-50)
+• @flux:STEPS:DENOISE [prompt] - Flux with attached image (denoise 0.0-1.0, lower preserves more)
 • @help - Show this help message
 
 Examples:
@@ -1798,7 +1901,8 @@ Examples:
 • @flux:20 a detailed portrait (uses 20 steps)
 • @video a busy street with people walking (14 frames, 6fps)
 • @video:20:10 time-lapse sunset (20 frames, 10fps)
-• @img2video (attach image) add gentle movement`
+• @img2video (attach image) add gentle movement
+• @model - Show current model information and which AI powers Aria`
         };
 
       default:
