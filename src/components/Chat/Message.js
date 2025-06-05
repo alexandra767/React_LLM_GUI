@@ -15,13 +15,49 @@ import copyToClipboard from '../../utils/clipboard';
 import { useStreamingContent } from '../../hooks/useStreamingContent';
 import voiceService from '../../services/VoiceService';
 
-// Global Set to track which messages have already been spoken to prevent duplicates
-const spokenMessageIds = new Set();
+// Persistent storage key for spoken messages
+const SPOKEN_MESSAGES_KEY = 'sephia_spoken_messages';
+const SPOKEN_MESSAGES_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+
+// Load spoken messages from localStorage on startup
+const loadSpokenMessages = () => {
+  try {
+    const stored = localStorage.getItem(SPOKEN_MESSAGES_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const now = Date.now();
+      // Filter out expired entries
+      const filtered = {};
+      Object.entries(parsed).forEach(([id, timestamp]) => {
+        if (now - timestamp < SPOKEN_MESSAGES_EXPIRY) {
+          filtered[id] = timestamp;
+        }
+      });
+      return filtered;
+    }
+  } catch (e) {
+    console.error('[Message] Error loading spoken messages:', e);
+  }
+  return {};
+};
+
+// Save spoken messages to localStorage
+const saveSpokenMessages = (messages) => {
+  try {
+    localStorage.setItem(SPOKEN_MESSAGES_KEY, JSON.stringify(messages));
+  } catch (e) {
+    console.error('[Message] Error saving spoken messages:', e);
+  }
+};
+
+// Initialize spoken messages from storage
+let spokenMessages = loadSpokenMessages();
 
 // Export function to clear spoken messages (useful for new conversations)
 export const clearSpokenMessages = () => {
-  console.log('[Message] Clearing spoken messages cache, previous count:', spokenMessageIds.size);
-  spokenMessageIds.clear();
+  console.log('[Message] Clearing spoken messages cache');
+  spokenMessages = {};
+  saveSpokenMessages(spokenMessages);
   
   // CRITICAL FIX: Also clear any lingering global streaming content that might cause voice conflicts
   if (window.__streamingContent) {
@@ -34,7 +70,13 @@ export const clearSpokenMessages = () => {
 
 // Export function to check if message was spoken (for debugging)
 export const wasMessageSpoken = (messageId) => {
-  return spokenMessageIds.has(messageId);
+  return messageId in spokenMessages;
+};
+
+// Add a message as spoken
+const markMessageAsSpoken = (messageId) => {
+  spokenMessages[messageId] = Date.now();
+  saveSpokenMessages(spokenMessages);
 };
 
 // Keyframe animation for pulse effect
@@ -307,10 +349,27 @@ const Message = React.memo(({ message, onDelete }) => {
   React.useEffect(() => {
     // Only trigger voice for assistant messages in companion mode
     if (safeMessage.role === 'assistant' && companionMode && displayContent && !hasBeenSpokenRef.current) {
-      // Check if this message has already been spoken globally
-      if (spokenMessageIds.has(safeMessage.id)) {
-        console.log('[Message] Message already spoken globally, skipping:', safeMessage.id);
+      // Skip if this is a command response
+      if (safeMessage.isCommand) {
+        console.log('[Message] Skipping auto-speak for command response:', safeMessage.id);
         hasBeenSpokenRef.current = true;
+        return;
+      }
+      
+      // Check if this message has already been spoken (persistent check)
+      if (wasMessageSpoken(safeMessage.id)) {
+        console.log('[Message] Message already spoken (from storage), skipping:', safeMessage.id);
+        hasBeenSpokenRef.current = true;
+        return;
+      }
+      
+      // Check message age - don't speak messages older than 5 seconds
+      const messageAge = Date.now() - new Date(safeMessage.timestamp).getTime();
+      if (messageAge > 5000) {
+        console.log('[Message] Skipping auto-speak for old message:', safeMessage.id, 'age:', messageAge);
+        hasBeenSpokenRef.current = true;
+        // Mark as spoken so it won't be spoken later
+        markMessageAsSpoken(safeMessage.id);
         return;
       }
       
@@ -348,12 +407,12 @@ const Message = React.memo(({ message, onDelete }) => {
           isStreamingComplete,
           wordCount,
           contentPreview: displayContent.substring(0, 100),
-          globalSpokenCount: spokenMessageIds.size
+          spokenMessagesCount: Object.keys(spokenMessages).length
         });
         
-        // Mark as spoken both locally and globally to prevent duplicate attempts
+        // Mark as spoken both locally and in persistent storage to prevent duplicate attempts
         hasBeenSpokenRef.current = true;
-        spokenMessageIds.add(safeMessage.id);
+        markMessageAsSpoken(safeMessage.id);
         setIsAutoSpeaking(true);
         
         // Clean text for speech
@@ -403,25 +462,28 @@ const Message = React.memo(({ message, onDelete }) => {
               console.error('[Message] Auto-speak error for message:', safeMessage.id, error);
               setIsAutoSpeaking(false);
               // Remove from spoken set on error so it can be retried
-              spokenMessageIds.delete(safeMessage.id);
+              delete spokenMessages[safeMessage.id];
+              saveSpokenMessages(spokenMessages);
               hasBeenSpokenRef.current = false;
             }
           }).catch(error => {
             console.error('[Message] Auto-speak failed for message:', safeMessage.id, error);
             setIsAutoSpeaking(false);
             // Remove from spoken set on error so it can be retried
-            spokenMessageIds.delete(safeMessage.id);
+            delete spokenMessages[safeMessage.id];
+            saveSpokenMessages(spokenMessages);
             hasBeenSpokenRef.current = false;
           });
         } else {
           setIsAutoSpeaking(false);
           // Remove from spoken set if no text to speak
-          spokenMessageIds.delete(safeMessage.id);
+          delete spokenMessages[safeMessage.id];
+          saveSpokenMessages(spokenMessages);
           hasBeenSpokenRef.current = false;
         }
       }
     }
-  }, [displayContent, safeMessage.role, companionMode, isStreamingMessage, safeMessage.isStreaming, safeMessage.id]);
+  }, [displayContent, safeMessage.role, companionMode, isStreamingMessage, safeMessage.isStreaming, safeMessage.id, safeMessage.timestamp, safeMessage.isCommand]);
   
   const isUser = safeMessage.role === 'user';
   
@@ -1473,6 +1535,15 @@ const Message = React.memo(({ message, onDelete }) => {
         }
       };
       
+      // Debug video rendering
+      if (safeMessage.videoUrl) {
+        console.log('[Message] About to render video:', {
+          videoUrl: safeMessage.videoUrl,
+          isActualVideo: safeMessage.isActualVideo,
+          messageId: safeMessage.id
+        });
+      }
+
       return (
         <>
           {renderThinkingSection()}
@@ -1493,8 +1564,9 @@ const Message = React.memo(({ message, onDelete }) => {
                 src={safeMessage.videoUrl} 
                 controls
                 autoPlay={false}
-                loop={false}
-                muted={false}
+                loop={true}
+                muted={true}
+                playsInline
                 style={{
                   width: '100%',
                   maxWidth: '768px',

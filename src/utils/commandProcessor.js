@@ -97,20 +97,23 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const messages = await service.searchGmail(query);
           const formattedGmail = service.formatGmailMessages(messages);
           return {
-            type: 'integration',
-            content: `Gmail search results for "${query}":\n\n${formattedGmail || 'No messages found.'}`
+        type: 'integration',
+        isCommand: true,
+        content: `Gmail search results for "${query}":\n\n${formattedGmail || 'No messages found.'}`
           };
         } catch (gmailError) {
           console.error('Gmail error:', gmailError);
           if (gmailError.message && gmailError.message.includes('not configured')) {
             return {
-              type: 'error',
-              content: 'Gmail not configured. Please add your Google Client ID (and optionally Client Secret) in Settings → API Keys & Integrations.'
+        type: 'error',
+        isCommand: true,
+        content: 'Gmail not configured. Please add your Google Client ID (and optionally Client Secret) in Settings → API Keys & Integrations.'
             };
           }
           return {
-            type: 'error',
-            content: `Gmail error: ${gmailError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Gmail error: ${gmailError.message}`
           };
         }
 
@@ -134,29 +137,33 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             const files = await service.listGoogleDriveFilesWithPreviews(args);
             const formattedDrive = service.formatDriveFilesWithPreviews(files);
             return {
-              type: 'integration',
-              content: `Your Google Drive files${args ? ` matching "${args}"` : ''} (with previews):\n\n${formattedDrive || 'No files found.'}`
+        type: 'integration',
+        isCommand: true,
+        content: `Your Google Drive files${args ? ` matching "${args}"` : ''} (with previews):\n\n${formattedDrive || 'No files found.'}`
             };
           } else {
             // Fallback to old method
             const files = await service.listGoogleDriveFiles(args);
             const formattedDrive = service.formatDriveFiles(files);
             return {
-              type: 'integration',
-              content: `Your Google Drive files${args ? ` matching "${args}"` : ''}:\n\n${formattedDrive || 'No files found.'}`
+        type: 'integration',
+        isCommand: true,
+        content: `Your Google Drive files${args ? ` matching "${args}"` : ''}:\n\n${formattedDrive || 'No files found.'}`
             };
           }
         } catch (driveError) {
           console.error('Google Drive error:', driveError);
           if (driveError.message && driveError.message.includes('not configured')) {
             return {
-              type: 'error',
-              content: 'Google Drive not configured. Please add your Google Client ID (and optionally Client Secret) in Settings → API Keys & Integrations.'
+        type: 'error',
+        isCommand: true,
+        content: 'Google Drive not configured. Please add your Google Client ID (and optionally Client Secret) in Settings → API Keys & Integrations.'
             };
           }
           return {
-            type: 'error',
-            content: `Google Drive error: ${driveError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Google Drive error: ${driveError.message}`
           };
         }
 
@@ -185,20 +192,23 @@ export const processCommand = async (message, attachments = [], { setImageGenera
               const formattedEvents = service.formatGoogleCalendarEvents(events);
               
               return {
-                type: 'integration',
-                content: `Your Google Calendar events for the next ${daysAhead} days:\n\n${formattedEvents}`
+        type: 'integration',
+        isCommand: true,
+        content: `Your Google Calendar events for the next ${daysAhead} days:\n\n${formattedEvents}`
               };
             } catch (error) {
               console.error('[Calendar] Google Calendar error:', error);
               if (error.message.includes('401') || error.message.includes('Invalid Credentials')) {
                 return {
-                  type: 'error',
-                  content: 'Google Calendar authentication failed. Please sign in to Google in Settings.'
+        type: 'error',
+        isCommand: true,
+        content: 'Google Calendar authentication failed. Please sign in to Google in Settings.'
                 };
               }
               return {
-                type: 'error',
-                content: `Google Calendar error: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Google Calendar error: ${error.message}`
               };
             }
           } else {
@@ -219,8 +229,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
               
               if (!username || !password) {
                 return {
-                  type: 'error',
-                  content: 'Apple Calendar not configured. Please add your Apple ID and app-specific password in Settings → Integrations → Apple Calendar.'
+        type: 'error',
+        isCommand: true,
+        content: 'Apple Calendar not configured. Please add your Apple ID and app-specific password in Settings → Integrations → Apple Calendar.'
                 };
               }
               
@@ -236,8 +247,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
                   // Continue to show demo events
                 } else {
                   return {
-                    type: 'error',
-                    content: `Failed to connect to Apple Calendar: ${authError.message}\n\nPlease check your credentials in Settings.`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to connect to Apple Calendar: ${authError.message}\n\nPlease check your credentials in Settings.`
                   };
                 }
               }
@@ -250,15 +262,17 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             const formattedEvents = service.formatCalendarEvents(events);
             
             return {
-              type: 'integration',
-              content: `Your calendar events for the next ${daysAhead} days:\n\n${formattedEvents || 'No events found.'}`
+        type: 'integration',
+        isCommand: true,
+        content: `Your calendar events for the next ${daysAhead} days:\n\n${formattedEvents || 'No events found.'}`
             };
           }
         } catch (calendarError) {
           console.error('[Calendar] Unexpected error:', calendarError);
           return {
-            type: 'error',
-            content: `Calendar error: ${calendarError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Calendar error: ${calendarError.message}`
           };
         }
 
@@ -269,8 +283,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide event update details. Examples:\n• @calendar-move "meeting" to tomorrow 3pm\n• @calendar-update change "lunch" time to 1pm\n• @calendar-edit rename "call" to "important call"'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide event update details. Examples:\n• @calendar-move "meeting" to tomorrow 3pm\n• @calendar-update change "lunch" time to 1pm\n• @calendar-edit rename "call" to "important call"'
             };
           }
           
@@ -281,14 +296,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.updateGoogleCalendarEvent(args);
           return {
-            type: 'integration',
-            content: result.content
+        type: 'integration',
+        isCommand: true,
+        content: result.content
           };
         } catch (updateError) {
           console.error('[Calendar] Calendar update error:', updateError);
           return {
-            type: 'error',
-            content: `Calendar update error: ${updateError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Calendar update error: ${updateError.message}`
           };
         }
 
@@ -309,14 +326,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const formattedMessages = service.formatGmailMessages(messages);
           
           return {
-            type: 'integration',
-            content: formattedMessages
+        type: 'integration',
+        isCommand: true,
+        content: formattedMessages
           };
         } catch (gmailError) {
           console.error('[Gmail] Gmail reading error:', gmailError);
           return {
-            type: 'error',
-            content: `Gmail error: ${gmailError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Gmail error: ${gmailError.message}`
           };
         }
 
@@ -328,8 +347,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide email details. Example: @email to john@example.com subject "Hello" message "How are you?"'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide email details. Example: @email to john@example.com subject "Hello" message "How are you?"'
             };
           }
 
@@ -342,14 +362,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const result = await service.sendGmailEmail(args);
           
           return {
-            type: 'integration',
-            content: result.content
+        type: 'integration',
+        isCommand: true,
+        content: result.content
           };
         } catch (emailError) {
           console.error('[Email] Email sending error:', emailError);
           return {
-            type: 'error',
-            content: `Email error: ${emailError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Email error: ${emailError.message}`
           };
         }
 
@@ -358,15 +380,17 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @search [query] or @web [query]
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide a search query. Example: @search weather today'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a search query. Example: @search weather today'
           };
         }
         const results = await service.webSearch(args);
         const formattedResults = service.formatWebSearchResults(results);
         return {
-          type: 'integration',
-          content: `Web search results for "${args}":\n\n${formattedResults}`
+        type: 'integration',
+        isCommand: true,
+        content: `Web search results for "${args}":\n\n${formattedResults}`
         };
 
       case '@news':
@@ -376,13 +400,15 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const newsResults = await service.getLatestNews(newsQuery);
           const formattedNews = service.formatWebSearchResults(newsResults);
           return {
-            type: 'integration',
-            content: `Latest news for "${newsQuery}":\n\n${formattedNews}`
+        type: 'integration',
+        isCommand: true,
+        content: `Latest news for "${newsQuery}":\n\n${formattedNews}`
           };
         } catch (error) {
           return {
-            type: 'error',
-            content: `News search failed: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `News search failed: ${error.message}`
           };
         }
 
@@ -391,13 +417,15 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           const spacexNews = await service.getSpaceXUpdates();
           return {
-            type: 'integration',
-            content: `Latest SpaceX Updates:\n\n${spacexNews}`
+        type: 'integration',
+        isCommand: true,
+        content: `Latest SpaceX Updates:\n\n${spacexNews}`
           };
         } catch (error) {
           return {
-            type: 'error',
-            content: `SpaceX updates failed: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `SpaceX updates failed: ${error.message}`
           };
         }
 
@@ -440,14 +468,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             };
           } catch (error) {
             return {
-              type: 'error',
-              content: 'Test failed: ' + error.message
+        type: 'error',
+        isCommand: true,
+        content: 'Test failed: ' + error.message
             };
           }
         } else {
           return {
-            type: 'error',
-            content: 'AppleScript not available in this environment'
+        type: 'error',
+        isCommand: true,
+        content: 'AppleScript not available in this environment'
           };
         }
 
@@ -455,8 +485,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @flux [prompt] - Generate an image with Flux model
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide an image description.\nExamples:\n  @flux a sunset over mountains (uses 12 steps)\n  @flux:20 a detailed portrait (uses 20 steps)\n  @flux:30 complex scene with many details (uses 30 steps)'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide an image description.\nExamples:\n  @flux a sunset over mountains (uses 12 steps)\n  @flux:20 a detailed portrait (uses 20 steps)\n  @flux:30 complex scene with many details (uses 30 steps)'
           };
         }
         
@@ -472,8 +503,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           if (!status.running) {
             return {
-              type: 'error',
-              content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+        type: 'error',
+        isCommand: true,
+        content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
             };
           }
           
@@ -591,8 +623,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             const imageUrl = images[0].url;
             console.log('[Flux] Image URL:', imageUrl);
             return {
-              type: 'image',
-              content: `Generated image with Flux for: "${args}"`,
+        type: 'image',
+        isCommand: true,
+        content: `Generated image with Flux for: "${args}"`,
               imageUrl: imageUrl
             };
           } else {
@@ -602,8 +635,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             }
             
             return {
-              type: 'error',
-              content: 'Flux image was generated but could not be displayed. Check the output folder.'
+        type: 'error',
+        isCommand: true,
+        content: 'Flux image was generated but could not be displayed. Check the output folder.'
             };
           }
         } catch (fluxError) {
@@ -615,8 +649,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           }
           
           return {
-            type: 'error',
-            content: `Flux image generation error: ${fluxError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Flux image generation error: ${fluxError.message}`
           };
         }
 
@@ -625,8 +660,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @image [prompt] - Generate an image
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide an image description.\nExamples:\n  @image a sunset over mountains (uses 20 steps)\n  @image:30 a detailed portrait (uses 30 steps)\n  @image:50 complex scene with many details (uses 50 steps)'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide an image description.\nExamples:\n  @image a sunset over mountains (uses 20 steps)\n  @image:30 a detailed portrait (uses 30 steps)\n  @image:50 complex scene with many details (uses 50 steps)'
           };
         }
         
@@ -642,8 +678,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           if (!status.running) {
             return {
-              type: 'error',
-              content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+        type: 'error',
+        isCommand: true,
+        content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
             };
           }
           
@@ -797,8 +834,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
               const testResponse = await fetch(fallbackUrl, { method: 'HEAD' });
               if (testResponse.ok) {
                 return {
-                  type: 'image',
-                  content: `Generated image for: "${args}"`,
+        type: 'image',
+        isCommand: true,
+        content: `Generated image for: "${args}"`,
                   imageUrl: fallbackUrl
                 };
               } else {
@@ -806,8 +844,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
                 const lastKnownUrl = `http://localhost:8188/view?filename=Sephia_00005_.png&type=output`;
                 console.log('[Image] Using last known image URL:', lastKnownUrl);
                 return {
-                  type: 'image',
-                  content: `Generated image for: "${args}" (showing last successful generation)`,
+        type: 'image',
+        isCommand: true,
+        content: `Generated image for: "${args}" (showing last successful generation)`,
                   imageUrl: lastKnownUrl
                 };
               }
@@ -821,8 +860,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             }
             
             return {
-              type: 'error',
-              content: 'Image was generated but could not be displayed. Check the output folder.'
+        type: 'error',
+        isCommand: true,
+        content: 'Image was generated but could not be displayed. Check the output folder.'
             };
           }
         } catch (imageError) {
@@ -835,8 +875,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           }
           
           return {
-            type: 'error',
-            content: `Image generation error: ${imageError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Image generation error: ${imageError.message}`
           };
         }
 
@@ -844,8 +885,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @video [prompt] - Generate a video from text
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide a video description.\nExamples:\n  @video a cat walking (14 frames, 6fps)\n  @video:25 a busy street scene (25 frames)\n  @video:30:8 ocean waves (30 frames, 8fps)'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a video description.\nExamples:\n  @video a cat walking (14 frames, 6fps)\n  @video:25 a busy street scene (25 frames)\n  @video:30:8 ocean waves (30 frames, 8fps)'
           };
         }
         
@@ -861,8 +903,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           if (!status.running) {
             return {
-              type: 'error',
-              content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+        type: 'error',
+        isCommand: true,
+        content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
             };
           }
           
@@ -929,8 +972,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             const videoUrl = videos[0].url;
             console.log('[Video] Video URL:', videoUrl);
             return {
-              type: 'video',
-              content: `Generated video for: "${args}"`,
+        type: 'video',
+        isCommand: true,
+        content: `Generated video for: "${args}"`,
               videoUrl: videoUrl
             };
           } else {
@@ -940,8 +984,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             }
             
             return {
-              type: 'error',
-              content: 'Video was generated but could not be displayed. Check the output folder.'
+        type: 'error',
+        isCommand: true,
+        content: 'Video was generated but could not be displayed. Check the output folder.'
             };
           }
         } catch (videoError) {
@@ -953,8 +998,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           }
           
           return {
-            type: 'error',
-            content: `Video generation error: ${videoError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Video generation error: ${videoError.message}`
           };
         }
 
@@ -970,8 +1016,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const status = await imageGen.checkStatus();
           if (!status.running) {
             return {
-              type: 'error',
-              content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+        type: 'error',
+        isCommand: true,
+        content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
             };
           }
           
@@ -979,8 +1026,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
           if (!attachedImage || !attachedImage.content?.startsWith('data:image/')) {
             return {
-              type: 'error',
-              content: 'Please attach an image to generate video from. Use the attach button (📎) to add an image.'
+        type: 'error',
+        isCommand: true,
+        content: 'Please attach an image to generate video from. Use the attach button (📎) to add an image.'
             };
           }
           
@@ -1055,8 +1103,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             if (videos.isVideo) {
               // Handle video frame sequence (fallback)
               return {
-                type: 'video',
-                content: `Generated video from attached image (${videos.frameCount} frames)`,
+        type: 'video',
+        isCommand: true,
+        content: `Generated video from attached image (${videos.frameCount} frames)`,
                 videoFrames: videos.frames,
                 previewUrl: videos.previewUrl,
                 isFrameSequence: true
@@ -1066,8 +1115,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
               const videoUrl = videos[0].url;
               console.log('[Img2Video] Returning video file:', { videoUrl, filename: videos[0].filename });
               return {
-                type: 'video',
-                content: `Generated video from attached image: ${videos[0].filename}`,
+        type: 'video',
+        isCommand: true,
+        content: `Generated video from attached image: ${videos[0].filename}`,
                 videoUrl: videoUrl,
                 isActualVideo: true
               };
@@ -1075,8 +1125,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
               // Handle single video file (legacy format)
               const videoUrl = videos[0].url;
               return {
-                type: 'video',
-                content: `Generated video from attached image`,
+        type: 'video',
+        isCommand: true,
+        content: `Generated video from attached image`,
                 videoUrl: videoUrl
               };
             }
@@ -1087,8 +1138,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             }
             
             return {
-              type: 'error',
-              content: 'Video was generated but could not be displayed. Check the output folder.'
+        type: 'error',
+        isCommand: true,
+        content: 'Video was generated but could not be displayed. Check the output folder.'
             };
           }
         } catch (img2videoError) {
@@ -1100,8 +1152,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           }
           
           return {
-            type: 'error',
-            content: `Image-to-video generation error: ${img2videoError.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Image-to-video generation error: ${img2videoError.message}`
           };
         }
 
@@ -1110,8 +1163,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide event details. Example: @calendar-add Meeting with John tomorrow at 2pm'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide event details. Example: @calendar-add Meeting with John tomorrow at 2pm'
             };
           }
           
@@ -1122,14 +1176,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.createGoogleCalendarEvent(args);
           return {
-            type: 'integration',
-            content: `Calendar event created: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `Calendar event created: ${result.content}`
           };
         } catch (error) {
           console.error('Calendar creation error:', error);
           return {
-            type: 'error',
-            content: `Failed to create calendar event: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to create calendar event: ${error.message}`
           };
         }
 
@@ -1138,8 +1194,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide event details to delete. Example: @calendar-delete Meeting with John'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide event details to delete. Example: @calendar-delete Meeting with John'
             };
           }
           
@@ -1150,14 +1207,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.deleteGoogleCalendarEvent(args);
           return {
-            type: 'integration',
-            content: `Calendar event deleted: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `Calendar event deleted: ${result.content}`
           };
         } catch (error) {
           console.error('Calendar deletion error:', error);
           return {
-            type: 'error',
-            content: `Failed to delete calendar event: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to delete calendar event: ${error.message}`
           };
         }
 
@@ -1166,8 +1225,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide file details to upload. Example: @drive-upload my document.pdf'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to upload. Example: @drive-upload my document.pdf'
             };
           }
           
@@ -1178,14 +1238,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.uploadGoogleDriveFile(args);
           return {
-            type: 'integration',
-            content: `File uploaded to Google Drive: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `File uploaded to Google Drive: ${result.content}`
           };
         } catch (error) {
           console.error('Drive upload error:', error);
           return {
-            type: 'error',
-            content: `Failed to upload file: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to upload file: ${error.message}`
           };
         }
 
@@ -1194,8 +1256,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide file details to download. Example: @drive-download my document.pdf'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to download. Example: @drive-download my document.pdf'
             };
           }
           
@@ -1206,14 +1269,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.downloadGoogleDriveFile(args);
           return {
-            type: 'integration',
-            content: `File downloaded from Google Drive: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `File downloaded from Google Drive: ${result.content}`
           };
         } catch (error) {
           console.error('Drive download error:', error);
           return {
-            type: 'error',
-            content: `Failed to download file: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to download file: ${error.message}`
           };
         }
 
@@ -1222,8 +1287,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide file details to delete. Example: @drive-delete my document.pdf'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to delete. Example: @drive-delete my document.pdf'
             };
           }
           
@@ -1234,14 +1300,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.deleteGoogleDriveFile(args);
           return {
-            type: 'integration',
-            content: `File deleted from Google Drive: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `File deleted from Google Drive: ${result.content}`
           };
         } catch (error) {
           console.error('Drive deletion error:', error);
           return {
-            type: 'error',
-            content: `Failed to delete file: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to delete file: ${error.message}`
           };
         }
 
@@ -1250,8 +1318,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide file details to share. Examples:\n• @drive-share my document.pdf\n• @drive-share report.pdf john@example.com'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to share. Examples:\n• @drive-share my document.pdf\n• @drive-share report.pdf john@example.com'
             };
           }
           
@@ -1262,14 +1331,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.shareGoogleDriveFile(args);
           return {
-            type: 'integration',
-            content: `File shared from Google Drive: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `File shared from Google Drive: ${result.content}`
           };
         } catch (error) {
           console.error('Drive sharing error:', error);
           return {
-            type: 'error',
-            content: `Failed to share file: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to share file: ${error.message}`
           };
         }
 
@@ -1278,8 +1349,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide folder name. Example: @drive-create folder "My Project"'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide folder name. Example: @drive-create folder "My Project"'
             };
           }
           
@@ -1290,14 +1362,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.createGoogleDriveFolder(args);
           return {
-            type: 'integration',
-            content: `Folder created in Google Drive: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `Folder created in Google Drive: ${result.content}`
           };
         } catch (error) {
           console.error('Drive folder creation error:', error);
           return {
-            type: 'error',
-            content: `Failed to create folder: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to create folder: ${error.message}`
           };
         }
 
@@ -1306,8 +1380,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         try {
           if (!args) {
             return {
-              type: 'error',
-              content: 'Please provide file and folder details. Example: @drive-move "report.pdf" "Projects"'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file and folder details. Example: @drive-move "report.pdf" "Projects"'
             };
           }
           
@@ -1318,14 +1393,16 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           const result = await service.moveGoogleDriveFile(args);
           return {
-            type: 'integration',
-            content: `File moved in Google Drive: ${result.content}`
+        type: 'integration',
+        isCommand: true,
+        content: `File moved in Google Drive: ${result.content}`
           };
         } catch (error) {
           console.error('Drive move error:', error);
           return {
-            type: 'error',
-            content: `Failed to move file: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Failed to move file: ${error.message}`
           };
         }
 
@@ -1333,8 +1410,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @research [topic] - Enhanced research with multiple sources
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide a research topic. Example: @research quantum computing advances'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a research topic. Example: @research quantum computing advances'
           };
         }
         try {
@@ -1343,13 +1421,15 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           const combined = [...results, ...newsResults];
           const formattedResults = service.formatWebSearchResults(combined.slice(0, 8));
           return {
-            type: 'integration',
-            content: `🔬 **Research: "${args}"**\n\n${formattedResults}\n\n💡 *For deeper analysis, ask me to analyze these findings!*`
+        type: 'integration',
+        isCommand: true,
+        content: `🔬 **Research: "${args}"**\n\n${formattedResults}\n\n💡 *For deeper analysis, ask me to analyze these findings!*`
           };
         } catch (error) {
           return {
-            type: 'error',
-            content: `Research failed: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Research failed: ${error.message}`
           };
         }
 
@@ -1385,13 +1465,15 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           briefing += '💪 **Ready to start your day! How can I help you today?**';
           
           return {
-            type: 'integration',
-            content: briefing
+        type: 'integration',
+        isCommand: true,
+        content: briefing
           };
         } catch (error) {
           return {
-            type: 'error',
-            content: `Morning briefing failed: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Morning briefing failed: ${error.message}`
           };
         }
 
@@ -1423,21 +1505,24 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           }
           
           return {
-            type: 'integration',
-            content: voiceInfo
+        type: 'integration',
+        isCommand: true,
+        content: voiceInfo
           };
         } catch (error) {
           return {
-            type: 'error',
-            content: `Voice status check failed: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Voice status check failed: ${error.message}`
           };
         }
 
       case '@capabilities':
         // @capabilities - Show Aria's full capabilities
         return {
-          type: 'help',
-          content: `🤖 **Aria's Advanced Capabilities:**
+        type: 'help',
+        isCommand: true,
+        content: `🤖 **Aria's Advanced Capabilities:**
 
 **🧠 Conversation & Memory:**
 • Natural conversation with context awareness
@@ -1488,8 +1573,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @analyze [topic] - Detailed analysis
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide a topic to analyze. Example: @analyze current AI market trends'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a topic to analyze. Example: @analyze current AI market trends'
           };
         }
         return {
@@ -1501,8 +1587,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @brainstorm [topic] - Creative ideation
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please provide a topic for brainstorming. Example: @brainstorm sustainable energy solutions'
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a topic for brainstorming. Example: @brainstorm sustainable energy solutions'
           };
         }
         return {
@@ -1526,19 +1613,22 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           if (result.success) {
             return {
-              type: 'integration',
-              content: `🧹 **Memory Cleanup Complete**\n\n${result.message}\n\nThis removes old conversations containing outdated news, weather, and time-sensitive information to prevent Aria from referencing stale content.`
+        type: 'integration',
+        isCommand: true,
+        content: `🧹 **Memory Cleanup Complete**\n\n${result.message}\n\nThis removes old conversations containing outdated news, weather, and time-sensitive information to prevent Aria from referencing stale content.`
             };
           } else {
             return {
-              type: 'error',
-              content: `Memory cleanup failed: ${result.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Memory cleanup failed: ${result.message}`
             };
           }
         } catch (error) {
           return {
-            type: 'error',
-            content: `Memory cleanup error: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Memory cleanup error: ${error.message}`
           };
         }
 
@@ -1606,13 +1696,34 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           modelInfo += `\n\n**Switch models:** Go to Settings → Model Selection`;
           
           return {
-            type: 'integration',
-            content: modelInfo
+        type: 'integration',
+        isCommand: true,
+        content: modelInfo
           };
         } catch (error) {
           return {
-            type: 'error',
-            content: `Error getting model information: ${error.message}`
+        type: 'error',
+        isCommand: true,
+        content: `Error getting model information: ${error.message}`
+          };
+        }
+
+      case '@learning':
+        // @learning - Show what Aria has learned recently
+        try {
+          const { default: CompanionService } = await import('../services/CompanionService');
+          const learningData = await CompanionService.executeLearningCommand();
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: learningData
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Error fetching learning data: ${error.message}`
           };
         }
 
@@ -1620,8 +1731,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         // @weather [location] - Get weather information  
         if (!args) {
           return {
-            type: 'error',
-            content: 'Please specify a location. Example: @weather New York or @weather 15853'
+        type: 'error',
+        isCommand: true,
+        content: 'Please specify a location. Example: @weather New York or @weather 15853'
           };
         }
         
@@ -1639,8 +1751,9 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             const formattedWeather = weatherService.formatWeatherResponse(weatherData);
             console.log('[commandProcessor] ✅ Weather data retrieved successfully');
             return {
-              type: 'integration',
-              content: formattedWeather,
+        type: 'integration',
+        isCommand: true,
+        content: formattedWeather,
               skipVoice: false
             };
           } else {
@@ -1686,8 +1799,9 @@ If no weather data found, say "No current weather data available" and suggest ch
                 
                 if (claudeResponse && claudeResponse.content) {
                   return {
-                    type: 'integration',
-                    content: `🌤️ **Weather for ${args}:**\n\n${claudeResponse.content}`,
+        type: 'integration',
+        isCommand: true,
+        content: `🌤️ **Weather for ${args}:**\n\n${claudeResponse.content}`,
                     skipVoice: false
                   };
                 }
@@ -1697,15 +1811,17 @@ If no weather data found, say "No current weather data available" and suggest ch
             // Final fallback: Provide helpful weather links
             const encodedLocation = encodeURIComponent(args);
             return {
-              type: 'integration',
-              content: `🌤️ **Weather for ${args}:**\n\nI'm having trouble getting live weather data right now. Here are direct weather sources:\n\n**🌦️ [Weather.com](https://weather.com/weather/today/l/${encodedLocation})**\n**🏛️ [National Weather Service](https://forecast.weather.gov/)**\n**📱 [Google Weather](https://www.google.com/search?q=weather+${encodedLocation})**\n\nTry asking again in a moment, or check these sources for current conditions.`
+        type: 'integration',
+        isCommand: true,
+        content: `🌤️ **Weather for ${args}:**\n\nI'm having trouble getting live weather data right now. Here are direct weather sources:\n\n**🌦️ [Weather.com](https://weather.com/weather/today/l/${encodedLocation})**\n**🏛️ [National Weather Service](https://forecast.weather.gov/)**\n**📱 [Google Weather](https://www.google.com/search?q=weather+${encodedLocation})**\n\nTry asking again in a moment, or check these sources for current conditions.`
             };
             
           } catch (fallbackError) {
             console.error('[commandProcessor] All weather methods failed:', fallbackError);
             return {
-              type: 'error',
-              content: `Unable to get weather data for ${args}. Try checking weather.com or weather.gov directly.`
+        type: 'error',
+        isCommand: true,
+        content: `Unable to get weather data for ${args}. Try checking weather.com or weather.gov directly.`
             };
           }
         }
@@ -1716,8 +1832,9 @@ If no weather data found, say "No current weather data available" and suggest ch
         
         if (companionMode) {
           return {
-            type: 'help',
-            content: `🤖 **Aria Companion Mode Help**
+        type: 'help',
+        isCommand: true,
+        content: `🤖 **Aria Companion Mode Help**
 
 **Natural Conversation:**
 • Just talk to me naturally - no @ symbols needed!
@@ -1763,6 +1880,7 @@ If no weather data found, say "No current weather data available" and suggest ch
 • @flux:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)
 • @voice - Voice settings and test
 • @model - Show current model information
+• @learning - Show what Aria has learned recently
 
 **Examples:**
 • "Help me research quantum computing developments"
@@ -1782,8 +1900,9 @@ If no weather data found, say "No current weather data available" and suggest ch
         
         if (isElectron) {
           return {
-            type: 'help',
-            content: `Available commands in Electron:
+        type: 'help',
+        isCommand: true,
+        content: `Available commands in Electron:
 • @search [query] - Search the web
 • @news [query] - Get latest news articles with content
 • @spacex - Get latest SpaceX news and updates
@@ -1844,13 +1963,15 @@ Examples:
 • @img2video:20:8 (attach image) subtle movement and blinking
 • @img2video:25:6:40 (attach image) high quality smooth animation
 • @model - Show current model information
+• @learning - Show what Aria has learned recently
 • @help`
           };
         }
         
         return {
-          type: 'help',
-          content: `Available commands:
+        type: 'help',
+        isCommand: true,
+        content: `Available commands:
 • @inbox [search] - Read Gmail inbox up to 50 emails (e.g., @inbox is:unread)
 • @gmail [email details] - Send Gmail email
 • @email [email details] - Send Gmail email (alias for @gmail)
@@ -1902,13 +2023,15 @@ Examples:
 • @video a busy street with people walking (14 frames, 6fps)
 • @video:20:10 time-lapse sunset (20 frames, 10fps)
 • @img2video (attach image) add gentle movement
-• @model - Show current model information and which AI powers Aria`
+• @model - Show current model information and which AI powers Aria
+• @learning - Show what Aria has learned recently`
         };
 
       default:
         return {
-          type: 'error',
-          content: `Unknown command: ${command}. Type @help for available commands.`
+        type: 'error',
+        isCommand: true,
+        content: `Unknown command: ${command}. Type @help for available commands.`
         };
     }
   } catch (error) {
@@ -1928,8 +2051,9 @@ Examples:
     }
     
     return {
-      type: 'error',
-      content: `Error: ${errorMessage}`
+        type: 'error',
+        isCommand: true,
+        content: `Error: ${errorMessage}`
     };
   }
 };
