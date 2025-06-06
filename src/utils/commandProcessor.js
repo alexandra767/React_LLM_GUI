@@ -493,19 +493,43 @@ export const processCommand = async (message, attachments = [], { setImageGenera
         
         try {
           console.log('[Flux] Starting Flux image generation for:', args);
+          
+          // Validate arguments first
+          if (!args || typeof args !== 'string') {
+            console.error('[Flux] Invalid args provided:', args);
+            return {
+              type: 'error',
+              isCommand: true,
+              content: 'Invalid prompt provided. Please provide a valid image description.'
+            };
+          }
+          
+          console.log('[Flux] Importing ImageGenerationService...');
           const imageService = await import('../services/ImageGenerationService');
+          console.log('[Flux] ImageService imported:', !!imageService);
           const imageGen = imageService.default;
+          console.log('[Flux] ImageGen instance:', !!imageGen);
+          
+          if (!imageGen) {
+            console.error('[Flux] Failed to get ImageGen instance');
+            return {
+              type: 'error',
+              isCommand: true,
+              content: 'Failed to load image generation service'
+            };
+          }
           
           // Check if ComfyUI is running
           console.log('[Flux] Checking ComfyUI status...');
           const status = await imageGen.checkStatus();
           console.log('[Flux] ComfyUI status:', status);
           
-          if (!status.running) {
+          if (!status || !status.running) {
+            console.error('[Flux] ComfyUI not running:', status);
             return {
-        type: 'error',
-        isCommand: true,
-        content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+              type: 'error',
+              isCommand: true,
+              content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
             };
           }
           
@@ -610,11 +634,26 @@ export const processCommand = async (message, attachments = [], { setImageGenera
           
           // Generate the image
           console.log('[Flux] Generating image with enhanced prompt:', enhancedPrompt);
-          const images = await imageGen.generateImage(enhancedPrompt, generationOptions);
+          console.log('[Flux] Generation options:', generationOptions);
           
-          console.log('[Flux] Generation result:', images);
+          let images;
+          try {
+            images = await imageGen.generateImage(enhancedPrompt, generationOptions);
+            console.log('[Flux] Raw generation result:', images);
+            console.log('[Flux] Generation result type:', typeof images);
+            console.log('[Flux] Generation result length:', images?.length);
+          } catch (genError) {
+            console.error('[Flux] Generation call failed:', genError);
+            console.error('[Flux] Generation error type:', typeof genError);
+            console.error('[Flux] Generation error message:', genError?.message);
+            console.error('[Flux] Generation error stack:', genError?.stack);
+            throw genError;
+          }
+          
+          console.log('[Flux] Checking generation result...');
           
           if (images && images.length > 0) {
+            console.log('[Flux] Valid images found:', images.length);
             // Clear progress on success
             if (setImageGenerationProgress) {
               setImageGenerationProgress(null);
@@ -622,36 +661,63 @@ export const processCommand = async (message, attachments = [], { setImageGenera
             
             const imageUrl = images[0].url;
             console.log('[Flux] Image URL:', imageUrl);
+            
+            if (!imageUrl) {
+              console.error('[Flux] Image URL is missing:', images[0]);
+              return {
+                type: 'error',
+                isCommand: true,
+                content: 'Image was generated but URL is missing. Check the output folder.'
+              };
+            }
+            
             return {
-        type: 'image',
-        isCommand: true,
-        content: `Generated image with Flux for: "${args}"`,
+              type: 'image',
+              isCommand: true,
+              content: `Generated image with Flux for: "${args}"`,
               imageUrl: imageUrl
             };
           } else {
+            console.error('[Flux] No valid images in result:', images);
             // Clear progress on failure
             if (setImageGenerationProgress) {
               setImageGenerationProgress(null);
             }
             
             return {
-        type: 'error',
-        isCommand: true,
-        content: 'Flux image was generated but could not be displayed. Check the output folder.'
+              type: 'error',
+              isCommand: true,
+              content: 'Flux image was generated but could not be displayed. Check the output folder.'
             };
           }
         } catch (fluxError) {
           console.error('[Flux] Image generation error:', fluxError);
+          console.error('[Flux] Error type:', typeof fluxError);
+          console.error('[Flux] Error message:', fluxError?.message);
+          console.error('[Flux] Error stack:', fluxError?.stack);
           
           // Clear progress on error
           if (setImageGenerationProgress) {
             setImageGenerationProgress(null);
           }
           
+          let errorMessage = 'Unknown error occurred';
+          if (fluxError && fluxError.message) {
+            errorMessage = fluxError.message;
+          } else if (typeof fluxError === 'string') {
+            errorMessage = fluxError;
+          } else if (fluxError) {
+            try {
+              errorMessage = JSON.stringify(fluxError);
+            } catch (e) {
+              errorMessage = String(fluxError);
+            }
+          }
+          
           return {
-        type: 'error',
-        isCommand: true,
-        content: `Flux image generation error: ${fluxError.message}`
+            type: 'error',
+            isCommand: true,
+            content: `Flux image generation error: ${errorMessage}`
           };
         }
 
@@ -2046,8 +2112,12 @@ Examples:
       errorMessage = error.response;
     } else if (typeof error === 'string') {
       errorMessage = error;
-    } else {
-      errorMessage = JSON.stringify(error);
+    } else if (error) {
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch (e) {
+        errorMessage = String(error);
+      }
     }
     
     return {

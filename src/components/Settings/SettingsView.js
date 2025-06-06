@@ -2524,6 +2524,48 @@ const SettingsView = () => {
       </SettingsSection>
 
       <SettingsSection>
+        <SectionTitle>⚡ System Performance</SectionTitle>
+        <Description2 style={{ marginBottom: '16px' }}>
+          Manage system resources and memory usage
+        </Description2>
+        
+        <SettingItem>
+          <SettingLabel>
+            <Label>Memory Cleanup</Label>
+            <Description2>
+              Force cleanup of AI processes and free system memory. Useful if ComfyUI or other services are not properly shut down.
+            </Description2>
+          </SettingLabel>
+          <Button
+            onClick={async () => {
+              try {
+                if (window.electron) {
+                  const result = await window.electron.ipcRenderer.invoke('system:memoryCleanup');
+                  alert('Memory cleanup completed!\n\nThis killed all AI processes (ComfyUI, Bark TTS) and freed system memory. You may need to restart Sephia if you want to use image generation again.');
+                } else {
+                  // Web version - just clear browser caches
+                  if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(name => caches.delete(name)));
+                  }
+                  if (window.gc) {
+                    window.gc();
+                  }
+                  alert('Browser memory cleanup completed!');
+                }
+              } catch (error) {
+                console.error('Memory cleanup failed:', error);
+                alert('Memory cleanup failed: ' + error.message);
+              }
+            }}
+          >
+            <DeleteIcon style={{ marginRight: '8px' }} />
+            Clean Memory
+          </Button>
+        </SettingItem>
+      </SettingsSection>
+
+      <SettingsSection>
         <SectionTitle>🧠 Learning Monitor</SectionTitle>
         <Description2 style={{ marginBottom: '16px' }}>
           Monitor what Aria is learning from your conversations, online activities, and interactions

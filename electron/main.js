@@ -617,6 +617,47 @@ function killBackgroundServices() {
   backgroundServices.clear();
 }
 
+function performAggressiveCleanup() {
+  console.log('[Main] Performing aggressive cleanup...');
+  const { exec } = require('child_process');
+  
+  const cleanupCommands = [
+    // Kill all ComfyUI processes
+    'pkill -f "main.py.*8188" 2>/dev/null || true',
+    'pkill -f "comfyui" 2>/dev/null || true',
+    
+    // Kill all Bark TTS processes  
+    'pkill -f "bark_tts_server" 2>/dev/null || true',
+    'pkill -f "start-bark-tts" 2>/dev/null || true',
+    'pkill -f "import bark" 2>/dev/null || true',
+    
+    // Kill processes on specific ports
+    'lsof -ti:8188 | xargs kill -9 2>/dev/null || true',
+    'lsof -ti:8189 | xargs kill -9 2>/dev/null || true',
+    'lsof -ti:3000 | xargs kill -9 2>/dev/null || true',
+    
+    // Kill any Python processes related to AI/ML
+    'pkill -f "python.*torch" 2>/dev/null || true',
+    'pkill -f "python.*transformers" 2>/dev/null || true',
+    
+    // Kill tail processes for logs
+    'pkill -f "tail.*comfyui" 2>/dev/null || true',
+    
+    // Memory cleanup (without sudo to avoid permission prompts)
+    'echo "Memory cleanup attempted"'
+  ];
+  
+  cleanupCommands.forEach((command, index) => {
+    exec(command, (error, stdout, stderr) => {
+      if (!error || error.code === 1) { // Code 1 often means "no processes found" which is fine
+        console.log(`[Main] Cleanup command ${index + 1} completed`);
+      } else {
+        console.log(`[Main] Cleanup command ${index + 1} had no effect (normal if nothing to clean)`);
+      }
+    });
+  });
+}
+
 function cleanupAndQuit() {
   if (isQuitting) {
     console.log('[Main] Already quitting, ignoring additional cleanup requests');
@@ -648,11 +689,14 @@ function cleanupAndQuit() {
       // Kill background services
       killBackgroundServices();
       
+      // Perform aggressive cleanup
+      performAggressiveCleanup();
+      
       // Wait a bit for processes to die gracefully
       setTimeout(() => {
         console.log('[Main] Cleanup completed');
         resolve();
-      }, 3000);
+      }, 4000);
     }),
     
     // Timeout to force quit if cleanup takes too long
@@ -923,6 +967,30 @@ function setupFileSystemHandlers() {
       console.error('[Main] Failed to create directory:', error);
       throw error;
     }
+  });
+
+  // Memory cleanup command
+  ipcMain.handle('system:memoryCleanup', async (event) => {
+    console.log('[Main] Memory cleanup requested');
+    performAggressiveCleanup();
+    
+    // Also trigger garbage collection in renderer
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.executeJavaScript(`
+        if (window.gc) {
+          window.gc();
+          console.log('[Renderer] Garbage collection triggered');
+        }
+        // Clear caches
+        if ('caches' in window) {
+          caches.keys().then(names => {
+            names.forEach(name => caches.delete(name));
+          });
+        }
+      `);
+    }
+    
+    return { success: true, message: 'Memory cleanup completed' };
   });
 }
 

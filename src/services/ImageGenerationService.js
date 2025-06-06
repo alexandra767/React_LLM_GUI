@@ -36,7 +36,16 @@ class ImageGenerationService {
         this.ws.onerror = (error) => {
           console.error('ComfyUI WebSocket error:', error);
           this.isConnected = false;
-          reject(error);
+          // Handle CORS/403 errors specifically
+          let errorMessage = 'WebSocket connection failed';
+          if (error.type === 'error') {
+            errorMessage = 'Connection blocked - ComfyUI may need CORS headers enabled or restart';
+          } else if (error.message) {
+            errorMessage = error.message;
+          } else if (error.reason) {
+            errorMessage = error.reason;
+          }
+          reject(new Error(errorMessage));
         };
 
         this.ws.onmessage = (event) => {
@@ -74,6 +83,11 @@ class ImageGenerationService {
           console.log('Disconnected from ComfyUI. Code:', event.code, 'Reason:', event.reason);
           this.isConnected = false;
           this.stopHeartbeat();
+          
+          // Handle specific error codes
+          if (event.code === 1006) {
+            console.error('[ImageGen] WebSocket connection failed - likely CORS or server issue');
+          }
           
           // If this is an unexpected closure during generation, try to reconnect
           if (event.code !== 1000 && this.pendingRequests.size > 0) {
@@ -343,7 +357,14 @@ class ImageGenerationService {
         console.error('[ImageGen] Execution error:', data);
         
         // Handle specific error types
-        let errorMessage = data.exception_message || data.error || 'Generation failed';
+        let errorMessage = 'Generation failed';
+        if (data.exception_message) {
+          errorMessage = data.exception_message;
+        } else if (data.error) {
+          errorMessage = data.error;
+        } else if (data.traceback) {
+          errorMessage = data.traceback.join('\n');
+        }
         
         // Check for common macOS/resource errors
         if (errorMessage.includes('Operation canceled') || errorMessage.includes('os error 89')) {
@@ -352,6 +373,15 @@ class ImageGenerationService {
           errorMessage = 'Out of GPU memory. Try reducing image size or using --lowvram mode.';
         } else if (errorMessage.includes('Model not found') || errorMessage.includes('Missing model')) {
           errorMessage = 'Required Flux model files are missing. Please check that flux1-dev.safetensors and other model files are properly installed.';
+        } else if (errorMessage.includes('Errno 5') || errorMessage.includes('Input/output error')) {
+          // Check if it's a progress bar I/O error which can be ignored
+          if (errorMessage.includes('tqdm') || errorMessage.includes('stderr')) {
+            console.log('[ImageGen] Ignoring progress bar I/O error, generation may still be running');
+            return; // Don't reject, let it continue
+          }
+          errorMessage = 'I/O Error occurred. This could be due to:\n• Generation still in progress (check output folder)\n• Memory pressure during generation\n• File system permissions\n\nThe image may still be generating. Check the output folder for results.';
+        } else if (errorMessage.includes('safetensors') && errorMessage.includes('corrupt/incomplete')) {
+          errorMessage = 'Model file is corrupt or incomplete. The t5xxl_fp16.safetensors file needs to be re-downloaded.\n\nThis is preventing image generation from working.';
         }
         
         request.reject(new Error(errorMessage));
@@ -365,6 +395,11 @@ class ImageGenerationService {
     console.log('[ImageGen] generateImage called with:', { prompt, options });
     console.log('[ImageGen] Using steps:', options.steps, 'for model:', options.model);
     
+    // Validate input parameters
+    if (!prompt || typeof prompt !== 'string') {
+      throw new Error('Invalid prompt provided');
+    }
+    
     // Check system resources before generation
     try {
       const stats = await fetch(`${this.baseUrl}/system_stats`).then(r => r.json());
@@ -374,8 +409,12 @@ class ImageGenerationService {
       if (freeMemoryGB < 2) {
         console.warn('[ImageGen] Low memory warning - may cause generation failures');
       }
+      
     } catch (e) {
-      console.log('[ImageGen] Could not check memory status');
+      if (e.message && e.message.includes('Insufficient disk space')) {
+        throw e;
+      }
+      console.log('[ImageGen] Could not check system status');
     }
     
     // Check if we have an input image for img2img
@@ -565,8 +604,22 @@ class ImageGenerationService {
       motionBucketId = 127,
       augLevel = 0.0,
       seed = Math.floor(Math.random() * 1000000),
-      onProgress = null
+      onProgress = null,
+      prompt = ''
     } = options;
+
+    // Detect full body requests and adjust dimensions
+    let width = 1024;
+    let height = 576;
+    if (prompt && (prompt.toLowerCase().includes('full body') || 
+                   prompt.toLowerCase().includes('full-body') || 
+                   prompt.toLowerCase().includes('whole body') || 
+                   prompt.toLowerCase().includes('standing') ||
+                   prompt.toLowerCase().includes('walking'))) {
+      width = 768;   // Narrower width
+      height = 1024; // Taller height for full body
+      console.log('[ImageGen] Detected full body video request, using portrait aspect ratio:', { width, height });
+    }
 
     // Download image from URL to upload to ComfyUI
     let imageName;
@@ -606,8 +659,8 @@ class ImageGenerationService {
           "clip_vision": ["2", 1],
           "init_image": ["1", 0],
           "vae": ["2", 2],
-          "width": 1024,
-          "height": 576,
+          "width": width,
+          "height": height,
           "video_frames": frames,
           "motion_bucket_id": motionBucketId,
           "fps": fps,
@@ -696,6 +749,7 @@ class ImageGenerationService {
       seed = Math.floor(Math.random() * 1000000),
       model = 'flux-redux',
       styleStrength = 1.0, // How strongly to apply the image style
+      denoise = 0.3, // How much to change the image (0=no change, 1=complete change)
       onProgress = null
     } = options;
 
@@ -711,7 +765,7 @@ class ImageGenerationService {
           "cfg": cfg,
           "sampler_name": sampler,
           "scheduler": scheduler,
-          "denoise": 0.6, // Lower denoise to preserve more of original image
+          "denoise": denoise, // Use configurable denoise value
           "model": ["4", 0],
           "positive": ["6", 0],
           "negative": ["7", 0],
@@ -728,8 +782,8 @@ class ImageGenerationService {
       },
       "5": {
         "inputs": {
-          "clip_name1": "t5xxl_fp16.safetensors",
-          "clip_name2": "clip_l.safetensors",
+          "clip_name1": "clip_l.safetensors",
+          "clip_name2": "t5xxl_fp16.safetensors",
           "type": "flux"
         },
         "class_type": "DualCLIPLoader"
@@ -825,10 +879,23 @@ class ImageGenerationService {
     const response = await fetch(`${this.baseUrl}/upload/image`, {
       method: 'POST',
       body: formData
+    }).catch(error => {
+      console.error('[ImageGen] Upload fetch error:', error);
+      if (error.message.includes('Failed to fetch')) {
+        throw new Error('Failed to connect to ComfyUI. Make sure it\'s running.');
+      }
+      throw error;
     });
 
     if (!response.ok) {
-      throw new Error('Failed to upload image');
+      const errorText = await response.text();
+      console.error('[ImageGen] Upload failed:', response.status, errorText);
+      
+      if (response.status === 500 && (errorText.includes('Errno 5') || errorText.includes('Input/output error'))) {
+        throw new Error('I/O Error occurred during upload. This could be due to file corruption or permission issues.');
+      }
+      
+      throw new Error(`Failed to upload image: ${response.status} ${errorText}`);
     }
 
     const result = await response.json();
@@ -840,6 +907,11 @@ class ImageGenerationService {
 
   async queuePrompt(workflow) {
     console.log('[ImageGen] Submitting workflow:', JSON.stringify(workflow, null, 2));
+    
+    // Validate workflow
+    if (!workflow || typeof workflow !== 'object') {
+      throw new Error('Invalid workflow provided');
+    }
     
     const payload = {
       prompt: workflow,
@@ -870,6 +942,12 @@ class ImageGenerationService {
 
     const result = await response.json();
     console.log('[ImageGen] Queue result:', result);
+    
+    // Validate the result
+    if (!result || !result.prompt_id) {
+      throw new Error('Invalid response from ComfyUI - no prompt_id received');
+    }
+    
     return result.prompt_id;
   }
 
