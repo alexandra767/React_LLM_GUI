@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Flux Model Loading</title>
+    <style>
+        body {
+            font-family: monospace;
+            margin: 20px;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        #log {
+            background: #000;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            margin: 10px 0;
+        }
+        button {
+            padding: 10px;
+            margin: 5px;
+            background: #4a4a4a;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #5a5a5a;
+        }
+        .error { color: #ff6b6b; }
+        .success { color: #51cf66; }
+        .info { color: #74c0fc; }
+    </style>
+</head>
+<body>
+    <h1>Test Flux Model Loading</h1>
+    <button onclick="checkComfyUI()">Check ComfyUI Status</button>
+    <button onclick="checkModels()">Check Available Models</button>
+    <button onclick="testSimpleGeneration()">Test Simple Generation</button>
+    <button onclick="testFluxWorkflow()">Test Flux Workflow</button>
+    <div id="log"></div>
+
+    <script>
+        const log = (msg, type = 'info') => {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            logDiv.innerHTML += `<span class="${className}">[${timestamp}] ${msg}</span>\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        };
+
+        async function checkComfyUI() {
+            try {
+                log('Checking ComfyUI status...');
+                const response = await fetch('http://localhost:8188/system_stats');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const stats = await response.json();
+                log('ComfyUI is running!', 'success');
+                log(`Memory: ${(stats.system.ram_free / (1024**3)).toFixed(1)} GB free`);
+                
+                // Check object info for available models
+                const objResponse = await fetch('http://localhost:8188/object_info');
+                const objInfo = await objResponse.json();
+                
+                // Check UNETLoader options
+                if (objInfo.UNETLoader?.input?.required?.unet_name?.[0]) {
+                    log('Available UNET models:');
+                    objInfo.UNETLoader.input.required.unet_name[0].forEach(model => {
+                        log(`  - ${model}`);
+                    });
+                }
+                
+                // Check VAELoader options
+                if (objInfo.VAELoader?.input?.required?.vae_name?.[0]) {
+                    log('Available VAE models:');
+                    objInfo.VAELoader.input.required.vae_name[0].forEach(model => {
+                        log(`  - ${model}`);
+                    });
+                }
+                
+            } catch (error) {
+                log(`ComfyUI check failed: ${error.message}`, 'error');
+                log('Make sure ComfyUI is running with: ./ai-tools/ComfyUI/start-comfyui-m4.sh', 'error');
+            }
+        }
+
+        async function checkModels() {
+            try {
+                log('Checking model files...');
+                
+                const models = [
+                    { path: 'models/unet/flux1-dev.safetensors', name: 'Flux UNET' },
+                    { path: 'models/vae/ae.safetensors', name: 'Flux VAE' },
+                    { path: 'models/clip/clip_l.safetensors', name: 'CLIP L' },
+                    { path: 'models/text_encoders/t5xxl_fp16.safetensors', name: 'T5 XXL' }
+                ];
+                
+                // We can't directly check files, but we can check if they're available in ComfyUI
+                const response = await fetch('http://localhost:8188/object_info');
+                const objInfo = await response.json();
+                
+                log('Model availability check complete', 'success');
+                
+            } catch (error) {
+                log(`Model check failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testSimpleGeneration() {
+            try {
+                log('Testing simple generation with minimal workflow...');
+                
+                // Very simple workflow to test basic functionality
+                const workflow = {
+                    "1": {
+                        "inputs": {
+                            "width": 512,
+                            "height": 512,
+                            "batch_size": 1
+                        },
+                        "class_type": "EmptyLatentImage"
+                    },
+                    "2": {
+                        "inputs": {
+                            "unet_name": "flux1-dev.safetensors",
+                            "weight_dtype": "default"
+                        },
+                        "class_type": "UNETLoader"
+                    },
+                    "3": {
+                        "inputs": {
+                            "vae_name": "ae.safetensors"
+                        },
+                        "class_type": "VAELoader"
+                    },
+                    "4": {
+                        "inputs": {
+                            "clip_name1": "clip_l.safetensors",
+                            "clip_name2": "t5xxl_fp16.safetensors",
+                            "type": "flux"
+                        },
+                        "class_type": "DualCLIPLoader"
+                    },
+                    "5": {
+                        "inputs": {
+                            "text": "a simple red square on white background",
+                            "clip": ["4", 0]
+                        },
+                        "class_type": "CLIPTextEncode"
+                    },
+                    "6": {
+                        "inputs": {
+                            "text": "",
+                            "clip": ["4", 0]
+                        },
+                        "class_type": "CLIPTextEncode"
+                    },
+                    "7": {
+                        "inputs": {
+                            "seed": 42,
+                            "steps": 4, // Very few steps for testing
+                            "cfg": 1.0, // Low CFG for testing
+                            "sampler_name": "euler",
+                            "scheduler": "simple",
+                            "denoise": 1,
+                            "model": ["2", 0],
+                            "positive": ["5", 0],
+                            "negative": ["6", 0],
+                            "latent_image": ["1", 0]
+                        },
+                        "class_type": "KSampler"
+                    },
+                    "8": {
+                        "inputs": {
+                            "samples": ["7", 0],
+                            "vae": ["3", 0]
+                        },
+                        "class_type": "VAEDecode"
+                    },
+                    "9": {
+                        "inputs": {
+                            "filename_prefix": "test_flux",
+                            "images": ["8", 0]
+                        },
+                        "class_type": "SaveImage"
+                    }
+                };
+                
+                const response = await fetch('http://localhost:8188/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: workflow,
+                        client_id: 'test-' + Date.now()
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.error) {
+                    log(`Workflow error: ${JSON.stringify(result.error)}`, 'error');
+                } else {
+                    log(`Workflow queued! Prompt ID: ${result.prompt_id}`, 'success');
+                    log('Check output folder for test_flux_*.png files');
+                }
+                
+            } catch (error) {
+                log(`Test generation failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testFluxWorkflow() {
+            try {
+                log('Testing actual Flux workflow from ImageGenerationService...');
+                
+                // This matches the workflow from ImageGenerationService
+                const workflow = {
+                    "3": {
+                        "inputs": {
+                            "seed": 12345,
+                            "steps": 10,
+                            "cfg": 3.5,
+                            "sampler_name": "euler",
+                            "scheduler": "simple",
+                            "denoise": 1,
+                            "model": ["4", 0],
+                            "positive": ["6", 0],
+                            "negative": ["7", 0],
+                            "latent_image": ["5", 0]
+                        },
+                        "class_type": "KSampler"
+                    },
+                    "4": {
+                        "inputs": {
+                            "unet_name": "flux1-dev.safetensors",
+                            "weight_dtype": "default"
+                        },
+                        "class_type": "UNETLoader"
+                    },
+                    "5": {
+                        "inputs": {
+                            "width": 768,
+                            "height": 768,
+                            "batch_size": 1
+                        },
+                        "class_type": "EmptyLatentImage"
+                    },
+                    "6": {
+                        "inputs": {
+                            "text": "a beautiful sunset over mountains, high quality, detailed",
+                            "clip": ["10", 0]
+                        },
+                        "class_type": "CLIPTextEncode"
+                    },
+                    "7": {
+                        "inputs": {
+                            "text": "",
+                            "clip": ["10", 0]
+                        },
+                        "class_type": "CLIPTextEncode"
+                    },
+                    "8": {
+                        "inputs": {
+                            "samples": ["3", 0],
+                            "vae": ["11", 0]
+                        },
+                        "class_type": "VAEDecode"
+                    },
+                    "9": {
+                        "inputs": {
+                            "filename_prefix": "flux_test",
+                            "images": ["8", 0]
+                        },
+                        "class_type": "SaveImage"
+                    },
+                    "10": {
+                        "inputs": {
+                            "clip_name1": "clip_l.safetensors",
+                            "clip_name2": "t5xxl_fp16.safetensors",
+                            "type": "flux"
+                        },
+                        "class_type": "DualCLIPLoader"
+                    },
+                    "11": {
+                        "inputs": {
+                            "vae_name": "ae.safetensors"
+                        },
+                        "class_type": "VAELoader"
+                    }
+                };
+                
+                const response = await fetch('http://localhost:8188/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: workflow,
+                        client_id: 'flux-test-' + Date.now()
+                    })
+                });
+                
+                const result = await response.json();
+                if (result.error) {
+                    log(`Flux workflow error: ${JSON.stringify(result.error)}`, 'error');
+                } else {
+                    log(`Flux workflow queued! Prompt ID: ${result.prompt_id}`, 'success');
+                    log('Generation will take several minutes on M4 Pro...');
+                    log('Check output folder for flux_test_*.png files');
+                }
+                
+            } catch (error) {
+                log(`Flux test failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Auto-check on load
+        window.onload = () => checkComfyUI();
+    </script>
+</body>
+</html>

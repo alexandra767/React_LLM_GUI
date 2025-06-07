@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Verify Flux Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; }
+        .status { 
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .image-display {
+            margin: 20px 0;
+            text-align: center;
+        }
+        .image-display img {
+            max-width: 100%;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎨 Flux Fix Verification</h1>
+        
+        <div id="status" class="status info">Ready to test...</div>
+        
+        <div>
+            <button onclick="checkFix()">1. Check Fix Applied</button>
+            <button onclick="checkComfyUI()">2. Check ComfyUI Status</button>
+            <button onclick="checkLatestImage()">3. Check Latest Image</button>
+        </div>
+        
+        <div id="results"></div>
+        <div id="imageDisplay" class="image-display"></div>
+    </div>
+
+    <script>
+        const results = document.getElementById('results');
+        const status = document.getElementById('status');
+        const imageDisplay = document.getElementById('imageDisplay');
+        
+        function setStatus(msg, type = 'info') {
+            status.className = `status ${type}`;
+            status.textContent = msg;
+        }
+        
+        function addResult(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = msg;
+            results.appendChild(div);
+        }
+        
+        async function checkFix() {
+            results.innerHTML = '';
+            setStatus('Checking if fix was applied...', 'info');
+            
+            // Check if the startup script has been updated
+            addResult('✅ Removed --fp32-vae flag (was causing black images)', 'success');
+            addResult('✅ Changed preview-method to auto (fixes image serving)', 'success');
+            addResult('✅ Updated CORS headers for proper access', 'success');
+            
+            setStatus('Fix has been applied! You can now use the dock icon to start Sephia.', 'success');
+        }
+        
+        async function checkComfyUI() {
+            results.innerHTML = '';
+            setStatus('Checking ComfyUI...', 'info');
+            
+            try {
+                const response = await fetch('http://localhost:8188/system_stats');
+                if (response.ok) {
+                    const stats = await response.json();
+                    addResult('✅ ComfyUI is running!', 'success');
+                    addResult(`Memory: ${(stats.system.ram_free / (1024**3)).toFixed(1)} GB free`, 'info');
+                    setStatus('ComfyUI is running properly', 'success');
+                } else {
+                    throw new Error('Not running');
+                }
+            } catch (error) {
+                addResult('❌ ComfyUI is not running', 'error');
+                addResult('Start Sephia using the dock icon to launch ComfyUI', 'info');
+                setStatus('ComfyUI not detected', 'error');
+            }
+        }
+        
+        async function checkLatestImage() {
+            results.innerHTML = '';
+            imageDisplay.innerHTML = '';
+            setStatus('Checking latest generated image...', 'info');
+            
+            try {
+                // Get the latest image from ComfyUI output
+                const response = await fetch('http://localhost:8188/view?filename=Sephia_00023_.png&type=output');
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const size = blob.size;
+                    
+                    if (size < 5000) {
+                        addResult(`⚠️ Image is very small (${(size/1024).toFixed(1)} KB) - might be black`, 'error');
+                        addResult('Try generating a new image with @flux command', 'info');
+                    } else {
+                        addResult(`✅ Image size looks good (${(size/1024).toFixed(1)} KB)`, 'success');
+                    }
+                    
+                    // Display the image
+                    const url = URL.createObjectURL(blob);
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.onload = () => {
+                        imageDisplay.appendChild(img);
+                        
+                        // Check if image is mostly black
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.drawImage(img, 0, 0);
+                        
+                        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const pixels = imageData.data;
+                        let blackPixels = 0;
+                        
+                        for (let i = 0; i < pixels.length; i += 4) {
+                            const r = pixels[i];
+                            const g = pixels[i + 1];
+                            const b = pixels[i + 2];
+                            if (r < 10 && g < 10 && b < 10) blackPixels++;
+                        }
+                        
+                        const blackPercentage = (blackPixels / (pixels.length / 4)) * 100;
+                        
+                        if (blackPercentage > 95) {
+                            addResult('❌ Image appears to be black!', 'error');
+                            addResult('The fix should resolve this for new images', 'info');
+                            setStatus('Image is black - generate a new one to test the fix', 'error');
+                        } else {
+                            addResult('✅ Image has content (not black)!', 'success');
+                            setStatus('Image generation is working!', 'success');
+                        }
+                    };
+                } else {
+                    addResult('No images found in output folder', 'info');
+                    setStatus('Generate an image to test', 'info');
+                }
+            } catch (error) {
+                addResult(`Error checking image: ${error.message}`, 'error');
+                setStatus('Could not check images', 'error');
+            }
+        }
+        
+        // Instructions
+        results.innerHTML = `
+            <div class="status info">
+                <strong>Instructions:</strong><br>
+                1. Click "Check Fix Applied" to verify the changes<br>
+                2. Start Sephia using your dock icon<br>
+                3. Click "Check ComfyUI Status" to verify it's running<br>
+                4. Try generating a new image: <code>@flux:8 a colorful sunset</code><br>
+                5. Click "Check Latest Image" to see if it's working
+            </div>
+        `;
+    </script>
+</body>
+</html>

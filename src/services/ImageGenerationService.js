@@ -958,15 +958,15 @@ class ImageGenerationService {
     console.log('[ImageGen] Getting model name for key:', modelKey);
     // Since only Flux models are available, map everything to Flux
     const modelMap = {
+      'flux': 'flux1-dev.safetensors', // Primary Flux mapping
+      'flux-dev': 'flux1-dev.safetensors', // Explicit Flux dev
+      'flux1': 'flux1-dev.safetensors', // Flux v1
       'sd15': 'flux1-dev.safetensors', // Fallback to Flux since no SD1.5 available
       'sd': 'flux1-dev.safetensors', // alias
       'default': 'flux1-dev.safetensors', // default to Flux
       'realistic': 'flux1-dev.safetensors', // Fallback to Flux
       'rv': 'flux1-dev.safetensors', // alias
-      'sdxl': 'flux1-dev.safetensors', // Fallback to Flux
-      'flux': 'flux1-dev.safetensors',
-      'flux1': 'flux1-dev.safetensors',
-      'flux-dev': 'flux1-dev.safetensors' // New Flux model for @flux command
+      'sdxl': 'flux1-dev.safetensors' // Fallback to Flux
     };
 
     return modelMap[modelKey] || 'flux1-dev.safetensors';
