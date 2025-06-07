@@ -1593,11 +1593,37 @@ class ElectronIntegrationService {
     try {
       // Use the enhanced web search with better content
       const results = await webSearchService.search(query);
-      return results.filter(result => 
+      
+      // First try to get actual news articles with published dates
+      let newsResults = results.filter(result => 
         result.type === 'news' && 
         result.publishedAt && 
         !result.url.includes('/search?')
-      ).slice(0, 10);
+      );
+      
+      // If we don't have enough real news, include news search portals as fallback
+      if (newsResults.length < 3) {
+        console.log('[ElectronIntegrationService] Not enough news with publishedAt, including news portals');
+        const newsPortals = results.filter(result => 
+          result.type === 'news' && 
+          !result.publishedAt // News portals don't have publishedAt
+        );
+        newsResults = [...newsResults, ...newsPortals];
+      }
+      
+      // If still no results, return all news-type results
+      if (newsResults.length === 0) {
+        console.log('[ElectronIntegrationService] No filtered news found, returning all news-type results');
+        newsResults = results.filter(result => result.type === 'news');
+      }
+      
+      // If absolutely no news results, return any results we have
+      if (newsResults.length === 0 && results.length > 0) {
+        console.log('[ElectronIntegrationService] No news-type results, returning any available results');
+        newsResults = results;
+      }
+      
+      return newsResults.slice(0, 10);
     } catch (error) {
       console.error('[ElectronIntegrationService] News fetch failed:', error);
       throw error;

@@ -108,9 +108,9 @@ const LogEntry = styled('div')({
 });
 
 const VoiceStatus = () => {
-  const [barkStatus, setBarkStatus] = useState(null);
+  const [barkStatus] = useState(null);
   const [browserVoices, setBrowserVoices] = useState([]);
-  const [selectedProvider, setSelectedProvider] = useState('browser');
+  const [selectedProvider] = useState('browser');
   const [testing, setTesting] = useState(false);
   const [logs, setLogs] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,30 +120,8 @@ const VoiceStatus = () => {
     setLogs(prev => [...prev.slice(-9), `[${timestamp}] ${message}`]);
   };
 
-  const checkBarkStatus = async () => {
-    // Don't check status while Bark is generating speech to avoid interrupting TTS
-    if (window.__barkGeneratingSpeech) {
-      console.log('[VoiceStatus] Skipping status check - Bark is generating speech');
-      return;
-    }
-    
-    try {
-      addLog('Checking Bark TTS server...');
-      const response = await fetch('http://localhost:8189/status');
-      if (response.ok) {
-        const status = await response.json();
-        setBarkStatus(status);
-        addLog(`Bark TTS: ${status.models_loaded ? 'Ready' : 'Loading models...'}`);
-        return status;
-      } else {
-        addLog('Bark TTS server not responding');
-        setBarkStatus(null);
-      }
-    } catch (error) {
-      addLog(`Bark TTS error: ${error.message}`);
-      setBarkStatus(null);
-    }
-  };
+  // Bark status checking is disabled since we're using browser voices
+  // const checkBarkStatus = async () => { ... };
 
   const loadBrowserVoices = () => {
     addLog('Loading browser voices...');
@@ -226,7 +204,8 @@ const VoiceStatus = () => {
     setRefreshing(true);
     addLog('Refreshing voice system status...');
     
-    await checkBarkStatus();
+    // Only refresh browser voices, not Bark
+    // await checkBarkStatus();
     loadBrowserVoices();
     
     setRefreshing(false);
@@ -234,11 +213,11 @@ const VoiceStatus = () => {
   };
 
   useEffect(() => {
-    // Initial load
-    refreshStatus();
+    // Initial load - only load browser voices, not Bark
+    loadBrowserVoices();
     
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(checkBarkStatus, 30000);
+    // Don't check Bark status since it's not being used
+    // const interval = setInterval(checkBarkStatus, 30000);
     
     // Load voices when they change
     if (window.speechSynthesis.onvoiceschanged !== undefined) {
@@ -246,11 +225,12 @@ const VoiceStatus = () => {
     }
     
     return () => {
-      clearInterval(interval);
+      // clearInterval(interval);
       if (window.speechSynthesis.onvoiceschanged !== undefined) {
         window.speechSynthesis.onvoiceschanged = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getBarkStatusInfo = () => {

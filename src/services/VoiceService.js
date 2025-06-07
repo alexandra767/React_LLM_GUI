@@ -1,35 +1,13 @@
-import BarkVoiceService from './BarkVoiceService';
-
+// Voice Service - Browser/System Voices Only
 class VoiceService {
   constructor() {
-    if (VoiceService._instance) {
-      return VoiceService._instance;
-    }
-    
-    console.log('[VoiceService] Initializing...');
-    console.log('[VoiceService] Environment:', {
-      isElectron: !!(window.electron || (window.process && window.process.type)),
-      hasSpeechSynthesis: 'speechSynthesis' in window,
-      hasSpeechRecognition: !!(window.SpeechRecognition || window.webkitSpeechRecognition),
-      userAgent: navigator.userAgent
-    });
-    
-    this.recognition = null;
     this.synthesis = window.speechSynthesis;
-    this.isListening = false;
-    this.isSpeaking = false;
     this.voices = [];
     this.selectedVoice = null;
-    this.speechRate = 1.0;
-    this.speechPitch = 1.0;
-    this.speechVolume = 1.0;
-    this._initialized = false;
-    this._initPromise = null;
-    
-    // Cache instance
-    VoiceService._instance = this;
-    
-    // Defer initialization to prevent blocking
+    this.speechRate = 1;
+    this.speechPitch = 1;
+    this.speechVolume = 1;
+    this.recognitionLanguage = 'en-US';
     this._initPromise = this._deferredInit();
   }
 
@@ -640,61 +618,23 @@ class VoiceService {
       return false;
     }
   }
-}
 
-// Import moved to top
-
-// Enhanced Voice Service Factory - Bark TTS Only
-class VoiceServiceFactory {
-  constructor() {
-    this.browserVoice = new VoiceService(); // Browser/system voices (the original voice pack)
-    this.barkVoice = new BarkVoiceService();
-    this.currentProvider = 'browser'; // Default to browser voices (the original system with Samantha)
-    this.isSpeaking = false; // Prevent concurrent speech
-    this.voiceLock = null; // Lock to prevent race conditions
-    
-    console.log('[VoiceServiceFactory] Initialized with browser voices as default:', {
-      browser: !!this.browserVoice,
-      bark: !!this.barkVoice
-    });
-  }
-
-  // Get the active voice service based on current provider
-  getActiveService() {
-    if (this.currentProvider === 'browser') {
-      return this.browserVoice;
-    }
-    return this.barkVoice; // Default to Bark
-  }
-
-  // Support both browser and Bark TTS providers
-  setProvider(provider) {
-    if (provider === 'bark' || provider === 'browser') {
-      this.currentProvider = provider;
-      console.log('[VoiceServiceFactory] Using provider:', provider);
-      return true;
-    }
-    console.warn('[VoiceServiceFactory] Unsupported provider:', provider);
-    return false;
-  }
-
-  // Get available providers - both browser and Bark TTS
+  // Get available providers - browser voices only
   async getProviders() {
     const providers = [];
 
-    // Check browser voices first (the original voice pack system)
+    // Check browser voices
     try {
-      await this.browserVoice._initPromise; // Wait for browser voice initialization
-      const browserVoices = this.browserVoice.getVoices();
+      await this._initPromise; // Wait for browser voice initialization
+      const browserVoices = this.getVoices();
       providers.push({
         id: 'browser',
-        name: 'System Voices (with Samantha)',
+        name: 'System Voices',
         type: 'Browser Speech Synthesis',
         available: browserVoices.length > 0,
         voices: browserVoices.length,
         quality: 'High',
-        local: true,
-        samanthaAvailable: browserVoices.some(v => v.name.toLowerCase().includes('samantha'))
+        local: true
       });
     } catch (error) {
       providers.push({
@@ -707,299 +647,9 @@ class VoiceServiceFactory {
       });
     }
 
-    // Check if Bark is available
-    try {
-      const barkStatus = await this.barkVoice.checkServerStatus();
-      providers.push({
-        id: 'bark',
-        name: 'Bark AI TTS',
-        type: 'AI Voice Synthesis',
-        available: barkStatus.status === 'running',
-        modelsLoaded: barkStatus.models_loaded,
-        voices: this.barkVoice.voices.length,
-        quality: 'High',
-        local: true
-      });
-    } catch (error) {
-      providers.push({
-        id: 'bark',
-        name: 'Bark AI TTS',
-        type: 'AI Voice Synthesis',
-        available: false,
-        modelsLoaded: false,
-        error: error.message || 'Server not running',
-        voices: 0
-      });
-    }
-
     return providers;
-  }
-
-  // Unified speak method - supports both browser and Bark TTS
-  async speak(text, options = {}) {
-    // Use browser voice if selected
-    if (this.currentProvider === 'browser') {
-      console.log('[VoiceServiceFactory] Using browser voice (System Voices)');
-      try {
-        return await this.browserVoice.speak(text, {
-          ...options,
-          onStart: () => {
-            console.log('[VoiceServiceFactory] Browser voice speech started');
-            options.onStart?.();
-          },
-          onEnd: () => {
-            console.log('[VoiceServiceFactory] Browser voice speech ended');
-            this.isSpeaking = false;
-            options.onEnd?.();
-          },
-          onError: (error) => {
-            console.error('[VoiceServiceFactory] Browser voice error:', error);
-            this.isSpeaking = false;
-            options.onError?.(error);
-          }
-        });
-      } catch (error) {
-        console.error('[VoiceServiceFactory] Browser voice failed:', error.message);
-        throw error;
-      }
-    }
-
-    // Use Bark TTS if selected (original logic)
-    try {
-      const barkStatus = await this.barkVoice.checkServerStatus();
-      if (barkStatus.status !== 'running') {
-        const errorMessage = 'Bark TTS server is not running. Please start the Bark TTS server to use voice synthesis.';
-        console.error('[VoiceServiceFactory]', errorMessage);
-        if (options.onError) {
-          options.onError(errorMessage);
-        }
-        throw new Error(errorMessage);
-      }
-    } catch (error) {
-      const errorMessage = `Bark TTS server is not available: ${error.message}. Please start the Bark TTS server to use voice synthesis.`;
-      console.error('[VoiceServiceFactory]', errorMessage);
-      if (options.onError) {
-        options.onError(errorMessage);
-      }
-      throw new Error(errorMessage);
-    }
-
-    // Only stop audio if it's not from the same message or if it's been playing for a while
-    if (this.isSpeaking) {
-      console.log('[VoiceServiceFactory] Speech is currently active, checking if we should interrupt...');
-      
-      // Check if there's active Bark speech that should be preserved
-      const barkAudioElements = document.querySelectorAll('audio[data-bark-speech="true"]');
-      let hasActiveBarkSpeech = false;
-      
-      barkAudioElements.forEach(audio => {
-        if (!audio.paused && !audio.ended && audio.currentTime > 0) {
-          // Only preserve speech for a short time to allow quick interruptions
-          if (audio.currentTime < 10) { // Reduced from 120 to 10 seconds
-            hasActiveBarkSpeech = true;
-            console.log('[VoiceServiceFactory] Preserving ongoing Bark speech (playing for', audio.currentTime.toFixed(1), 'seconds)');
-          } else {
-            console.log('[VoiceServiceFactory] Speech has been playing for', audio.currentTime.toFixed(1), 'seconds - allowing interruption');
-          }
-        }
-      });
-      
-      if (!hasActiveBarkSpeech) {
-        console.log('[VoiceServiceFactory] No active Bark speech to preserve, safe to start new speech');
-        await this.stopAllVoices();
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } else {
-        console.log('[VoiceServiceFactory] Preserving ongoing Bark speech - no interruption');
-        // Skip the delay to avoid audio gaps
-      }
-    }
-
-    // Set speaking flag to prevent concurrent calls
-    this.isSpeaking = true;
-    
-    try {
-      const voiceSettings = JSON.parse(localStorage.getItem('sephia_voice_settings') || '{}');
-      console.log('[VoiceServiceFactory] Using Bark TTS with voice:', voiceSettings.barkVoice || 'default');
-      
-      // Always use Bark TTS
-      const result = await this.barkVoice.speak(text, {
-        ...options,
-        onStart: () => {
-          console.log('[VoiceServiceFactory] Bark TTS speech started');
-          options.onStart?.();
-        },
-        onEnd: () => {
-          console.log('[VoiceServiceFactory] Bark TTS speech ended');
-          this.isSpeaking = false; // Clear speaking flag
-          options.onEnd?.();
-        },
-        onError: (error) => {
-          console.error('[VoiceServiceFactory] Bark TTS speech error:', error);
-          this.isSpeaking = false; // Clear speaking flag on error
-          const errorMessage = `Bark TTS error: ${error}. No fallback voice is available as requested.`;
-          options.onError?.(errorMessage);
-        }
-      });
-      
-      return result;
-    } catch (error) {
-      this.isSpeaking = false; // Clear speaking flag on error
-      const errorMessage = `Bark TTS failed: ${error.message}. No fallback voice is available as requested.`;
-      console.error('[VoiceServiceFactory]', errorMessage);
-      throw new Error(errorMessage);
-    }
-  }
-
-  // Unified voice methods - use active provider
-  async getVoices() {
-    if (this.currentProvider === 'browser') {
-      await this.browserVoice._initPromise; // Wait for initialization
-      return this.browserVoice.getVoices();
-    }
-    return await this.barkVoice.getVoices();
-  }
-
-  setVoice(voice) {
-    if (this.currentProvider === 'browser') {
-      return this.browserVoice.setVoice(voice);
-    }
-    return this.barkVoice.setVoice(voice);
-  }
-
-  // Stop voice - works with both providers
-  async stopAllVoices() {
-    this.isSpeaking = false; // Clear speaking flag
-    
-    try {
-      if (this.currentProvider === 'browser') {
-        // Stop browser voice
-        this.browserVoice.stopSpeaking();
-        console.log('[VoiceServiceFactory] Stopped browser voice');
-      } else {
-        // Stop Bark voice (this method is now conservative and preserves active speech)
-        await this.barkVoice.stop();
-        console.log('[VoiceServiceFactory] Called Bark TTS stop (conservative mode)');
-      }
-      
-      // Stop any remaining audio elements
-      const audioElements = document.querySelectorAll('audio');
-      let stoppedCount = 0;
-      
-      audioElements.forEach(audio => {
-        if (this.currentProvider === 'browser' || audio.getAttribute('data-bark-speech') !== 'true') {
-          audio.pause();
-          audio.currentTime = 0;
-          stoppedCount++;
-        }
-      });
-      
-      console.log('[VoiceServiceFactory] Audio management:', {
-        provider: this.currentProvider,
-        audioElementsStopped: stoppedCount
-      });
-      
-    } catch (error) {
-      console.warn('[VoiceServiceFactory] Error stopping voices:', error);
-    }
-  }
-
-  // Stop/pause/resume methods - only Bark TTS
-  async stop() {
-    return await this.stopAllVoices();
-  }
-
-  async pause() {
-    return await this.barkVoice.pause();
-  }
-
-  async resume() {
-    return await this.barkVoice.resume();
-  }
-
-  // Speech recognition (only browser for now)
-  async startListening(callbacks = {}) {
-    return await this.browserVoice.startListening(callbacks);
-  }
-
-  stopListening() {
-    this.browserVoice.stopListening();
-  }
-
-  // Test methods - works with both providers
-  async testProvider(provider) {
-    if (provider === 'bark') {
-      return await this.barkVoice.test();
-    } else if (provider === 'browser') {
-      try {
-        await this.browserVoice._initPromise;
-        const voices = this.browserVoice.getVoices();
-        const samantha = voices.find(v => v.name.toLowerCase().includes('samantha'));
-        
-        return {
-          success: true,
-          message: `Browser voices available: ${voices.length} voices${samantha ? ' (including Samantha)' : ''}`,
-          voices: voices.length,
-          samanthaAvailable: !!samantha
-        };
-      } catch (error) {
-        return {
-          success: false,
-          message: `Browser voice test failed: ${error.message}`
-        };
-      }
-    } else {
-      return { success: false, message: 'Unsupported provider.' };
-    }
-  }
-
-  // Get service info - works with both providers
-  getInfo() {
-    if (this.currentProvider === 'browser') {
-      const voices = this.browserVoice.getVoices();
-      return {
-        name: 'System Voices',
-        type: 'Browser Speech Synthesis',
-        quality: 'High',
-        local: true,
-        voices: voices.length,
-        features: [
-          'Native system voices',
-          'Instant playback',
-          'No chunking required',
-          'Seamless long text reading',
-          voices.some(v => v.name.toLowerCase().includes('samantha')) ? 'Samantha voice available' : 'Multiple voice options'
-        ],
-        status: voices.length > 0 ? 'Available' : 'Unavailable'
-      };
-    }
-    return this.barkVoice.getInfo();
-  }
-
-  // Browser service methods for speech recognition (keep for compatibility)
-  isSupported() {
-    return this.browserVoice.isSupported();
-  }
-
-  // These methods are for speech synthesis which is handled by Bark TTS only
-  setSpeechRate(rate) {
-    console.warn('[VoiceServiceFactory] Speech rate control not supported with Bark TTS');
-  }
-
-  setSpeechPitch(pitch) {
-    console.warn('[VoiceServiceFactory] Speech pitch control not supported with Bark TTS');
-  }
-
-  setSpeechVolume(volume) {
-    console.warn('[VoiceServiceFactory] Speech volume control not supported with Bark TTS');
-  }
-
-  // This method is for speech recognition which still uses browser service
-  setRecognitionLanguage(lang) {
-    this.browserVoice.setRecognitionLanguage(lang);
   }
 }
 
-// Create singleton instance
-const voiceService = new VoiceServiceFactory();
-
+const voiceService = new VoiceService();
 export default voiceService;

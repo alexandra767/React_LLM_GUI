@@ -49,6 +49,7 @@ class ImageGenerationService {
         };
 
         this.ws.onmessage = (event) => {
+          console.log('[ImageGen][DEBUG] WebSocket message received:', event.data);
           try {
             const message = JSON.parse(event.data);
             
@@ -75,7 +76,7 @@ class ImageGenerationService {
             
             this.handleWebSocketMessage(message);
           } catch (error) {
-            console.error('Error parsing WebSocket message:', error, 'Raw:', event.data);
+            console.error('[ImageGen][DEBUG] Failed to parse WebSocket message:', error, 'Raw:', event.data);
           }
         };
 
@@ -158,7 +159,7 @@ class ImageGenerationService {
   }
 
   handleWebSocketMessage(message) {
-    console.log('[ImageGen] WebSocket message:', message);
+    console.log('[ImageGen][DEBUG] handleWebSocketMessage called with:', message);
     const { type, data } = message;
     
     // Handle actual video file generation (MP4, WEBM, etc.)
@@ -273,7 +274,7 @@ class ImageGenerationService {
             message: 'Processing image generation...',
             status: 'sampling'
           });
-          console.log('[ImageGen] KSampler progress:', { currentStep, totalSteps: request.totalSteps || 20 });
+          console.log('[ImageGen][DEBUG] onProgress called (KSampler):', { currentStep, totalSteps: request.totalSteps || 20 });
         } else {
           // Ensure progress never stops - increment from current step
           const currentStep = Math.min(nodeCount + 2, (request.totalSteps || 20) - 1);
@@ -284,7 +285,7 @@ class ImageGenerationService {
             status: 'executing', 
             node: data.node 
           });
-          console.log('[ImageGen] Node progress:', { node: data.node, currentStep, totalSteps: request.totalSteps || 20 });
+          console.log('[ImageGen][DEBUG] onProgress called (Node):', { node: data.node, currentStep, totalSteps: request.totalSteps || 20 });
         }
       }
     } else if (type === 'progress' && data?.prompt_id) {
@@ -302,7 +303,7 @@ class ImageGenerationService {
           message: 'Processing steps...',
           status: 'progress'
         });
-        console.log('[ImageGen] ComfyUI progress:', { currentStep, totalSteps, value, max });
+        console.log('[ImageGen][DEBUG] onProgress called (ComfyUI progress):', { currentStep, totalSteps, value, max });
       }
     } else if (type === 'executed' && data?.prompt_id) {
       // Log all executed messages to debug
@@ -450,6 +451,7 @@ class ImageGenerationService {
     let workflow;
     
     // Always use Flux workflow since no checkpoint models are available
+    // eslint-disable-next-line no-lone-blocks
     {
       // Flux-specific workflow with separate model and CLIP loaders
       workflow = {
@@ -1136,4 +1138,6 @@ class ImageGenerationService {
   }
 }
 
-export default new ImageGenerationService();
+// Assign instance to a variable before exporting
+const imageGenerationService = new ImageGenerationService();
+export default imageGenerationService;

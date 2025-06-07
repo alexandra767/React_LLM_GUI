@@ -17,8 +17,17 @@ lsof -ti:3000 | xargs kill -9 2>/dev/null || true
 pkill -f "Electron.*sephia" 2>/dev/null || true
 pkill -f "electron.*sephia" 2>/dev/null || true
 
+# Kill any existing React development server
+pkill -f "react-scripts start" 2>/dev/null || true
+
+# Kill any existing Node processes related to the app
+pkill -f "node.*sephia" 2>/dev/null || true
+
 # Wait a moment for ports to clear
-sleep 1
+sleep 2
+
+# Clear any temporary files that might be causing issues
+rm -rf node_modules/.cache 2>/dev/null || true
 
 # Start the app
 echo "Starting Sephia..."

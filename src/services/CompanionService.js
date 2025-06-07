@@ -1618,44 +1618,68 @@ Current conversation type: ${analysis.conversationType}${personalInfo}${relation
 
   // Format integration results for AI context
   formatIntegrationResults(results) {
-    let formatted = '\n\nIntegration Results:\n';
+    if (!results || results.length === 0) {
+      return '';
+    }
+    
+    let formatted = '\n\n[IMPORTANT: You MUST use the following integration results in your response. Do not generate a generic response.]\n\n';
+    let hasActualNews = false;
     
     results.forEach(result => {
       switch (result.type) {
         case 'calendar':
-          formatted += `Calendar: ${result.data.content}\n`;
+          formatted += `📅 Calendar Results:\n${result.data.content}\n\n`;
           break;
         case 'search':
-          formatted += `Web Search: ${result.data.content}\n`;
+          formatted += `🔍 Web Search Results:\n${result.data.content}\n\n`;
           break;
         case 'email':
-          formatted += `Email: ${result.data.content}\n`;
+          formatted += `📧 Email Results:\n${result.data.content}\n\n`;
           break;
         case 'image':
-          formatted += `Image Generated: ${result.data.content}\n`;
+          formatted += `🎨 Image Generation:\n${result.data.content}\n\n`;
           break;
         case 'files':
-          formatted += `Files: ${result.data.content}\n`;
+          formatted += `📁 File Results:\n${result.data.content}\n\n`;
           break;
         case 'news':
-          formatted += `Current Events: ${result.data.content}\n`;
+          // Check if this is actual news content or just search links
+          const newsContent = result.data.content || '';
+          const isJustSearchLinks = newsContent.includes('Search CNN for') || 
+                                   newsContent.includes('Search BBC for') || 
+                                   newsContent.includes('Search AP News for') || 
+                                   newsContent.includes('Search Reuters for') ||
+                                   newsContent.includes('Search The Guardian for');
+          
+          if (isJustSearchLinks) {
+            formatted += `📰 News Search Status: I was unable to retrieve live news content due to technical issues with the news services.\n\n`;
+            formatted += `Here are trusted news sources where you can find current information:\n${newsContent}\n\n`;
+            formatted += `[INSTRUCTION: Acknowledge that you couldn't fetch live news content and suggest the user visit these news sites directly for the latest updates.]\n\n`;
+          } else {
+            formatted += `📰 Current News:\n${newsContent}\n\n`;
+            hasActualNews = true;
+          }
           break;
         case 'research':
-          formatted += `Research Results: ${result.data.content}\n`;
+          formatted += `🔬 Research Results:\n${result.data.content}\n\n`;
           break;
         case 'tasks':
-          formatted += `Task Management: ${result.data.content}\n`;
+          formatted += `✅ Task Management:\n${result.data.content}\n\n`;
           break;
         case 'weather':
-          formatted += `Weather: ${result.data.content}\n`;
+          formatted += `🌤️ Weather Information:\n${result.data.content}\n\n`;
+          break;
+        case 'learning':
+          formatted += `🧠 Learning Data:\n${result.data.content}\n\n`;
           break;
         case 'error':
-          formatted += `Error: ${result.data.message}\n`;
+          formatted += `❌ Error: ${result.data.message}\n\n`;
           break;
       }
     });
     
-    formatted += '\nRespond naturally based on this information.\n';
+    formatted += '\n[INSTRUCTION: Incorporate the above results naturally into your response. If news sources returned only search links, be honest about the technical issue and direct the user to visit those sites.]\n';
+    
     return formatted;
   }
 
@@ -1990,7 +2014,9 @@ CRITICAL: You are Aria responding to ${hasUserName ? userName : 'the user'}. Beg
 
   // Determine if integrations should be executed
   shouldExecuteIntegrations(analysis) {
-    return analysis.needsCalendar || 
+    console.log('[CompanionService.shouldExecuteIntegrations] Checking analysis:', JSON.stringify(analysis, null, 2));
+    
+    const shouldExecute = analysis.needsCalendar || 
            analysis.needsWebSearch || 
            analysis.needsEmail || 
            analysis.needsImageGeneration || 
@@ -1999,7 +2025,27 @@ CRITICAL: You are Aria responding to ${hasUserName ? userName : 'the user'}. Beg
            analysis.needsResearch ||
            analysis.needsTaskManagement ||
            analysis.needsWeather ||
-           analysis.needsModelInfo;
+           analysis.needsModelInfo ||
+           analysis.needsLearning ||
+           analysis.needsNews;  // Added missing needsNews check
+    
+    console.log('[CompanionService.shouldExecuteIntegrations] Result:', shouldExecute);
+    console.log('[CompanionService.shouldExecuteIntegrations] Individual checks:', {
+      needsCalendar: analysis.needsCalendar,
+      needsWebSearch: analysis.needsWebSearch,
+      needsEmail: analysis.needsEmail,
+      needsImageGeneration: analysis.needsImageGeneration,
+      needsFileAccess: analysis.needsFileAccess,
+      needsCurrentEvents: analysis.needsCurrentEvents,
+      needsResearch: analysis.needsResearch,
+      needsTaskManagement: analysis.needsTaskManagement,
+      needsWeather: analysis.needsWeather,
+      needsModelInfo: analysis.needsModelInfo,
+      needsLearning: analysis.needsLearning,
+      needsNews: analysis.needsNews
+    });
+    
+    return shouldExecute;
   }
 
   // Force Aria identity in any response - optimized for performance

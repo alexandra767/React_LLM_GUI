@@ -21,15 +21,32 @@ class WebSearchService {
     
     const searchResults = await Promise.allSettled(searchPromises);
     
+    // Log search results for debugging
+    console.log('[WebSearchService] Search results status:', {
+      duckduckgo: searchResults[0].status,
+      wikipedia: searchResults[1].status,
+      alternativeNews: searchResults[2].status,
+      newsAPI: searchResults[3].status,
+      googleNews: searchResults[4].status
+    });
+    
     // Combine results from successful searches
     searchResults.forEach((result, index) => {
+      const sourceName = ['DuckDuckGo', 'Wikipedia', 'AlternativeNews', 'NewsAPI', 'GoogleNews'][index];
       if (result.status === 'fulfilled' && result.value) {
-        results.push(...(Array.isArray(result.value) ? result.value : [result.value]));
+        const items = Array.isArray(result.value) ? result.value : [result.value];
+        console.log(`[WebSearchService] ${sourceName} returned ${items.length} results`);
+        results.push(...items);
+      } else if (result.status === 'rejected') {
+        console.log(`[WebSearchService] ${sourceName} failed:`, result.reason);
       }
     });
     
+    console.log('[WebSearchService] Total results before deduplication:', results.length);
+    
     // Remove duplicates and limit results
     const uniqueResults = this.deduplicateResults(results);
+    console.log('[WebSearchService] Unique results after deduplication:', uniqueResults.length);
     
     // Check if this is a weather query and prioritize weather sites
     const lowerQuery = query.toLowerCase();
@@ -274,14 +291,26 @@ class WebSearchService {
       // Use a CORS proxy to access the RSS feed
       const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rssUrl)}`;
       
+      console.log('[WebSearchService] Fetching Google News RSS via proxy:', proxyUrl);
       const response = await fetch(proxyUrl);
-      if (!response.ok) return [];
+      if (!response.ok) {
+        console.error('[WebSearchService] Google News RSS fetch failed:', response.status);
+        return [];
+      }
       
       const data = await response.json();
       const xmlText = data.contents;
       
+      if (!xmlText || xmlText.length === 0) {
+        console.error('[WebSearchService] Empty RSS response');
+        return [];
+      }
+      
+      console.log('[WebSearchService] RSS response received, length:', xmlText.length);
+      
       // Parse RSS XML (simple parsing)
       const results = this.parseGoogleNewsRSS(xmlText, query);
+      console.log('[WebSearchService] Parsed', results.length, 'news items from RSS');
       return results.slice(0, 10); // Limit to 10 results
       
     } catch (error) {
@@ -293,9 +322,24 @@ class WebSearchService {
   // Parse Google News RSS feed
   parseGoogleNewsRSS(xmlText, query) {
     try {
+      // Check if DOMParser is available (it might not be in some Electron contexts)
+      if (typeof DOMParser === 'undefined') {
+        console.error('[WebSearchService] DOMParser not available');
+        return [];
+      }
+      
       const parser = new DOMParser();
       const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+      
+      // Check for parsing errors
+      const parseError = xmlDoc.getElementsByTagName('parsererror');
+      if (parseError.length > 0) {
+        console.error('[WebSearchService] XML parsing error:', parseError[0].textContent);
+        return [];
+      }
+      
       const items = xmlDoc.getElementsByTagName('item');
+      console.log('[WebSearchService] Found', items.length, 'items in RSS feed');
       
       const results = [];
       for (let i = 0; i < Math.min(items.length, 10); i++) {
@@ -305,20 +349,35 @@ class WebSearchService {
         const link = item.getElementsByTagName('link')[0]?.textContent;
         const description = item.getElementsByTagName('description')[0]?.textContent;
         const pubDate = item.getElementsByTagName('pubDate')[0]?.textContent;
-        const source = item.getElementsByTagName('source')[0]?.textContent || 'Google News';
+        const sourceElement = item.getElementsByTagName('source')[0];
+        const source = sourceElement?.textContent || sourceElement?.getAttribute('url') || 'Google News';
         
         if (title && link) {
+          // Extract clean title and source from Google News format
+          let cleanTitle = title.replace(/<[^>]*>/g, '');
+          let cleanSource = source.replace(/<[^>]*>/g, '');
+          
+          // Google News often includes source in title, try to extract it
+          if (cleanTitle.includes(' - ') && cleanSource === 'Google News') {
+            const parts = cleanTitle.split(' - ');
+            if (parts.length >= 2) {
+              cleanSource = parts[parts.length - 1];
+              cleanTitle = parts.slice(0, -1).join(' - ');
+            }
+          }
+          
           results.push({
-            title: title.replace(/<[^>]*>/g, ''), // Remove HTML tags
+            title: cleanTitle,
             url: link,
             snippet: description ? description.replace(/<[^>]*>/g, '').substring(0, 200) + '...' : `Recent news about ${query}`,
-            source: source.replace(/<[^>]*>/g, ''),
+            source: cleanSource,
             type: 'news',
             publishedAt: pubDate
           });
         }
       }
       
+      console.log('[WebSearchService] Successfully parsed', results.length, 'news items');
       return results;
     } catch (error) {
       console.error('[WebSearchService] RSS parsing failed:', error);

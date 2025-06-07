@@ -20,6 +20,7 @@
     "dompurify": "^3.2.6",
     "electron-log": "^5.4.0",
     "html-react-parser": "^5.2.5",
+    "node-fetch": "^3.3.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^8.0.7",
@@ -27,6 +28,7 @@
     "react-syntax-highlighter": "^15.6.1",
     "remark-gfm": "^3.0.1",
     "web-vitals": "^2.1.4",
+    "xmldom": "^0.6.0",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0"
   },

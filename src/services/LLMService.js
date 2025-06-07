@@ -644,7 +644,7 @@ class ClaudeAdapter extends LLMAdapter {
     try {
       console.log('[ClaudeAdapter] Sending message to Claude API');
       
-      const model = options.model || 'claude-3-5-sonnet-20241022';
+      const model = options.model || 'claude-opus-4-20250514';
       const maxTokens = options.max_tokens || 4096;
       
       const response = await fetch(this.baseUrl, {
@@ -777,6 +777,7 @@ class ClaudeAdapter extends LLMAdapter {
 
   async getModels() {
     return [
+      { id: 'claude-opus-4-20250514', name: 'Claude 4 Opus', size: 'Extra Large', type: 'cloud' },
       { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', size: 'Large', type: 'cloud' },
       { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', size: 'Medium', type: 'cloud' }
     ];
