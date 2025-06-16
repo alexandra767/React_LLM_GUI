@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
@@ -9,6 +9,7 @@ import ProjectsView from '../Projects/ProjectsView';
 import SettingsView from '../Settings/SettingsView';
 import OllamaChatView from '../../views/OllamaChatView';
 import TerminalView from '../../views/TerminalView';
+import NetworkStatusIndicator from '../Common/OfflineIndicator';
 
 const LayoutContainer = styled.div`
   display: flex;
@@ -25,41 +26,168 @@ const MainContent = styled.main`
 
 const ContentArea = styled.div`
   flex: 1;
-  overflow: auto;
-  background-color: ${props => props.theme.colors.primaryBg};
-  padding: ${props => props.theme.spacing.large};
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: #1E1E1E;
+  padding: 0;
 `;
 
 const MainLayout = () => {
-  const { theme } = useTheme();
-  const { appState } = useApp();
+  const theme = useTheme();
+  const appContext = useApp();
   
-  const renderContent = () => {
-    switch (appState.activeSection) {
-      case 'chat':
-        return <ChatView />;
-      case 'ollama':
-        return <OllamaChatView />;
-      case 'terminal':
-        return <TerminalView />;
-      case 'projects':
-        return <ProjectsView />;
-      case 'settings':
-        return <SettingsView />;
-      default:
-        return <TerminalView />;
+  console.log('[MainLayout] Render triggered', {
+    activeSection: appContext?.appState?.activeSection,
+    timestamp: Date.now()
+  });
+  
+  // Provide default values if appContext is not available
+  const { 
+    appState = { activeSection: 'ollama' }, 
+    setAppState = () => {},
+    currentModel,
+    setCurrentModel,
+    models: contextModels,
+    setModels: setContextModels,
+    loading: contextLoading,
+    loadModel
+  } = appContext || {};
+  
+  // Set default section if none is selected
+  useEffect(() => {
+    if (appContext && !appState?.activeSection) {
+      // Set default section to 'ollama' if not set
+      setAppState(prev => ({
+        ...prev,
+        activeSection: 'ollama'
+      }));
+    }
+  }, [appContext, appState?.activeSection, setAppState]);
+  
+  // Use context models and loading state
+  const models = contextModels || [];
+  const selectedModel = currentModel || '';
+  const isLoadingModels = contextLoading || false;
+  const [error, setError] = useState(null);
+  
+  // Debug logging
+  console.log('MainLayout - currentModel from context:', currentModel);
+  console.log('MainLayout - models from context:', models);
+
+  // Handle model change
+  const handleModelChange = async (event) => {
+    const newModel = event.target.value;
+    console.log('MainLayout - Model changed to:', newModel);
+    if (loadModel) {
+      // Use loadModel which sets the current model and warms it up
+      await loadModel(newModel);
+    } else if (setCurrentModel) {
+      // Fallback to just setting the model
+      setCurrentModel(newModel);
     }
   };
-  
+
+  // Render loading state
+  if (isLoadingModels) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        backgroundColor: theme.colors?.primaryBg || '#1E1E1E',
+        color: theme.colors?.primaryText || '#FFFFFF'
+      }}>
+        <div>Loading application...</div>
+      </div>
+    );
+  }
+
+  // Render error state
+  if (error) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        padding: '20px',
+        textAlign: 'center',
+        backgroundColor: theme.colors?.primaryBg || '#1E1E1E',
+        color: theme.colors?.primaryText || '#FFFFFF'
+      }}>
+        <h2>Oops! Something went wrong</h2>
+        <p style={{ color: theme.colors?.error || '#ff4444' }}>{error}</p>
+        <p>You can still use the application, but some features may be limited.</p>
+        <button 
+          onClick={() => window.location.reload()}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            backgroundColor: theme.colors?.accent || '#FF643D',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Reload Application
+        </button>
+      </div>
+    );
+  }
+
+  // Main layout
   return (
     <LayoutContainer>
       <Sidebar />
       <MainContent>
-        <Header />
+        <Header 
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
+          models={models}
+        />
         <ContentArea theme={theme}>
-          {renderContent()}
+          {(() => {
+            try {
+              // Keep components mounted but hidden to prevent unmounting during streaming
+              const activeSection = appState?.activeSection || 'ollama';
+              
+              // Render all components but hide inactive ones to prevent unmounting
+              // Use key prop to ensure stable component identity
+              return (
+                <>
+                  <div key="chat-view" style={{ display: activeSection === 'chat' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <ChatView />
+                  </div>
+                  <div key="projects-view" style={{ display: activeSection === 'projects' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <ProjectsView />
+                  </div>
+                  <div key="ollama-view" style={{ display: activeSection === 'ollama' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <OllamaChatView />
+                  </div>
+                  <div key="settings-view" style={{ display: activeSection === 'settings' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <SettingsView />
+                  </div>
+                  <div key="terminal-view" style={{ display: activeSection === 'terminal' ? 'block' : 'none', width: '100%', height: '100%' }}>
+                    <TerminalView />
+                  </div>
+                </>
+              );
+            } catch (error) {
+              console.error('Error rendering section:', error);
+              return (
+                <div style={{ padding: '20px', color: theme.colors?.error || '#ff4444' }}>
+                  Error loading {appState?.activeSection} view. Please try again.
+                </div>
+              );
+            }
+          })()}
         </ContentArea>
       </MainContent>
+      <NetworkStatusIndicator />
     </LayoutContainer>
   );
 };

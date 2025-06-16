@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Flow Debugger</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { display: flex; gap: 20px; }
+        .panel { flex: 1; border: 1px solid #ccc; padding: 10px; height: 600px; overflow-y: auto; }
+        .message { margin: 5px 0; padding: 5px; background: #f0f0f0; font-size: 12px; }
+        .executed { background: #e0ffe0; }
+        .saveimage { background: #ffe0e0; font-weight: bold; }
+        .error { background: #ffcccc; }
+        button { padding: 10px 20px; margin: 5px; }
+        .highlight { background: yellow; }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Message Flow Debugger</h1>
+    
+    <div>
+        <button onclick="connectWS()">1. Connect WebSocket</button>
+        <button onclick="generateImage()">2. Generate Test Image</button>
+        <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    
+    <div class="container">
+        <div class="panel">
+            <h3>All WebSocket Messages</h3>
+            <div id="allMessages"></div>
+        </div>
+        <div class="panel">
+            <h3>Filtered Messages (executed only)</h3>
+            <div id="filteredMessages"></div>
+        </div>
+    </div>
+    
+    <script>
+        let ws = null;
+        let clientId = 'debugger-' + Math.random().toString(36).substring(7);
+        let messageCount = 0;
+        let promptId = null;
+        
+        function log(panel, message, className = '') {
+            const div = document.createElement('div');
+            div.className = 'message ' + className;
+            div.innerHTML = `<strong>${++messageCount}:</strong> ${message}`;
+            document.getElementById(panel).appendChild(div);
+        }
+        
+        function clearLogs() {
+            document.getElementById('allMessages').innerHTML = '';
+            document.getElementById('filteredMessages').innerHTML = '';
+            messageCount = 0;
+        }
+        
+        function connectWS() {
+            if (ws) ws.close();
+            
+            log('allMessages', `Connecting with clientId: ${clientId}`);
+            ws = new WebSocket(`ws://localhost:8188/ws?clientId=${clientId}`);
+            
+            ws.onopen = () => {
+                log('allMessages', '✅ WebSocket connected!', 'highlight');
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    
+                    // Log all messages
+                    log('allMessages', `Type: ${msg.type}, Data: ${JSON.stringify(msg.data).substring(0, 200)}...`);
+                    
+                    // Filter and highlight important messages
+                    if (msg.type === 'executed') {
+                        log('filteredMessages', `EXECUTED - Node: ${msg.data.node}, Prompt: ${msg.data.prompt_id}`, 'executed');
+                        
+                        // Check if this is SaveImage node
+                        if (msg.data.node === "9" || (msg.data.output && msg.data.output.images)) {
+                            log('filteredMessages', `🎯 SAVEIMAGE OUTPUT: ${JSON.stringify(msg.data.output)}`, 'saveimage');
+                            console.log('SaveImage output:', msg.data);
+                        }
+                        
+                        // Check for images in any format
+                        if (msg.data.output) {
+                            const outputStr = JSON.stringify(msg.data.output);
+                            if (outputStr.includes('images') || outputStr.includes('filename')) {
+                                log('filteredMessages', `📸 FOUND IMAGE DATA: ${outputStr}`, 'saveimage');
+                            }
+                        }
+                    }
+                    
+                    if (msg.type === 'execution_error') {
+                        log('filteredMessages', `❌ ERROR: ${JSON.stringify(msg.data)}`, 'error');
+                    }
+                    
+                    if (msg.type === 'executing' && msg.data.prompt_id === promptId) {
+                        log('filteredMessages', `Executing node: ${msg.data.node}`);
+                    }
+                    
+                } catch (error) {
+                    log('allMessages', `Parse error: ${error.message}`, 'error');
+                }
+            };
+            
+            ws.onerror = () => log('allMessages', '❌ WebSocket error', 'error');
+            ws.onclose = () => log('allMessages', 'WebSocket closed');
+        }
+        
+        async function generateImage() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('Please connect WebSocket first!');
+                return;
+            }
+            
+            clearLogs();
+            log('allMessages', 'Starting image generation...');
+            
+            const workflow = {
+                "4": {
+                    "inputs": { "ckpt_name": "v1-5-pruned-emaonly.ckpt" },
+                    "class_type": "CheckpointLoaderSimple"
+                },
+                "5": {
+                    "inputs": { "width": 512, "height": 512, "batch_size": 1 },
+                    "class_type": "EmptyLatentImage"
+                },
+                "6": {
+                    "inputs": { "text": "debug test image", "clip": ["4", 1] },
+                    "class_type": "CLIPTextEncode"
+                },
+                "3": {
+                    "inputs": {
+                        "seed": Math.floor(Math.random() * 1000000),
+                        "steps": 5,
+                        "cfg": 7,
+                        "sampler_name": "euler",
+                        "scheduler": "normal",
+                        "denoise": 1,
+                        "model": ["4", 0],
+                        "positive": ["6", 0],
+                        "negative": ["6", 0],
+                        "latent_image": ["5", 0]
+                    },
+                    "class_type": "KSampler"
+                },
+                "8": {
+                    "inputs": { "samples": ["3", 0], "vae": ["4", 2] },
+                    "class_type": "VAEDecode"
+                },
+                "9": {
+                    "inputs": { "filename_prefix": "DebugTest", "images": ["8", 0] },
+                    "class_type": "SaveImage"
+                }
+            };
+            
+            try {
+                const response = await fetch('http://localhost:8188/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: workflow,
+                        client_id: clientId
+                    })
+                });
+                
+                const result = await response.json();
+                promptId = result.prompt_id;
+                log('allMessages', `Prompt queued with ID: ${promptId}`, 'highlight');
+                log('filteredMessages', `🎯 Watch for prompt_id: ${promptId}`, 'highlight');
+                
+            } catch (error) {
+                log('allMessages', `Failed to queue prompt: ${error.message}`, 'error');
+            }
+        }
+        
+        // Auto-connect on load
+        window.onload = () => {
+            connectWS();
+        };
+    </script>
+</body>
+</html>

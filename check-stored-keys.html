@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Check Stored API Keys</title>
+</head>
+<body>
+    <h1>API Keys Recovery Tool</h1>
+    <div id="results"></div>
+    
+    <script>
+        function checkStoredKeys() {
+            const results = document.getElementById('results');
+            let html = '<h2>Current localStorage Contents:</h2>';
+            
+            // Check for common API keys
+            const keyNames = [
+                'google_client_id',
+                'google_client_secret', 
+                'google_access_token',
+                'google_refresh_token',
+                'openai_api_key',
+                'anthropic_api_key',
+                'sephia_voice_settings',
+                'aria_memory_system'
+            ];
+            
+            html += '<table border="1" style="border-collapse: collapse; width: 100%;">';
+            html += '<tr><th>Key</th><th>Status</th><th>Value Preview</th></tr>';
+            
+            keyNames.forEach(key => {
+                const value = localStorage.getItem(key);
+                if (value) {
+                    const preview = value.length > 50 ? value.substring(0, 50) + '...' : value;
+                    html += `<tr><td>${key}</td><td style="color: green;">✓ Found</td><td>${preview}</td></tr>`;
+                } else {
+                    html += `<tr><td>${key}</td><td style="color: red;">✗ Missing</td><td>-</td></tr>`;
+                }
+            });
+            
+            html += '</table>';
+            
+            // Show all localStorage keys
+            html += '<h3>All localStorage Keys:</h3><ul>';
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = localStorage.getItem(key);
+                const preview = value && value.length > 100 ? value.substring(0, 100) + '...' : value;
+                html += `<li><strong>${key}:</strong> ${preview}</li>`;
+            }
+            html += '</ul>';
+            
+            // Add recovery commands
+            html += '<h3>Recovery Commands (copy to browser console):</h3>';
+            html += '<pre style="background: #f0f0f0; padding: 10px;">';
+            html += `// To set Google API keys:
+localStorage.setItem('google_client_id', 'YOUR_CLIENT_ID_HERE');
+localStorage.setItem('google_client_secret', 'YOUR_CLIENT_SECRET_HERE');
+
+// To set OpenAI API key:
+localStorage.setItem('openai_api_key', 'YOUR_OPENAI_KEY_HERE');
+
+// To check what's currently stored:
+console.log('Google Client ID:', localStorage.getItem('google_client_id'));
+console.log('Google Client Secret:', localStorage.getItem('google_client_secret'));
+console.log('Google Access Token:', localStorage.getItem('google_access_token'));
+console.log('Voice Settings:', localStorage.getItem('sephia_voice_settings'));
+</pre>';
+            
+            results.innerHTML = html;
+        }
+        
+        // Run check on page load
+        checkStoredKeys();
+        
+        // Add refresh button
+        const refreshBtn = document.createElement('button');
+        refreshBtn.textContent = 'Refresh Check';
+        refreshBtn.onclick = checkStoredKeys;
+        refreshBtn.style.margin = '10px';
+        document.body.insertBefore(refreshBtn, document.getElementById('results'));
+    </script>
+</body>
+</html>

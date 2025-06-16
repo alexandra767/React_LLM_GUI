@@ -39,18 +39,17 @@ const TerminalView = () => {
         setIsLoading(true);
         setError(null);
         
-        // First check if Ollama is running
-        try {
-          const isRunning = await window.electron.ollama.isRunning();
-          if (!isRunning) {
-            throw new Error('Ollama service is not running. Please start Ollama and try again.');
-          }
-        } catch (err) {
-          if (err.message.includes('ENOENT') || err.message.includes('not found')) {
-            throw new Error('Ollama is not installed. Please install Ollama from https://ollama.ai/');
-          }
-          throw err;
+        // Check if electron API is available
+        if (!window.electron || !window.electron.ollama) {
+          console.warn('Electron Ollama API not available, skipping terminal model loading');
+          // Set some default models for web mode
+          setModels(['deepseek-r1:8b-m4', 'llama2', 'mistral']);
+          setSelectedModel('deepseek-r1:8b-m4');
+          return;
         }
+        
+        // Try to list models directly instead of checking isRunning (which doesn't exist)
+        // This will fail if Ollama isn't running, which we can catch
         
         // Then list models
         const modelList = await window.electron.ollama.listModels();
@@ -60,7 +59,10 @@ const TerminalView = () => {
           throw new Error('No response from Ollama. The service may be starting up. Please try again in a moment.');
         }
         
-        const parsedModels = modelList
+        // Ensure modelList is a string before splitting
+        const modelListString = typeof modelList === 'string' ? modelList : String(modelList);
+        
+        const parsedModels = modelListString
           .split('\n')
           .slice(1) // Skip header
           .filter(line => line.trim())
@@ -78,6 +80,10 @@ const TerminalView = () => {
         }
       } catch (err) {
         console.error('Failed to load models:', err);
+        
+        // Set fallback models to prevent infinite loops
+        setModels(['deepseek-r1:8b-m4', 'llama2', 'mistral']);
+        setSelectedModel('deepseek-r1:8b-m4');
         
         let errorMessage = 'Failed to load models. ';
         
@@ -99,14 +105,14 @@ const TerminalView = () => {
 
     loadModels();
     
-    // Set up polling to check Ollama status
-    const pollInterval = setInterval(() => {
-      if (error) {
-        loadModels();
-      }
-    }, 10000); // Check every 10 seconds if there was an error
-    
-    return () => clearInterval(pollInterval);
+    // TEMPORARILY DISABLED: Polling was causing console spam
+    // const pollInterval = setInterval(() => {
+    //   if (error) {
+    //     loadModels();
+    //   }
+    // }, 10000);
+    // 
+    // return () => clearInterval(pollInterval);
   }, [error]);
 
   const handleModelChange = (event) => {

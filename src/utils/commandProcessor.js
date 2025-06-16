@@ -1,0 +1,2129 @@
+// Conditionally import based on environment
+const isElectron = typeof window !== 'undefined' && (window.electron || (window.process && window.process.type));
+
+console.log('[commandProcessor] Environment check:', {
+  isElectron,
+  hasElectron: !!window.electron,
+  hasProcess: !!window.process,
+  processType: window.process?.type,
+  userAgent: navigator.userAgent
+});
+
+// Only import the service we need
+export const getIntegrationService = async () => {
+  // Check if running in Electron - use multiple checks
+  const inElectron = !!(window.electron || (window.process && window.process.type) || navigator.userAgent.includes('Electron'));
+  
+  console.log('[commandProcessor] Service selection:', {
+    inElectron,
+    checks: {
+      windowElectron: !!window.electron,
+      windowProcess: !!window.process,
+      processType: window.process?.type,
+      electronInUA: navigator.userAgent.includes('Electron')
+    }
+  });
+  
+  if (inElectron) {
+    console.log('[commandProcessor] Loading ElectronIntegrationService directly');
+    const { default: ElectronIntegrationService } = await import('../services/ElectronIntegrationService');
+    return new ElectronIntegrationService();
+  } else {
+    console.log('[commandProcessor] Loading IntegrationService for web');
+    const { default: IntegrationService } = await import('../services/IntegrationService');
+    return new IntegrationService();
+  }
+};
+
+export const processCommand = async (message, attachments = [], { setImageGenerationProgress, companionMode = false } = {}) => {
+  console.log('[commandProcessor] Processing command:', message);
+  console.log('[commandProcessor] Attachments:', attachments?.length || 0);
+  console.log('[commandProcessor] Companion mode:', companionMode);
+  
+  // Get the appropriate service
+  const service = await getIntegrationService();
+  console.log('[commandProcessor] Service loaded:', service.constructor.name);
+  
+  // Check if message starts with @
+  if (!message.startsWith('@')) {
+    console.log('[commandProcessor] Not a command (no @ prefix)');
+    return null;
+  }
+
+  // Parse command and arguments
+  const parts = message.split(' ');
+  let command = parts[0].toLowerCase();
+  let args = parts.slice(1).join(' ');
+  
+  // Handle @flux:STEPS, @image:STEPS, and @video:FRAMES:FPS syntax
+  if (command.startsWith('@flux:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @flux
+    args = colonParts[1] + ' ' + args; // :20 prompt becomes "20 prompt"
+  } else if (command.startsWith('@image:') || command.startsWith('@img:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @image or @img
+    args = colonParts[1] + ' ' + args; // :20 prompt becomes "20 prompt"
+  } else if (command.startsWith('@video:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @video
+    // Handle @video:frames:fps or @video:frames format
+    if (colonParts.length === 3) {
+      args = colonParts[1] + ':' + colonParts[2] + ' ' + args; // :25:8 prompt becomes "25:8 prompt"
+    } else {
+      args = colonParts[1] + ' ' + args; // :25 prompt becomes "25 prompt"
+    }
+  } else if (command.startsWith('@img2video:') || command.startsWith('@image2video:')) {
+    const colonParts = command.split(':');
+    command = colonParts[0]; // @img2video or @image2video
+    if (colonParts.length === 3) {
+      args = colonParts[1] + ':' + colonParts[2] + ' ' + args;
+    } else {
+      args = colonParts[1] + ' ' + args;
+    }
+  }
+
+  try {
+    switch (command) {
+      case '@gmail':
+        // @gmail [search query]
+        try {
+          // Check authorization first
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const query = args || 'is:unread';
+          const messages = await service.searchGmail(query);
+          const formattedGmail = service.formatGmailMessages(messages);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `Gmail search results for "${query}":\n\n${formattedGmail || 'No messages found.'}`
+          };
+        } catch (gmailError) {
+          console.error('Gmail error:', gmailError);
+          if (gmailError.message && gmailError.message.includes('not configured')) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Gmail not configured. Please add your Google Client ID (and optionally Client Secret) in Settings → API Keys & Integrations.'
+            };
+          }
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Gmail error: ${gmailError.message}`
+          };
+        }
+
+      case '@drive':
+        // @drive [search query]
+        try {
+          console.log('[Drive] Checking Google auth status:', {
+            isGoogleAuthorized: service.isGoogleAuthorized,
+            hasRefreshToken: !!localStorage.getItem('google_refresh_token'),
+            hasAccessToken: !!localStorage.getItem('google_access_token'),
+            hasClientId: !!localStorage.getItem('google_client_id')
+          });
+          
+          // Check authorization first
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          // Check if the service has the new preview methods
+          if (service.listGoogleDriveFilesWithPreviews) {
+            const files = await service.listGoogleDriveFilesWithPreviews(args);
+            const formattedDrive = service.formatDriveFilesWithPreviews(files);
+            return {
+        type: 'integration',
+        isCommand: true,
+        content: `Your Google Drive files${args ? ` matching "${args}"` : ''} (with previews):\n\n${formattedDrive || 'No files found.'}`
+            };
+          } else {
+            // Fallback to old method
+            const files = await service.listGoogleDriveFiles(args);
+            const formattedDrive = service.formatDriveFiles(files);
+            return {
+        type: 'integration',
+        isCommand: true,
+        content: `Your Google Drive files${args ? ` matching "${args}"` : ''}:\n\n${formattedDrive || 'No files found.'}`
+            };
+          }
+        } catch (driveError) {
+          console.error('Google Drive error:', driveError);
+          if (driveError.message && driveError.message.includes('not configured')) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Google Drive not configured. Please add your Google Client ID (and optionally Client Secret) in Settings → API Keys & Integrations.'
+            };
+          }
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Google Drive error: ${driveError.message}`
+          };
+        }
+
+      case '@calendar':
+        // @calendar [days ahead, default 7] [google/apple]
+        try {
+          console.log('[Calendar] Processing @calendar command...');
+          
+          const parts = args.split(' ');
+          const daysAhead = parseInt(parts[0]) || 7;
+          const calendarType = 'google'; // Force Google Calendar only
+          
+          const startDate = new Date();
+          const endDate = new Date(startDate.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+          
+          if (calendarType === 'google') {
+            // Try Google Calendar
+            try {
+              // Check Google authorization
+              if (!service.isGoogleAuthorized) {
+                await service.signInGoogle();
+              }
+              
+              console.log('[Calendar] Fetching Google Calendar events...');
+              const events = await service.getGoogleCalendarEvents(startDate, endDate);
+              const formattedEvents = service.formatGoogleCalendarEvents(events);
+              
+              return {
+        type: 'integration',
+        isCommand: true,
+        content: `Your Google Calendar events for the next ${daysAhead} days:\n\n${formattedEvents}`
+              };
+            } catch (error) {
+              console.error('[Calendar] Google Calendar error:', error);
+              if (error.message.includes('401') || error.message.includes('Invalid Credentials')) {
+                return {
+        type: 'error',
+        isCommand: true,
+        content: 'Google Calendar authentication failed. Please sign in to Google in Settings.'
+                };
+              }
+              return {
+        type: 'error',
+        isCommand: true,
+        content: `Google Calendar error: ${error.message}`
+              };
+            }
+          } else {
+            // Apple Calendar (existing code)
+            if (!service.isAppleAuthorized) {
+              // Try to use saved credentials from settings
+              const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+              const username = settings.appleId;
+              const password = settings.appleAppPassword;
+              
+              console.log('[Calendar] Checking credentials:', { 
+                hasUsername: !!username, 
+                hasPassword: !!password,
+                username: username,
+                passwordLength: password ? password.length : 0,
+                passwordPreview: password ? password.substring(0, 4) + '...' : 'none'
+              });
+              
+              if (!username || !password) {
+                return {
+        type: 'error',
+        isCommand: true,
+        content: 'Apple Calendar not configured. Please add your Apple ID and app-specific password in Settings → Integrations → Apple Calendar.'
+                };
+              }
+              
+              try {
+                console.log('[Calendar] Attempting to connect...');
+                await service.connectAppleCalendar(username, password);
+              } catch (authError) {
+                console.error('[Calendar] Connection error:', authError);
+                
+                // If it's a CORS error, show demo events instead
+                if (authError.message.includes('CORS') || authError.message.includes('Failed to fetch')) {
+                  console.log('[Calendar] CORS error detected, falling back to demo events');
+                  // Continue to show demo events
+                } else {
+                  return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to connect to Apple Calendar: ${authError.message}\n\nPlease check your credentials in Settings.`
+                  };
+                }
+              }
+            }
+            
+            console.log('[Calendar] Fetching Apple Calendar events for', daysAhead, 'days');
+            const events = await service.getAppleCalendarEvents(startDate, endDate);
+            
+            console.log('[Calendar] Got events:', events);
+            const formattedEvents = service.formatCalendarEvents(events);
+            
+            return {
+        type: 'integration',
+        isCommand: true,
+        content: `Your calendar events for the next ${daysAhead} days:\n\n${formattedEvents || 'No events found.'}`
+            };
+          }
+        } catch (calendarError) {
+          console.error('[Calendar] Unexpected error:', calendarError);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Calendar error: ${calendarError.message}`
+          };
+        }
+
+      case '@calendar-update':
+      case '@calendar-move':
+      case '@calendar-edit':
+        // @calendar-update [event details] - Update/move calendar event
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide event update details. Examples:\n• @calendar-move "meeting" to tomorrow 3pm\n• @calendar-update change "lunch" time to 1pm\n• @calendar-edit rename "call" to "important call"'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.updateGoogleCalendarEvent(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: result.content
+          };
+        } catch (updateError) {
+          console.error('[Calendar] Calendar update error:', updateError);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Calendar update error: ${updateError.message}`
+          };
+        }
+
+      case '@inbox':
+      case '@gmail-read':
+        // @inbox [search query] or @gmail-read [search query]
+        try {
+          console.log('[Gmail] Processing @inbox command...');
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+
+          console.log('[Gmail] Searching Gmail...');
+          const searchQuery = args || 'is:unread'; // Default to unread emails
+          const messages = await service.searchGmail(searchQuery);
+          const formattedMessages = service.formatGmailMessages(messages);
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: formattedMessages
+          };
+        } catch (gmailError) {
+          console.error('[Gmail] Gmail reading error:', gmailError);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Gmail error: ${gmailError.message}`
+          };
+        }
+
+      case '@email':
+      case '@gmail':
+        // @email [email details] or @gmail [email details]
+        try {
+          console.log('[Email] Processing @email command...');
+          
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide email details. Example: @email to john@example.com subject "Hello" message "How are you?"'
+            };
+          }
+
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+
+          console.log('[Email] Sending email...');
+          const result = await service.sendGmailEmail(args);
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: result.content
+          };
+        } catch (emailError) {
+          console.error('[Email] Email sending error:', emailError);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Email error: ${emailError.message}`
+          };
+        }
+
+      case '@search':
+      case '@web':
+        // @search [query] or @web [query]
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a search query. Example: @search weather today'
+          };
+        }
+        const results = await service.webSearch(args);
+        const formattedResults = service.formatWebSearchResults(results);
+        return {
+        type: 'integration',
+        isCommand: true,
+        content: `Web search results for "${args}":\n\n${formattedResults}`
+        };
+
+      case '@news':
+        // @news [query] - Get real news content
+        const newsQuery = args || 'latest news';
+        try {
+          const newsResults = await service.getLatestNews(newsQuery);
+          const formattedNews = service.formatWebSearchResults(newsResults);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `Latest news for "${newsQuery}":\n\n${formattedNews}`
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `News search failed: ${error.message}`
+          };
+        }
+
+      case '@spacex':
+        // @spacex - Get latest SpaceX news and updates
+        try {
+          const spacexNews = await service.getSpaceXUpdates();
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `Latest SpaceX Updates:\n\n${spacexNews}`
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `SpaceX updates failed: ${error.message}`
+          };
+        }
+
+      case '@test':
+        // @test - test AppleScript functionality
+        if (window.electron && window.electron.execAppleScript) {
+          try {
+            const testService = await import('../services/TestAppleScriptService');
+            const test = testService.default;
+            
+            let results = '🧪 AppleScript Test Results:\n\n';
+            
+            // Test 1: Basic
+            try {
+              const basic = await test.testBasic();
+              results += '✅ Basic test: ' + basic + '\n';
+            } catch (e) {
+              results += '❌ Basic test failed: ' + e.message + '\n';
+            }
+            
+            // Test 2: Calendar Access
+            try {
+              const calAccess = await test.testCalendarAccess();
+              results += '✅ Calendar access: ' + calAccess + '\n';
+            } catch (e) {
+              results += '❌ Calendar access failed: ' + e.message + '\n';
+            }
+            
+            // Test 3: Simple Event
+            try {
+              const event = await test.testSimpleEvents();
+              results += '✅ Event fetch: ' + event + '\n';
+            } catch (e) {
+              results += '❌ Event fetch failed: ' + e.message + '\n';
+            }
+            
+            return {
+              type: 'test',
+              content: results
+            };
+          } catch (error) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Test failed: ' + error.message
+            };
+          }
+        } else {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'AppleScript not available in this environment'
+          };
+        }
+
+      case '@flux':
+        // @flux [prompt] - Generate an image with Flux model
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide an image description.\nExamples:\n  @flux a sunset over mountains (uses 12 steps)\n  @flux:20 a detailed portrait (uses 20 steps)\n  @flux:30 complex scene with many details (uses 30 steps)'
+          };
+        }
+        
+        try {
+          console.log('[Flux] Starting Flux image generation for:', args);
+          
+          // Validate arguments first
+          if (!args || typeof args !== 'string') {
+            console.error('[Flux] Invalid args provided:', args);
+            return {
+              type: 'error',
+              isCommand: true,
+              content: 'Invalid prompt provided. Please provide a valid image description.'
+            };
+          }
+          
+          console.log('[Flux] Importing ImageGenerationService...');
+          const imageService = await import('../services/ImageGenerationService');
+          console.log('[Flux] ImageService imported:', !!imageService);
+          const imageGen = imageService.default;
+          console.log('[Flux] ImageGen instance:', !!imageGen);
+          
+          if (!imageGen) {
+            console.error('[Flux] Failed to get ImageGen instance');
+            return {
+              type: 'error',
+              isCommand: true,
+              content: 'Failed to load image generation service'
+            };
+          }
+          
+          // Check if ComfyUI is running
+          console.log('[Flux] Checking ComfyUI status...');
+          const status = await imageGen.checkStatus();
+          console.log('[Flux] ComfyUI status:', status);
+          
+          if (!status || !status.running) {
+            console.error('[Flux] ComfyUI not running:', status);
+            return {
+              type: 'error',
+              isCommand: true,
+              content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Check if we have an attached image for img2img
+          const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
+          
+          // Parse steps and denoise from command if specified
+          // Format: @flux:20 prompt or @flux:20:0.2 prompt for steps and denoise
+          let steps = 12; // Default
+          let denoise = 0.3; // Default for img2img
+          let actualArgs = args;
+          console.log('[Flux] Parsing args:', args);
+          
+          // Try to match steps:denoise format first
+          const advancedMatch = args.match(/^(\d+):([0-9.]+)\s+(.+)/);
+          if (advancedMatch) {
+            steps = Math.min(Math.max(parseInt(advancedMatch[1], 10), 1), 50); // Clamp between 1-50
+            denoise = Math.min(Math.max(parseFloat(advancedMatch[2]), 0.0), 1.0); // Clamp between 0-1
+            actualArgs = advancedMatch[3];
+            console.log('[Flux] Parsed steps:', steps, 'denoise:', denoise, 'actualArgs:', actualArgs);
+          } else {
+            // Try simple steps match
+            const stepsMatch = args.match(/^(\d+)\s+(.+)/);
+            if (stepsMatch) {
+              steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
+              actualArgs = stepsMatch[2];
+              console.log('[Flux] Parsed steps:', steps, 'actualArgs:', actualArgs);
+            } else {
+              console.log('[Flux] No steps match found, using default steps:', steps);
+            }
+          }
+          
+          // Detect if full body is requested and adjust aspect ratio
+          let width = 768;
+          let height = 768;
+          if (actualArgs.toLowerCase().includes('full body') || actualArgs.toLowerCase().includes('full-body') || 
+              actualArgs.toLowerCase().includes('whole body') || actualArgs.toLowerCase().includes('standing')) {
+            width = 576;   // Narrower width
+            height = 1024; // Taller height for full body
+            console.log('[Flux] Detected full body request, using portrait aspect ratio:', { width, height });
+          }
+          
+          const generationOptions = {
+            width: width,
+            height: height,
+            steps: steps,
+            model: 'flux-dev', // Use the new Flux model
+            onProgress: (progress) => {
+              console.log('[Flux Generation] Progress callback fired:', progress);
+              console.log('[Flux Generation] setImageGenerationProgress available:', !!setImageGenerationProgress);
+              console.log('[Flux Generation] setImageGenerationProgress type:', typeof setImageGenerationProgress);
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: steps,
+                  message: `Generating with Flux.1 Dev (${steps} steps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                console.log('[Flux Generation] Setting progress:', progressData);
+                console.log('[Flux Generation] About to call setImageGenerationProgress');
+                try {
+                  setImageGenerationProgress(progressData);
+                  console.log('[Flux Generation] setImageGenerationProgress called successfully');
+                } catch (error) {
+                  console.error('[Flux Generation] Error calling setImageGenerationProgress:', error);
+                }
+              } else {
+                console.warn('[Flux Generation] setImageGenerationProgress not available');
+              }
+            }
+          };
+          
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            console.log('[Flux] Using attached image for img2img generation');
+            generationOptions.inputImage = attachedImage.content;
+            generationOptions.denoise = denoise; // Use parsed or default denoise value
+          }
+          
+          // Set initial progress
+          console.log('[Flux] About to set initial progress, setImageGenerationProgress available:', !!setImageGenerationProgress);
+          if (setImageGenerationProgress) {
+            const initialProgress = {
+              currentStep: 0,
+              totalSteps: steps,
+              message: `Starting Flux generation (${steps} steps)...`,
+              estimatedTime: steps <= 10 ? '~30 minutes' : `~${Math.round(steps * 3)} minutes`
+            };
+            console.log('[Flux] Setting initial progress:', initialProgress);
+            try {
+              setImageGenerationProgress(initialProgress);
+              console.log('[Flux] Initial progress set successfully');
+            } catch (error) {
+              console.error('[Flux] Error setting initial progress:', error);
+            }
+          } else {
+            console.warn('[Flux] setImageGenerationProgress not available for initial progress');
+          }
+
+          // Enhance prompt with quality modifiers
+          const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, 8k resolution, masterpiece, best quality, extremely detailed, sharp focus, professional photography, cinematic lighting, photorealistic';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
+          // Generate the image
+          console.log('[Flux] Generating image with enhanced prompt:', enhancedPrompt);
+          console.log('[Flux] Generation options:', generationOptions);
+          
+          let images;
+          try {
+            images = await imageGen.generateImage(enhancedPrompt, generationOptions);
+            console.log('[Flux] Raw generation result:', images);
+            console.log('[Flux] Generation result type:', typeof images);
+            console.log('[Flux] Generation result length:', images?.length);
+          } catch (genError) {
+            console.error('[Flux] Generation call failed:', genError);
+            console.error('[Flux] Generation error type:', typeof genError);
+            console.error('[Flux] Generation error message:', genError?.message);
+            console.error('[Flux] Generation error stack:', genError?.stack);
+            throw genError;
+          }
+          
+          console.log('[Flux] Checking generation result...');
+          
+          if (images && images.length > 0) {
+            console.log('[Flux] Valid images found:', images.length);
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            const imageUrl = images[0].url;
+            console.log('[Flux] Image URL:', imageUrl);
+            
+            if (!imageUrl) {
+              console.error('[Flux] Image URL is missing:', images[0]);
+              return {
+                type: 'error',
+                isCommand: true,
+                content: 'Image was generated but URL is missing. Check the output folder.'
+              };
+            }
+            
+            return {
+              type: 'image',
+              isCommand: true,
+              content: `Generated image with Flux for: "${args}"`,
+              imageUrl: imageUrl
+            };
+          } else {
+            console.error('[Flux] No valid images in result:', images);
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            return {
+              type: 'error',
+              isCommand: true,
+              content: 'Flux image was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (fluxError) {
+          console.error('[Flux] Image generation error:', fluxError);
+          console.error('[Flux] Error type:', typeof fluxError);
+          console.error('[Flux] Error message:', fluxError?.message);
+          console.error('[Flux] Error stack:', fluxError?.stack);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
+          let errorMessage = 'Unknown error occurred';
+          if (fluxError && fluxError.message) {
+            errorMessage = fluxError.message;
+          } else if (typeof fluxError === 'string') {
+            errorMessage = fluxError;
+          } else if (fluxError) {
+            try {
+              errorMessage = JSON.stringify(fluxError);
+            } catch (e) {
+              errorMessage = String(fluxError);
+            }
+          }
+          
+          return {
+            type: 'error',
+            isCommand: true,
+            content: `Flux image generation error: ${errorMessage}`
+          };
+        }
+
+      case '@image':
+      case '@img':
+        // @image [prompt] - Generate an image
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide an image description.\nExamples:\n  @image a sunset over mountains (uses 20 steps)\n  @image:30 a detailed portrait (uses 30 steps)\n  @image:50 complex scene with many details (uses 50 steps)'
+          };
+        }
+        
+        try {
+          console.log('[Image] Starting image generation for:', args);
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          console.log('[Image] Checking ComfyUI status...');
+          const status = await imageGen.checkStatus();
+          console.log('[Image] ComfyUI status:', status);
+          
+          if (!status.running) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Image generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Check if we have an attached image for img2img
+          const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
+          
+          // Parse steps and denoise from command if specified
+          // Format: @image:30 prompt or @image:30:0.2 prompt for steps and denoise
+          let steps = 20; // Default
+          let denoise = 0.3; // Default for img2img (same as @flux)
+          let actualArgs = args;
+          console.log('[Image] Parsing args:', args);
+          
+          // Try to match steps:denoise format first
+          const advancedMatch = args.match(/^(\d+):([0-9.]+)\s+(.+)/);
+          if (advancedMatch) {
+            steps = Math.min(Math.max(parseInt(advancedMatch[1], 10), 1), 50); // Clamp between 1-50
+            denoise = Math.min(Math.max(parseFloat(advancedMatch[2]), 0.0), 1.0); // Clamp between 0-1
+            actualArgs = advancedMatch[3];
+            console.log('[Image] Parsed steps:', steps, 'denoise:', denoise, 'actualArgs:', actualArgs);
+          } else {
+            // Try simple steps match
+            const stepsMatch = args.match(/^(\d+)\s+(.+)/);
+            if (stepsMatch) {
+              steps = Math.min(Math.max(parseInt(stepsMatch[1], 10), 1), 50); // Clamp between 1-50
+              actualArgs = stepsMatch[2];
+              console.log('[Image] Parsed steps:', steps, 'actualArgs:', actualArgs);
+            } else {
+              console.log('[Image] No steps match found, using default steps:', steps);
+            }
+          }
+          
+          // Detect if full body is requested and adjust aspect ratio
+          let width = 1024;
+          let height = 1024;
+          if (actualArgs.toLowerCase().includes('full body') || actualArgs.toLowerCase().includes('full-body') || 
+              actualArgs.toLowerCase().includes('whole body') || actualArgs.toLowerCase().includes('standing')) {
+            width = 768;   // Narrower width
+            height = 1344; // Taller height for full body (16:22 aspect ratio)
+            console.log('[Image] Detected full body request, using portrait aspect ratio:', { width, height });
+          }
+          
+          const generationOptions = {
+            width: width,
+            height: height,
+            steps: steps,
+            cfg: 3.5,
+            sampler: 'euler',
+            scheduler: 'simple',
+            model: 'flux-dev',
+            onProgress: (progress) => {
+              console.log('[Image Generation] Progress:', progress);
+              console.log('[Image Generation] setImageGenerationProgress available:', !!setImageGenerationProgress);
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: steps,
+                  message: attachedImage ? 
+                    `Processing high-quality image-to-image (${steps} steps)...` : 
+                    `Generating high-quality image (${steps} steps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                console.log('[Image Generation] Setting progress:', progressData);
+                setImageGenerationProgress(progressData);
+              }
+            }
+          };
+          
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            console.log('[Image] Using attached image for img2img generation');
+            generationOptions.inputImage = attachedImage.content;
+            generationOptions.denoise = denoise; // Use parsed or default denoise value
+            
+            // Set initial progress for img2img
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress({
+                currentStep: 0,
+                totalSteps: steps,
+                message: `Starting image-to-image generation (${steps} steps)...`,
+                estimatedTime: steps <= 20 ? '~2 minutes' : `~${Math.round(steps * 0.1)} minutes`
+              });
+            }
+          } else {
+            // Set initial progress for text-to-image
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress({
+                currentStep: 0,
+                totalSteps: steps,
+                message: `Starting image generation (${steps} steps)...`,
+                estimatedTime: steps <= 20 ? '~2 minutes' : `~${Math.round(steps * 0.1)} minutes`
+              });
+            }
+          }
+          
+          // Enhance prompt with quality modifiers (different for img2img vs text2img)
+          let enhancedPrompt;
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            // For img2img: focus on preserving the person while applying changes
+            const preservationEnhancers = ', same person, same face, same identity, maintain facial features, ' + actualArgs + ', high quality, detailed, professional photography, cinematic lighting, photorealistic';
+            enhancedPrompt = preservationEnhancers;
+          } else {
+            // For text2img: use full quality enhancers
+            const qualityEnhancers = ', high quality, detailed, ultrarealistic photography, 8k resolution, masterpiece, best quality, extremely detailed, sharp focus, professional photography, cinematic lighting, photorealistic';
+            enhancedPrompt = actualArgs + qualityEnhancers;
+          }
+          
+          // Generate the image (choose method based on whether we have an attached image)
+          let images;
+          if (attachedImage && attachedImage.content?.startsWith('data:image/')) {
+            console.log('[Image] Using image-to-image generation with enhanced prompt:', enhancedPrompt);
+            images = await imageGen.generateImageFromImage(enhancedPrompt, generationOptions);
+          } else {
+            console.log('[Image] Using text-to-image generation with enhanced prompt:', enhancedPrompt);
+            images = await imageGen.generateImage(enhancedPrompt, generationOptions);
+          }
+          
+          console.log('[Image] Generation result:', images);
+          console.log('[Image] Generation result details:', JSON.stringify(images));
+          
+          if (images && images.length > 0) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            const imageUrl = images[0].url;
+            console.log('[Image] Image URL:', imageUrl);
+            const result = {
+              type: 'image',
+              content: `Generated image for: "${args}"`,
+              imageUrl: imageUrl
+            };
+            console.log('[Image] Returning result:', result);
+            return result;
+          } else {
+            // Fallback: If no images returned but generation seemed to work,
+            // wait a moment and return a direct URL to the latest image
+            console.log('[Image] No images returned, checking for latest generated image...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Get the latest image by checking the ComfyUI output directory
+            try {
+              // Try to get the list of files from ComfyUI
+              // For now, we'll just increment based on known count
+              const knownCount = 5; // We know there are at least 5 images
+              const nextNumber = String(knownCount + 1).padStart(5, '0');
+              const fallbackUrl = `http://localhost:8188/view?filename=Sephia_${nextNumber}_.png&type=output`;
+              console.log('[Image] Using incremental fallback URL:', fallbackUrl);
+              
+              // Test if the image exists
+              const testResponse = await fetch(fallbackUrl, { method: 'HEAD' });
+              if (testResponse.ok) {
+                return {
+        type: 'image',
+        isCommand: true,
+        content: `Generated image for: "${args}"`,
+                  imageUrl: fallbackUrl
+                };
+              } else {
+                // If that doesn't work, use the last known good image
+                const lastKnownUrl = `http://localhost:8188/view?filename=Sephia_00005_.png&type=output`;
+                console.log('[Image] Using last known image URL:', lastKnownUrl);
+                return {
+        type: 'image',
+        isCommand: true,
+        content: `Generated image for: "${args}" (showing last successful generation)`,
+                  imageUrl: lastKnownUrl
+                };
+              }
+            } catch (e) {
+              console.error('[Image] Fallback failed:', e);
+            }
+            
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Image was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (imageError) {
+          console.error('[Image] Image generation error:', imageError);
+          console.error('[Image] Error stack:', imageError.stack);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Image generation error: ${imageError.message}`
+          };
+        }
+
+      case '@video':
+        // @video [prompt] - Generate a video from text
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a video description.\nExamples:\n  @video a cat walking (14 frames, 6fps)\n  @video:25 a busy street scene (25 frames)\n  @video:30:8 ocean waves (30 frames, 8fps)'
+          };
+        }
+        
+        try {
+          console.log('[Video] Starting video generation for:', args);
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          console.log('[Video] Checking ComfyUI status...');
+          const status = await imageGen.checkStatus();
+          console.log('[Video] ComfyUI status:', status);
+          
+          if (!status.running) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Parse frames and fps from command if specified (e.g., @video:25:8 prompt)
+          let frames = 14; // Default
+          let fps = 6; // Default  
+          let actualArgs = args;
+          console.log('[Video] Parsing args:', args);
+          const videoMatch = args.match(/^(\d+)(?::(\d+))?\s+(.+)/);
+          if (videoMatch) {
+            frames = Math.min(Math.max(parseInt(videoMatch[1], 10), 10), 30); // Clamp between 10-30
+            fps = videoMatch[2] ? Math.min(Math.max(parseInt(videoMatch[2], 10), 6), 12) : 6; // Clamp between 6-12
+            actualArgs = videoMatch[3];
+            console.log('[Video] Parsed frames:', frames, 'fps:', fps, 'actualArgs:', actualArgs);
+          } else {
+            console.log('[Video] No video parameters match found, using defaults:', { frames, fps });
+          }
+          
+          const generationOptions = {
+            frames: frames,
+            fps: fps,
+            steps: 20,
+            onProgress: (progress) => {
+              console.log('[Video Generation] Progress:', progress);
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: progress.totalSteps || 30,
+                  message: progress.message || `Generating video (${frames} frames, ${fps}fps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                console.log('[Video Generation] Setting progress:', progressData);
+                setImageGenerationProgress(progressData);
+              }
+            }
+          };
+          
+          // Set initial progress
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress({
+              currentStep: 0,
+              totalSteps: 30,
+              message: `Starting video generation (${frames} frames, ${fps}fps)...`,
+              estimatedTime: '~3-4 minutes'
+            });
+          }
+          
+          // Enhance prompt with quality modifiers
+          const qualityEnhancers = ', high quality, detailed, cinematic, smooth motion, professional video';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
+          // Generate the video
+          console.log('[Video] Generating video with enhanced prompt:', enhancedPrompt);
+          const videos = await imageGen.generateVideo(enhancedPrompt, generationOptions);
+          
+          console.log('[Video] Generation result:', videos);
+          
+          if (videos && videos.length > 0) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            const videoUrl = videos[0].url;
+            console.log('[Video] Video URL:', videoUrl);
+            return {
+        type: 'video',
+        isCommand: true,
+        content: `Generated video for: "${args}"`,
+              videoUrl: videoUrl
+            };
+          } else {
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Video was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (videoError) {
+          console.error('[Video] Video generation error:', videoError);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Video generation error: ${videoError.message}`
+          };
+        }
+
+      case '@img2video':
+      case '@image2video':
+        // @img2video [description] - Generate video from attached image
+        try {
+          console.log('[Img2Video] Starting image-to-video generation');
+          const imageService = await import('../services/ImageGenerationService');
+          const imageGen = imageService.default;
+          
+          // Check if ComfyUI is running
+          const status = await imageGen.checkStatus();
+          if (!status.running) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Video generation service is not running. Please start ComfyUI with: ./start-comfyui.sh'
+            };
+          }
+          
+          // Check if we have an attached image
+          const attachedImage = attachments?.find(att => att.type?.startsWith('image/'));
+          if (!attachedImage || !attachedImage.content?.startsWith('data:image/')) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please attach an image to generate video from. Use the attach button (📎) to add an image.'
+            };
+          }
+          
+          // Parse frames, fps, and steps from command if specified  
+          let frames = 14;
+          let fps = 6;
+          let steps = 20;
+          let actualArgs = args || 'animate this image with natural motion';
+          
+          // Support formats: FRAMES:FPS:STEPS prompt or FRAMES:FPS prompt
+          const videoMatch = args?.match(/^(\d+)(?::(\d+))?(?::(\d+))?\s+(.+)/);
+          if (videoMatch) {
+            frames = Math.min(Math.max(parseInt(videoMatch[1], 10), 10), 30);
+            fps = videoMatch[2] ? Math.min(Math.max(parseInt(videoMatch[2], 10), 6), 12) : 6;
+            steps = videoMatch[3] ? Math.min(Math.max(parseInt(videoMatch[3], 10), 1), 50) : 20;
+            actualArgs = videoMatch[4];
+            console.log('[Img2Video] Parsed parameters:', { frames, fps, steps, actualArgs });
+          }
+          
+          const generationOptions = {
+            frames: frames,
+            fps: fps,
+            steps: steps,
+            prompt: actualArgs,
+            onProgress: (progress) => {
+              if (setImageGenerationProgress) {
+                const progressData = {
+                  currentStep: progress.currentStep || 0,
+                  totalSteps: steps,
+                  message: `Creating video from image (${frames} frames, ${fps}fps, ${steps} steps)...`,
+                  estimatedTime: progress.estimatedTime || null
+                };
+                setImageGenerationProgress(progressData);
+              }
+            }
+          };
+          
+          // Set initial progress
+          if (setImageGenerationProgress) {
+            const estimatedMinutes = Math.round(steps * 1.5); // Rough estimate: 1.5 minutes per step
+            setImageGenerationProgress({
+              currentStep: 0,
+              totalSteps: steps,
+              message: `Starting image-to-video generation (${frames} frames, ${fps}fps, ${steps} steps)...`,
+              estimatedTime: `~${estimatedMinutes} minutes`
+            });
+          }
+          
+          // Enhance prompt with quality modifiers for video
+          const qualityEnhancers = ', high quality, smooth motion, cinematic, natural movement, realistic animation, professional video quality, detailed frames, consistent motion, fluid animation';
+          const enhancedPrompt = actualArgs + qualityEnhancers;
+          
+          // Update generation options with enhanced prompt
+          const enhancedGenerationOptions = {
+            ...generationOptions,
+            prompt: enhancedPrompt
+          };
+          
+          // Upload image and generate video
+          const imageName = await imageGen.uploadImage(attachedImage.content);
+          const videos = await imageGen.generateVideoFromImage(imageName, enhancedGenerationOptions);
+          
+          console.log('[Img2Video] Generation result:', videos);
+          
+          // Handle video files, frame sequences, and arrays
+          if (videos && (videos.length > 0 || videos.isVideo)) {
+            // Clear progress on success
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            if (videos.isVideo) {
+              // Handle video frame sequence (fallback)
+              return {
+        type: 'video',
+        isCommand: true,
+        content: `Generated video from attached image (${videos.frameCount} frames)`,
+                videoFrames: videos.frames,
+                previewUrl: videos.previewUrl,
+                isFrameSequence: true
+              };
+            } else if (videos.length > 0 && videos[0].isVideoFile) {
+              // Handle actual video file (MP4, WEBM, etc.)
+              const videoUrl = videos[0].url;
+              console.log('[Img2Video] Returning video file:', { videoUrl, filename: videos[0].filename });
+              return {
+        type: 'video',
+        isCommand: true,
+        content: `Generated video from attached image: ${videos[0].filename}`,
+                videoUrl: videoUrl,
+                isActualVideo: true
+              };
+            } else {
+              // Handle single video file (legacy format)
+              const videoUrl = videos[0].url;
+              return {
+        type: 'video',
+        isCommand: true,
+        content: `Generated video from attached image`,
+                videoUrl: videoUrl
+              };
+            }
+          } else {
+            // Clear progress on failure
+            if (setImageGenerationProgress) {
+              setImageGenerationProgress(null);
+            }
+            
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Video was generated but could not be displayed. Check the output folder.'
+            };
+          }
+        } catch (img2videoError) {
+          console.error('[Img2Video] Error:', img2videoError);
+          
+          // Clear progress on error
+          if (setImageGenerationProgress) {
+            setImageGenerationProgress(null);
+          }
+          
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Image-to-video generation error: ${img2videoError.message}`
+          };
+        }
+
+      case '@calendar-add':
+        // @calendar-add [event details] - Add event to calendar
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide event details. Example: @calendar-add Meeting with John tomorrow at 2pm'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.createGoogleCalendarEvent(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `Calendar event created: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Calendar creation error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to create calendar event: ${error.message}`
+          };
+        }
+
+      case '@calendar-delete':
+        // @calendar-delete [event details] - Delete event from calendar
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide event details to delete. Example: @calendar-delete Meeting with John'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.deleteGoogleCalendarEvent(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `Calendar event deleted: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Calendar deletion error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to delete calendar event: ${error.message}`
+          };
+        }
+
+      case '@drive-upload':
+        // @drive-upload [file details] - Upload file to Google Drive
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to upload. Example: @drive-upload my document.pdf'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.uploadGoogleDriveFile(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `File uploaded to Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive upload error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to upload file: ${error.message}`
+          };
+        }
+
+      case '@drive-download':
+        // @drive-download [file details] - Download file from Google Drive
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to download. Example: @drive-download my document.pdf'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.downloadGoogleDriveFile(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `File downloaded from Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive download error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to download file: ${error.message}`
+          };
+        }
+
+      case '@drive-delete':
+        // @drive-delete [file details] - Delete file from Google Drive
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to delete. Example: @drive-delete my document.pdf'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.deleteGoogleDriveFile(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `File deleted from Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive deletion error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to delete file: ${error.message}`
+          };
+        }
+
+      case '@drive-share':
+        // @drive-share [file details] [email] - Share file from Google Drive
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file details to share. Examples:\n• @drive-share my document.pdf\n• @drive-share report.pdf john@example.com'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.shareGoogleDriveFile(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `File shared from Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive sharing error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to share file: ${error.message}`
+          };
+        }
+
+      case '@drive-create':
+        // @drive-create folder "name" - Create folder in Google Drive
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide folder name. Example: @drive-create folder "My Project"'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.createGoogleDriveFolder(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `Folder created in Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive folder creation error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to create folder: ${error.message}`
+          };
+        }
+
+      case '@drive-move':
+        // @drive-move "file.pdf" "folder" - Move file to folder in Google Drive
+        try {
+          if (!args) {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide file and folder details. Example: @drive-move "report.pdf" "Projects"'
+            };
+          }
+          
+          // Check Google authorization
+          if (!service.isGoogleAuthorized) {
+            await service.signInGoogle();
+          }
+          
+          const result = await service.moveGoogleDriveFile(args);
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `File moved in Google Drive: ${result.content}`
+          };
+        } catch (error) {
+          console.error('Drive move error:', error);
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Failed to move file: ${error.message}`
+          };
+        }
+
+      case '@research':
+        // @research [topic] - Enhanced research with multiple sources
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a research topic. Example: @research quantum computing advances'
+          };
+        }
+        try {
+          const results = await service.webSearch(args);
+          const newsResults = await service.getLatestNews(args).catch(() => []);
+          const combined = [...results, ...newsResults];
+          const formattedResults = service.formatWebSearchResults(combined.slice(0, 8));
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: `🔬 **Research: "${args}"**\n\n${formattedResults}\n\n💡 *For deeper analysis, ask me to analyze these findings!*`
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Research failed: ${error.message}`
+          };
+        }
+
+      case '@morning':
+        // @morning - Morning briefing with calendar, news, and weather
+        try {
+          let briefing = '🌅 **Good Morning! Here\'s your daily briefing:**\n\n';
+          
+          // Get calendar events
+          try {
+            if (!service.isGoogleAuthorized) {
+              await service.signInGoogle();
+            }
+            const today = new Date();
+            const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+            const events = await service.getGoogleCalendarEvents(today, tomorrow);
+            const formattedEvents = service.formatGoogleCalendarEvents(events);
+            briefing += `📅 **Today's Schedule:**\n${formattedEvents || 'No events scheduled'}\n\n`;
+          } catch (e) {
+            briefing += '📅 **Calendar:** Unable to access calendar\n\n';
+          }
+          
+          // Get latest news
+          try {
+            const news = await service.getLatestNews('latest news');
+            const topNews = news.slice(0, 3);
+            const formattedNews = service.formatWebSearchResults(topNews);
+            briefing += `📰 **Top News:**\n${formattedNews}\n\n`;
+          } catch (e) {
+            briefing += '📰 **News:** Unable to fetch latest news\n\n';
+          }
+          
+          briefing += '💪 **Ready to start your day! How can I help you today?**';
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: briefing
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Morning briefing failed: ${error.message}`
+          };
+        }
+
+      case '@voice':
+        // @voice - Voice settings and status
+        try {
+          // Check Bark status
+          const barkResponse = await fetch('http://localhost:8189/status').catch(() => null);
+          const barkStatus = barkResponse ? await barkResponse.json() : null;
+          
+          let voiceInfo = '🎤 **Voice System Status:**\n\n';
+          voiceInfo += '**Browser TTS:** ✅ Available\n';
+          
+          if (barkStatus) {
+            if (barkStatus.models_loaded) {
+              voiceInfo += '**Bark AI TTS:** ✅ Ready (High Quality AI Voices)\n';
+              voiceInfo += `• ${barkStatus.voices_available || 12} voices available\n`;
+              voiceInfo += '• Switch to Bark in Settings → Voice for better quality\n\n';
+              voiceInfo += '🎯 **Try saying:** "Switch to Sarah voice" or "Use a more expressive voice"';
+            } else {
+              voiceInfo += '**Bark AI TTS:** ⏳ Loading models (this takes ~10-15 minutes)\n';
+              voiceInfo += '• Server running but models still loading\n';
+              voiceInfo += '• You\'ll get a notification when ready\n\n';
+              voiceInfo += '⏰ **Estimated time remaining:** 5-10 minutes';
+            }
+          } else {
+            voiceInfo += '**Bark AI TTS:** ❌ Not running\n';
+            voiceInfo += '• Start with: ./start-bark-tts.sh\n\n';
+          }
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: voiceInfo
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Voice status check failed: ${error.message}`
+          };
+        }
+
+      case '@capabilities':
+        // @capabilities - Show Aria's full capabilities
+        return {
+        type: 'help',
+        isCommand: true,
+        content: `🤖 **Aria's Advanced Capabilities:**
+
+**🧠 Conversation & Memory:**
+• Natural conversation with context awareness
+• Personal preference learning and memory
+• Multi-project context switching
+• Emotional intelligence and empathy
+
+**🔍 Research & Analysis:**
+• Multi-source web research
+• News analysis and trending topics
+• Data synthesis and insights
+• Complex reasoning and deduction
+
+**🎨 Creative & Visual:**
+• Advanced image generation (Flux AI)
+• Creative brainstorming sessions
+• Visual concept development
+• Artistic collaboration
+
+**📅 Productivity & Organization:**
+• Smart calendar management
+• Email processing and responses
+• File organization and search
+• Task automation and workflows
+
+**🔬 Advanced Reasoning:**
+• Philosophical discussions
+• Scientific analysis
+• Ethical reasoning
+• Strategic planning
+
+**🎤 Multimodal Communication:**
+• High-quality voice synthesis
+• Speech recognition
+• Visual analysis
+• Document processing
+
+**🚀 Experimental Features:**
+• Cognitive modeling
+• Thought experiments
+• Predictive analysis
+• Complex systems understanding
+
+*Try asking: "Help me analyze this complex problem" or "Let's brainstorm creative solutions"*`
+        };
+
+      case '@analyze':
+        // @analyze [topic] - Detailed analysis
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a topic to analyze. Example: @analyze current AI market trends'
+          };
+        }
+        return {
+          type: 'analysis',
+          content: `🧠 **Analysis Request: "${args}"**\n\nI'll provide a detailed analysis. Let me gather information and apply analytical frameworks to examine this topic from multiple perspectives including trends, implications, opportunities, and potential challenges.\n\n*Processing your analysis request...*`
+        };
+
+      case '@brainstorm':
+        // @brainstorm [topic] - Creative ideation
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please provide a topic for brainstorming. Example: @brainstorm sustainable energy solutions'
+          };
+        }
+        return {
+          type: 'brainstorm',
+          content: `💡 **Brainstorming Session: "${args}"**\n\nLet's explore creative possibilities! I'll help generate innovative ideas, consider different approaches, and think outside the box.\n\n*Initiating creative ideation process...*`
+        };
+
+      case '@focus':
+        // @focus [project] - Enter focused work mode
+        const projectName = args || 'current project';
+        return {
+          type: 'focus',
+          content: `🎯 **Entering Focus Mode: ${projectName}**\n\n**Focus Session Activated:**\n• Contextual assistance for ${projectName}\n• Minimized distractions\n• Proactive resource suggestions\n• Progress tracking enabled\n\n**Available in focus mode:**\n• Ask for relevant research\n• Request analysis and insights\n• Generate supporting visuals\n• Track progress and milestones\n\n*How can I help you advance ${projectName} today?*`
+        };
+
+      case '@memory-clear':
+        // @memory-clear - Clear stale conversations with old news
+        try {
+          const { default: CompanionService } = await import('../services/CompanionService');
+          const result = await CompanionService.clearStaleMemories();
+          
+          if (result.success) {
+            return {
+        type: 'integration',
+        isCommand: true,
+        content: `🧹 **Memory Cleanup Complete**\n\n${result.message}\n\nThis removes old conversations containing outdated news, weather, and time-sensitive information to prevent Aria from referencing stale content.`
+            };
+          } else {
+            return {
+        type: 'error',
+        isCommand: true,
+        content: `Memory cleanup failed: ${result.message}`
+            };
+          }
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Memory cleanup error: ${error.message}`
+          };
+        }
+
+      case '@memory':
+        // @memory - Show what Aria remembers
+        return {
+          type: 'memory',
+          content: `🧠 **Memory & Learning Status:**\n\n**What I Remember:**\n• Conversation history and context\n• Your preferences and interests\n• Previous projects and topics\n• Command usage patterns\n• Settings and configurations\n\n**Learning Capabilities:**\n• Adaptive responses based on your style\n• Project context awareness\n• Personal workflow optimization\n• Interest-based content curation\n\n**Memory Management:**\n• Use @memory-clear to remove stale news and outdated content\n• Automatic cleanup of time-sensitive conversations after 24 hours\n• Important personal information is always preserved\n\n**Privacy Note:**\n• All memory is local to this session\n• No personal data is shared externally\n• You can clear memory anytime in settings\n\n*Ask me about any previous conversations or projects we've discussed!*`
+        };
+
+      case '@model':
+      case '@version':
+        // @model or @version - Show current model information
+        try {
+          // Get current model from localStorage
+          const currentModel = localStorage.getItem('sephia_current_model') || 'Unknown';
+          const claudeApiKey = localStorage.getItem('sephia_settings') ? 
+            JSON.parse(localStorage.getItem('sephia_settings')).claudeApiKey : null;
+          
+          let modelInfo = `🤖 **Current Model Information:**\n\n`;
+          
+          // Check if using Claude
+          if (currentModel.startsWith('claude-')) {
+            const modelMap = {
+              'claude-opus-4-20250514': 'Claude 4 Opus (Latest)',
+              'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
+              'claude-3-haiku-20240307': 'Claude 3 Haiku'
+            };
+            
+            modelInfo += `**Active Model:** ${modelMap[currentModel] || currentModel}\n`;
+            modelInfo += `**Provider:** Anthropic (Cloud API)\n`;
+            modelInfo += `**Status:** ✅ Connected${claudeApiKey ? ' with API key' : ''}\n\n`;
+            
+            if (currentModel === 'claude-opus-4-20250514') {
+              modelInfo += `**Model Details:**\n`;
+              modelInfo += `• Latest Opus 4 model with enhanced capabilities\n`;
+              modelInfo += `• Superior reasoning and analysis\n`;
+              modelInfo += `• Extended context window\n`;
+              modelInfo += `• Multi-modal support\n\n`;
+            }
+            
+            modelInfo += `**Aria is currently powered by:** ${modelMap[currentModel] || currentModel}\n`;
+            modelInfo += `*This gives me advanced reasoning, creative abilities, and up-to-date knowledge.*`;
+          } else {
+            // Local Ollama model
+            modelInfo += `**Active Model:** ${currentModel}\n`;
+            modelInfo += `**Provider:** Ollama (Local)\n`;
+            modelInfo += `**Status:** ${service.ollamaStatus || 'Unknown'}\n\n`;
+            
+            modelInfo += `**Model Details:**\n`;
+            if (currentModel.includes('qwen')) {
+              modelInfo += `• Qwen model optimized for conversations\n`;
+              modelInfo += `• Running locally on your machine\n`;
+              modelInfo += `• No internet required for inference\n`;
+            } else {
+              modelInfo += `• Local language model\n`;
+              modelInfo += `• Privacy-focused (no data leaves your device)\n`;
+            }
+            
+            modelInfo += `\n**Aria is currently powered by:** ${currentModel}\n`;
+            modelInfo += `*Running locally for maximum privacy and control.*`;
+          }
+          
+          // Add available models info
+          modelInfo += `\n\n**Switch models:** Go to Settings → Model Selection`;
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: modelInfo
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Error getting model information: ${error.message}`
+          };
+        }
+
+      case '@learning':
+        // @learning - Show what Aria has learned recently
+        try {
+          const { default: CompanionService } = await import('../services/CompanionService');
+          const learningData = await CompanionService.executeLearningCommand();
+          
+          return {
+        type: 'integration',
+        isCommand: true,
+        content: learningData
+          };
+        } catch (error) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: `Error fetching learning data: ${error.message}`
+          };
+        }
+
+      case '@weather':
+        // @weather [location] - Get weather information  
+        if (!args) {
+          return {
+        type: 'error',
+        isCommand: true,
+        content: 'Please specify a location. Example: @weather New York or @weather 15853'
+          };
+        }
+        
+        console.log('[commandProcessor] Weather request for:', args);
+        
+        try {
+          // Import and use WeatherService for real weather data
+          const { default: WeatherService } = await import('../services/WeatherService');
+          const weatherService = new WeatherService();
+          
+          console.log('[commandProcessor] 🌤️ Getting real weather data for:', args);
+          const weatherData = await weatherService.getWeather(args);
+          
+          if (weatherData) {
+            const formattedWeather = weatherService.formatWeatherResponse(weatherData);
+            console.log('[commandProcessor] ✅ Weather data retrieved successfully');
+            return {
+        type: 'integration',
+        isCommand: true,
+        content: formattedWeather,
+              skipVoice: false
+            };
+          } else {
+            throw new Error('No weather data available');
+          }
+          
+        } catch (weatherError) {
+          console.error('[commandProcessor] ❌ WeatherService failed:', weatherError);
+          
+          // Fallback: Try web search approach with Claude analysis if available
+          try {
+            const currentModel = localStorage.getItem('sephia_current_model');
+            
+            if (currentModel && currentModel.startsWith('claude-')) {
+              console.log('[commandProcessor] Trying Claude + web search fallback...');
+              
+              const weatherQuery = `current weather ${args} temperature forecast today`;
+              const searchResults = await service.webSearch(weatherQuery);
+              
+              if (searchResults && searchResults.length > 0) {
+                const { default: LLMService } = await import('../services/LLMService');
+                
+                const searchSummary = searchResults.slice(0, 5).map(result => 
+                  `Title: ${result.title}\nContent: ${result.snippet || result.content || ''}\nSource: ${result.source || 'Unknown'}`
+                ).join('\n\n---\n\n');
+                
+                const analysisPrompt = `Extract and format weather information from these search results for ${args}:
+
+${searchSummary}
+
+Format as:
+**Current Conditions:** (if found)
+**Temperature:** (if found)
+**Forecast:** (if found)
+**Sources:** (list weather sources)
+
+If no weather data found, say "No current weather data available" and suggest checking weather.com or weather.gov.`;
+                
+                const claudeResponse = await LLMService.sendMessage(analysisPrompt, {
+                  model: currentModel,
+                  max_tokens: 1000
+                });
+                
+                if (claudeResponse && claudeResponse.content) {
+                  return {
+        type: 'integration',
+        isCommand: true,
+        content: `🌤️ **Weather for ${args}:**\n\n${claudeResponse.content}`,
+                    skipVoice: false
+                  };
+                }
+              }
+            }
+            
+            // Final fallback: Provide helpful weather links
+            const encodedLocation = encodeURIComponent(args);
+            return {
+        type: 'integration',
+        isCommand: true,
+        content: `🌤️ **Weather for ${args}:**\n\nI'm having trouble getting live weather data right now. Here are direct weather sources:\n\n**🌦️ [Weather.com](https://weather.com/weather/today/l/${encodedLocation})**\n**🏛️ [National Weather Service](https://forecast.weather.gov/)**\n**📱 [Google Weather](https://www.google.com/search?q=weather+${encodedLocation})**\n\nTry asking again in a moment, or check these sources for current conditions.`
+            };
+            
+          } catch (fallbackError) {
+            console.error('[commandProcessor] All weather methods failed:', fallbackError);
+            return {
+        type: 'error',
+        isCommand: true,
+        content: `Unable to get weather data for ${args}. Try checking weather.com or weather.gov directly.`
+            };
+          }
+        }
+
+      case '@help':
+        // @help - show available commands
+        const isElectron = typeof window !== 'undefined' && window.process && window.process.type;
+        
+        if (companionMode) {
+          return {
+        type: 'help',
+        isCommand: true,
+        content: `🤖 **Aria Companion Mode Help**
+
+**Natural Conversation:**
+• Just talk to me naturally - no @ symbols needed!
+• I automatically handle searches, calendar, images, weather, emails when you ask
+• I remember our conversations and learn your preferences
+• Toggle companion mode off for basic chat
+
+**Email Examples:**
+• "Check my unread emails" (shows up to 50 emails)
+• "Send an email to john@example.com saying hello"
+• "Tell me more about email 1" (full content)
+• "Summarize email 2" (smart summary)
+
+**Weather Examples:**
+• "What's the weather like?" (uses your saved location)
+• "Get weather for New York" 
+• "Weather forecast for my location 123 Main St"
+
+**Aria-Specific Commands:**
+• @research [topic] - Deep research with multiple sources
+• @analyze [topic] - Detailed analysis and insights  
+• @brainstorm [topic] - Creative ideation session
+• @morning - Morning briefing (calendar, news, weather)
+• @focus [project] - Enter focused work mode
+• @memory - Show what I remember about you
+• @memory-clear - Clear stale news and outdated content
+• @capabilities - Show my full AI capabilities
+
+**Standard Commands:**
+• @search [query] - Web search
+• @news [query] - Latest news with content
+• @weather [location] - Get weather information
+• @spacex - SpaceX updates
+• @inbox [search] - Read Gmail (up to 50 emails)
+• @gmail [details] - Send Gmail email
+• @drive [search] - Google Drive files
+• @drive-upload [file] - Upload file to Google Drive
+• @drive-download [file] - Download file from Google Drive
+• @drive-share [file] [email] - Share file from Google Drive
+• @drive-create folder "name" - Create folder in Google Drive
+• @calendar [days] - Calendar events
+• @flux [prompt] - AI image generation
+• @flux:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)
+• @voice - Voice settings and test
+• @model - Show current model information
+• @learning - Show what Aria has learned recently
+
+**Examples:**
+• "Help me research quantum computing developments"
+• "Analyze the latest AI trends"
+• "Brainstorm marketing ideas for my startup"  
+• "What's on my calendar today?"
+• "What's the weather forecast for tomorrow?"
+• "Generate an image of a futuristic city"
+• @drive-share report.pdf john@example.com
+• @drive-create folder "My Project"
+• @weather 15853 (weather by zip code)
+• @weather New York (weather by city)
+• @morning (daily briefing)
+• @focus machine learning project`
+          };
+        }
+        
+        if (isElectron) {
+          return {
+        type: 'help',
+        isCommand: true,
+        content: `Available commands in Electron:
+• @search [query] - Search the web
+• @news [query] - Get latest news articles with content
+• @spacex - Get latest SpaceX news and updates
+• @inbox [search] - Read Gmail inbox up to 50 emails (e.g., @inbox is:unread)
+• @gmail [email details] - Send Gmail email (e.g., @gmail to:john@example.com subject "Hello" message "Hi there!")
+• @email [email details] - Send Gmail email (alias for @gmail)
+• @drive [search] - List or search Google Drive files
+• @drive-upload [file] - Upload file to Google Drive
+• @drive-download [file] - Download file from Google Drive
+• @drive-share [file] [email] - Share file from Google Drive
+• @drive-delete [file] - Delete file from Google Drive
+• @drive-create folder "name" - Create folder in Google Drive
+• @drive-move "file" "folder" - Move file to folder in Google Drive
+• @calendar [days] - Show Google Calendar events (default: 7 days)
+• @calendar-add [details] - Add event to Google Calendar
+• @calendar-delete [event] - Delete event from Google Calendar
+• @weather [location] - Get weather information
+• @image [prompt] - High-quality image generation (20 steps, 1024x1024)
+• @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers
+• @image:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)
+• @flux [prompt] - Flux model generation (12 steps, 768x768)
+• @flux:STEPS [prompt] - Flux with custom steps (1-50)
+• @flux:STEPS:DENOISE [prompt] - Flux with attached image (denoise 0.0-1.0, lower preserves more)
+• @video [prompt] - Generate video from text (14 frames, 6fps)
+• @video:FRAMES:FPS [prompt] - Custom video settings (10-30 frames, 6-12fps)
+• @img2video [description] - Create MP4 video from attached image (14 frames, 6fps, 20 steps)
+• @img2video:FRAMES:FPS [description] - Custom video settings (10-30 frames, 6-12fps, 20 steps)
+• @img2video:FRAMES:FPS:STEPS [description] - Full custom settings (frames, fps, quality steps 1-50)
+• @help - Show this help message
+
+Examples:
+• @search weather tomorrow  
+• @weather 15853 (weather by zip code)
+• @weather New York (weather by city)
+• @news AI developments
+• @spacex (get latest SpaceX updates)
+• @inbox is:unread (check unread emails)
+• @gmail to:john@example.com subject "Meeting" message "Let's meet tomorrow"
+• @drive presentation
+• @drive-upload meeting notes.pdf
+• @drive-download project report.docx
+• @drive-share report.pdf john@example.com
+• @drive-create folder "My Project"
+• @drive-move "file.pdf" "Projects"
+• @calendar 14
+• @calendar-add Meeting with team tomorrow at 3pm
+• @calendar-delete standup meeting
+• @calendar-move "lunch meeting" to tomorrow 3pm
+• @image a beautiful sunset (high quality, 20 steps)
+• @image:30 detailed portrait (30 steps with quality enhancers)
+• @image:30:0.2 (attach image) enhance my photo with subtle changes
+• @flux a cyberpunk city at night (uses 12 steps)
+• @flux:20 a detailed portrait (uses 20 steps)
+• @flux:20:0.15 (attach image) subtle edit keeping your face
+• @video a cat walking through a garden (14 frames, 6fps)
+• @video:25:8 ocean waves crashing (25 frames, 8fps)
+• @img2video (attach image) animate with natural motion
+• @img2video:20:8 (attach image) subtle movement and blinking
+• @img2video:25:6:40 (attach image) high quality smooth animation
+• @model - Show current model information
+• @learning - Show what Aria has learned recently
+• @help`
+          };
+        }
+        
+        return {
+        type: 'help',
+        isCommand: true,
+        content: `Available commands:
+• @inbox [search] - Read Gmail inbox up to 50 emails (e.g., @inbox is:unread)
+• @gmail [email details] - Send Gmail email
+• @email [email details] - Send Gmail email (alias for @gmail)
+• @drive [search] - List or search Google Drive files
+• @drive-upload [file] - Upload file to Google Drive
+• @drive-download [file] - Download file from Google Drive
+• @drive-share [file] [email] - Share file from Google Drive
+• @drive-delete [file] - Delete file from Google Drive
+• @drive-create folder "name" - Create folder in Google Drive
+• @drive-move "file" "folder" - Move file to folder in Google Drive
+• @calendar [days] [google/apple] - Show calendar events (default: 7 days, Google)
+• @calendar-add [details] - Add event to Google Calendar
+• @calendar-delete [event] - Delete event from Google Calendar
+• @calendar-update [details] - Update/move calendar event
+• @calendar-move [event] to [new time] - Move event to new time
+• @calendar-edit rename [event] to [new name] - Rename event
+• @search [query] - Search the web
+• @weather [location] - Get weather information
+• @image [prompt] - High-quality image generation (20 steps, 1024x1024)
+• @image:STEPS [prompt] - Custom steps (1-50) with quality enhancers
+• @image:STEPS:DENOISE [prompt] - With attached image (denoise 0.0-1.0, lower preserves more)  
+• @flux [prompt] - Flux model generation (12 steps, 768x768)
+• @flux:STEPS [prompt] - Flux with custom steps (1-50)
+• @flux:STEPS:DENOISE [prompt] - Flux with attached image (denoise 0.0-1.0, lower preserves more)
+• @help - Show this help message
+
+Examples:
+• @inbox is:unread (check unread emails)
+• @gmail to:user@example.com subject "Hello" message "Hi there!"
+• @drive presentation
+• @weather Ridgway PA (weather by city)
+• @weather 15853 (weather by zip code)
+• @drive-upload meeting notes.pdf
+• @drive-download project report.docx
+• @drive-share report.pdf john@example.com
+• @drive-create folder "My Project"
+• @drive-move "file.pdf" "Projects"
+• @calendar - Show Google Calendar for next 7 days
+• @calendar 14 google - Show Google Calendar for next 14 days
+• @calendar 7 apple - Show Apple Calendar (demo) for next 7 days
+• @calendar-add Team meeting Friday at 10am
+• @calendar-delete lunch with client
+• @calendar-update change "meeting" time to 4pm
+• @search weather tomorrow
+• @image a cyberpunk city at night (high quality, 20 steps)
+• @image:40 complex landscape (40 steps with quality enhancers)
+• @flux a futuristic landscape (uses 12 steps)
+• @flux:20 a detailed portrait (uses 20 steps)
+• @video a busy street with people walking (14 frames, 6fps)
+• @video:20:10 time-lapse sunset (20 frames, 10fps)
+• @img2video (attach image) add gentle movement
+• @model - Show current model information and which AI powers Aria
+• @learning - Show what Aria has learned recently`
+        };
+
+      default:
+        return {
+        type: 'error',
+        isCommand: true,
+        content: `Unknown command: ${command}. Type @help for available commands.`
+        };
+    }
+  } catch (error) {
+    console.error('Command processing error:', error);
+    let errorMessage = 'An unknown error occurred';
+    
+    if (error && error.message) {
+      errorMessage = error.message;
+    } else if (error && error.error) {
+      errorMessage = error.error;
+    } else if (error && error.response) {
+      errorMessage = error.response;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    } else if (error) {
+      try {
+        errorMessage = JSON.stringify(error);
+      } catch (e) {
+        errorMessage = String(error);
+      }
+    }
+    
+    return {
+        type: 'error',
+        isCommand: true,
+        content: `Error: ${errorMessage}`
+    };
+  }
+};

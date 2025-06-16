@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Display Test</title>
+</head>
+<body>
+    <h1>Testing Image Display from ComfyUI</h1>
+    <p>This tests if we can load images from http://localhost:8188</p>
+    
+    <h2>Direct Image Test:</h2>
+    <img src="http://localhost:8188/view?filename=DebugTest_00003_.png&subfolder=&type=output" 
+         style="max-width: 500px; border: 2px solid green;"
+         onload="console.log('Image loaded successfully!')"
+         onerror="console.error('Image failed to load:', event)">
+    
+    <h2>Fetch Test:</h2>
+    <div id="fetch-result"></div>
+    
+    <script>
+        // Test if we can fetch from the ComfyUI server
+        fetch('http://localhost:8188/view?filename=DebugTest_00003_.png&subfolder=&type=output')
+            .then(response => {
+                console.log('Fetch successful:', response);
+                document.getElementById('fetch-result').textContent = 'Fetch successful: ' + response.status;
+            })
+            .catch(error => {
+                console.error('Fetch failed:', error);
+                document.getElementById('fetch-result').textContent = 'Fetch failed: ' + error.message;
+            });
+            
+        // Log any CSP violations
+        document.addEventListener('securitypolicyviolation', (e) => {
+            console.error('CSP Violation:', {
+                blockedURI: e.blockedURI,
+                violatedDirective: e.violatedDirective,
+                originalPolicy: e.originalPolicy
+            });
+        });
+    </script>
+</body>
+</html>

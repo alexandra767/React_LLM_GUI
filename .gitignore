@@ -54,3 +54,40 @@ yarn-error.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Electron and build artifacts
+dist/
+out/
+node_modules/
+*.dmg
+*.exe
+
+# Personal data - IMPORTANT: Keep private!
+localStorage/
+sessionStorage/
+*.localStorage
+*.sessionStorage
+
+# User-generated content
+user-data/
+projects-data/
+chats-data/
+knowledge-files/
+uploaded-files/
+*.uploaded
+
+# Temporary files with personal content
+*-PERSONAL*
+*-PRIVATE*
+*.personal
+*.private
+
+# Backup files that might contain personal data
+*.backup
+*.bak
+backup/
+
+# Any files containing personal project knowledge
+project-knowledge-*.json
+chat-history-*.json
+user-projects-*.json

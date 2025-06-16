@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Brain Lightning Icon Test</title>
+    <style>
+        body {
+            background-color: #1E1E1E;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .test-container {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            border: 1px solid #333;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .icon-wrapper {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin: 10px;
+            padding: 10px;
+            background-color: #252525;
+            border-radius: 50%;
+        }
+        .icon-wrapper.bordered {
+            border: 3px solid #FF643D;
+        }
+        img {
+            display: block;
+            object-fit: contain;
+        }
+        h2 {
+            color: #FF643D;
+            margin-bottom: 15px;
+        }
+        .instructions {
+            background-color: #252525;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        code {
+            background-color: #333;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Brain Lightning Icon Test Page</h1>
+        
+        <div class="instructions">
+            <h3>Instructions:</h3>
+            <ol>
+                <li>Save your brain-lightning image as <code>brain-lightning.png</code> in the public folder</li>
+                <li>Run: <code>node convert-image-to-base64.js public/brain-lightning.png</code></li>
+                <li>Copy the base64 string from <code>brain-lightning-base64.txt</code></li>
+                <li>Update <code>src/components/Chat/BrainLightningIcon.js</code> with the base64 string</li>
+                <li>Refresh this page to see how the icon will look</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>Welcome Screen Icon (60x60)</h2>
+            <div class="icon-wrapper bordered" style="width: 80px; height: 80px;">
+                <img src="brain-lightning.png" width="60" height="60" alt="Brain Lightning">
+            </div>
+            <p>This is how it appears on the welcome screen with a border</p>
+        </div>
+
+        <div class="test-section">
+            <h2>Sidebar Logo (36x36)</h2>
+            <div style="display: flex; align-items: center; gap: 8px; background-color: #1E1E1E; padding: 16px;">
+                <img src="brain-lightning.png" width="36" height="36" alt="Brain Lightning">
+                <span style="font-size: 1.25rem; font-weight: 300;">Sephia</span>
+            </div>
+            <p>This is how it appears in the sidebar</p>
+        </div>
+
+        <div class="test-section">
+            <h2>Message Avatar (24x24)</h2>
+            <div class="icon-wrapper" style="width: 32px; height: 32px;">
+                <img src="brain-lightning.png" width="24" height="24" alt="Brain Lightning">
+            </div>
+            <p>This is how it appears as the assistant avatar in messages</p>
+        </div>
+
+        <div class="test-section">
+            <h2>All Sizes Comparison</h2>
+            <div style="display: flex; gap: 20px; align-items: center;">
+                <div>
+                    <div class="icon-wrapper bordered" style="width: 80px; height: 80px;">
+                        <img src="brain-lightning.png" width="60" height="60" alt="60x60">
+                    </div>
+                    <p style="text-align: center;">60x60</p>
+                </div>
+                <div>
+                    <div class="icon-wrapper" style="width: 48px; height: 48px;">
+                        <img src="brain-lightning.png" width="36" height="36" alt="36x36">
+                    </div>
+                    <p style="text-align: center;">36x36</p>
+                </div>
+                <div>
+                    <div class="icon-wrapper" style="width: 32px; height: 32px;">
+                        <img src="brain-lightning.png" width="24" height="24" alt="24x24">
+                    </div>
+                    <p style="text-align: center;">24x24</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

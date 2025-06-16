@@ -2,131 +2,131 @@ import React from 'react';
 import styled from '@emotion/styled';
 import { useTheme } from '../../context/ThemeContext';
 import { useApp } from '../../context/AppContext';
+import ProgressBar from '../Chat/ProgressBar';
+import VersionInfo from '../Common/VersionInfo';
 
-const HeaderContainer = styled.header`
-  height: 60px;
-  background-color: ${props => props.theme.colors.primaryBg};
-  border-bottom: 1px solid ${props => props.theme.colors.border};
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 ${props => props.theme.spacing.large};
-`;
+const HeaderContainer = styled('header')({
+  backgroundColor: '#1E1E1E',
+  borderBottom: '1px solid #333333',
+  display: 'flex',
+  flexDirection: 'column',
+  position: 'relative'
+});
 
-const Logo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-`;
+const HeaderContent = styled('div')({
+  height: '50px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '0 24px',
+  position: 'relative'
+});
 
-const LogoImage = styled.img`
-  height: 32px;
-  width: auto;
-`;
+const HeaderTitle = styled('h1')({
+  fontSize: '16px',
+  fontWeight: 400,
+  color: '#FFFFFF',
+  margin: 0,
+  opacity: 0.9
+});
 
-const LogoText = styled.h1`
-  font-size: ${props => props.theme.typography.header.size};
-  font-weight: ${props => props.theme.typography.header.weight};
-  color: ${props => props.theme.colors.primaryText};
-`;
+const VersionSelector = styled('div')({
+  position: 'absolute',
+  left: '24px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px'
+});
 
-const ModelSelector = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.small};
-`;
+const ModelSelector = styled('div')({
+  position: 'absolute',
+  right: '24px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  fontSize: '13px',
+  color: '#AAAAAA'
+});
 
-const ModelLabel = styled.span`
-  font-size: ${props => props.theme.typography.regularText.size};
-  color: ${props => props.theme.colors.tertiaryText};
-`;
-
-const StatusDot = styled.span`
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-left: 8px;
-  background-color: ${props => 
-    props.status === 'connected' ? '#4CAF50' :
-    props.status === 'connecting' ? '#FFC107' : 
-    '#F44336'};
-`;
-
-const Select = styled.select`
-  background-color: ${props => props.theme.colors.secondaryBg};
-  color: ${props => props.theme.colors.primaryText};
-  border: 1px solid ${props => props.theme.colors.border};
-  border-radius: ${props => props.theme.borderRadius.small};
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  font-size: ${props => props.theme.typography.regularText.size};
-  cursor: pointer;
-  
-  &:focus {
-    outline: none;
-    border-color: ${props => props.theme.colors.accent};
+const ModelDropdown = styled('select')({
+  backgroundColor: '#252525',
+  color: '#FFFFFF',
+  border: '1px solid rgba(255, 255, 255, 0.2)',
+  borderRadius: '4px',
+  padding: '6px 12px',
+  fontSize: '13px',
+  outline: 'none',
+  cursor: 'pointer',
+  minWidth: '180px',
+  transition: 'all 0.2s ease',
+  appearance: 'none',
+  backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27 fill=%27none%27 stroke=%27white%27 stroke-width=%272%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3e%3cpolyline points=%276 9 12 15 18 9%27%3e%3c/polyline%3e%3c/svg%3e")',
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 8px center',
+  backgroundSize: '16px',
+  paddingRight: '32px',
+  '&:hover': {
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: '#2A2A2A'
+  },
+  '&:focus': {
+    borderColor: '#FF643D',
+    backgroundColor: '#2A2A2A'
+  },
+  '&:disabled': {
+    opacity: 0.6,
+    cursor: 'not-allowed'
+  },
+  '& option': {
+    backgroundColor: '#252525',
+    color: '#FFFFFF',
+    padding: '8px'
   }
-`;
+});
 
-const Header = () => {
-  const { theme } = useTheme();
-  const { 
-    currentModel, 
-    setCurrentModel, 
-    models, 
-    loading,
-    appState,
-    loadModel
-  } = useApp();
+const Header = ({ selectedModel, onModelChange, models = [] }) => {
+  const theme = useTheme();
+  const { imageGenerationProgress } = useApp();
   
-  // Get connection status
-  const connectionStatus = appState?.connectionStatus || 'disconnected';
+  // Debug logging
+  console.log('Header - models:', models);
+  console.log('Header - selectedModel:', selectedModel);
+  console.log('Header - models length:', models.length);
   
-  // Skip logging to improve performance
-  
-  const handleModelChange = (e) => {
-    const modelId = e.target.value;
-    // Call loadModel directly to reduce lag
-    loadModel(modelId);
-  };
+  // Check if models have the expected structure
+  if (models.length > 0) {
+    console.log('Header - first model:', models[0]);
+  }
   
   return (
-    <HeaderContainer theme={theme}>
-      <Logo theme={theme}>
-        <LogoImage src="/images/brain-computer.svg" alt="Sephia Logo" />
-        <LogoText theme={theme}>Sephia</LogoText>
-      </Logo>
-      
-      <ModelSelector theme={theme}>
-        <ModelLabel theme={theme}>
-          Model:
-          <StatusDot status={connectionStatus} title={`Status: ${connectionStatus}`} />
-        </ModelLabel>
-        <Select 
-          theme={theme}
-          value={currentModel || ''}
-          onChange={handleModelChange}
-          disabled={connectionStatus === 'connecting'}
-        >
-          {/* If models array is empty, show hardcoded options */}
-          {models && models.length > 0 ? (
-            models.map(model => (
-              <option key={model.id || model.name} value={model.id || model.name}>
-                {model.name}
+    <HeaderContainer>
+      <HeaderContent>
+        <VersionSelector>
+          <VersionInfo />
+        </VersionSelector>
+        
+        <HeaderTitle>Sephia</HeaderTitle>
+        
+        <ModelSelector>
+          <span>Model</span>
+          <ModelDropdown
+            value={selectedModel || ''}
+            onChange={(e) => {
+              console.log('Header - Model selected:', e.target.value);
+              onModelChange(e);
+            }}
+          >
+            {/* Add a default option if no model is selected */}
+            {!selectedModel && <option value="">Select a model</option>}
+            {models.map((model) => (
+              <option key={model.id || model.name} value={model.id || model.name} disabled={model.disabled}>
+                {model.name} {model.size ? ` (${model.size})` : ''}
               </option>
-            ))
-          ) : (
-            // Fallback hardcoded models
-            <>
-              <option value="deepseek-r1:32b">DeepSeek R1 (32B)</option>
-              <option value="deepseek-r1:14b-m4">DeepSeek 14B-M4</option>
-              <option value="deepseek-r1:8b-m4">DeepSeek 8B-M4</option>
-              <option value="deepseek-r1:14b">DeepSeek 14B</option>
-              <option value="deepseek-r1:8b">DeepSeek 8B</option>
-            </>
-          )}
-        </Select>
-      </ModelSelector>
+            ))}
+          </ModelDropdown>
+        </ModelSelector>
+      </HeaderContent>
+      
     </HeaderContainer>
   );
 };

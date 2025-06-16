@@ -1,6 +1,6 @@
 {
   "name": "sephia",
-  "version": "0.1.0",
+  "version": "1.0.2",
   "private": true,
   "main": "electron/main.js",
   "homepage": "./",
@@ -20,12 +20,15 @@
     "dompurify": "^3.2.6",
     "electron-log": "^5.4.0",
     "html-react-parser": "^5.2.5",
+    "node-fetch": "^3.3.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^8.0.7",
     "react-scripts": "5.0.1",
     "react-syntax-highlighter": "^15.6.1",
+    "remark-gfm": "^3.0.1",
     "web-vitals": "^2.1.4",
+    "xmldom": "^0.6.0",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0"
   },
@@ -35,8 +38,14 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "electron:start": "electron .",
-    "electron:dev": "cross-env DEBUG=electron:*,concurrently,wait-on concurrently -k \"cross-env BROWSER=none PORT=3002 react-scripts start\" \"wait-on http://localhost:3002 && electron .\"",
-    "electron:build": "node scripts/generate-icons.js && npm run build && electron-builder build --mac --publish never"
+    "electron:dev": "cross-env DEBUG=electron:*,concurrently,wait-on concurrently -k \"cross-env BROWSER=none PORT=3000 react-scripts start\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:build": "node scripts/generate-icons.js && npm run build && electron-builder build --mac --publish never",
+    "version:patch": "npm version patch --no-git-tag-version && npm run version:update",
+    "version:minor": "npm version minor --no-git-tag-version && npm run version:update",
+    "version:major": "npm version major --no-git-tag-version && npm run version:update",
+    "version:update": "node scripts/update-version.js",
+    "version:display": "node scripts/show-version.js",
+    "changelog": "node scripts/generate-changelog.js"
   },
   "eslintConfig": {
     "extends": [
@@ -104,7 +113,9 @@
       ],
       "icon": "public/favicon.icns",
       "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "gatekeeperAssess": false,
+      "entitlements": "./build/entitlements.mac.plist",
+      "entitlementsInherit": "./build/entitlements.mac.plist"
     },
     "win": {
       "target": [

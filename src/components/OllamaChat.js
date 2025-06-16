@@ -17,6 +17,7 @@ import { useTheme } from '@mui/material/styles';
 import ollamaService from '../services/OllamaService';
 import Message from './Chat/Message';
 import { useApp } from '../context/AppContext';
+import { processCommand } from '../utils/commandProcessor';
 
 // Styled components
 const ChatContainer = styled(Paper)(({ theme }) => ({
@@ -103,6 +104,38 @@ const OllamaChat = () => {
 
     const userMessage = { text: input, isUser: true, timestamp: new Date() };
     setMessages(prev => [...prev, userMessage]);
+    
+    // Check for @ commands
+    if (input.trim().startsWith('@')) {
+      console.log('Processing @ command:', input);
+      setInput('');
+      setIsGenerating(true);
+      setError(null);
+      
+      try {
+        const commandResult = await processCommand(input.trim());
+        
+        if (commandResult) {
+          setMessages(prev => [
+            ...prev,
+            { 
+              text: commandResult.content, 
+              isUser: false, 
+              timestamp: new Date(),
+              isCommand: true
+            }
+          ]);
+        }
+      } catch (err) {
+        console.error('Command processing error:', err);
+        setError('Failed to process command. Please try again.');
+      } finally {
+        setIsGenerating(false);
+      }
+      return;
+    }
+
+    // Regular message processing
     setInput('');
     setIsGenerating(true);
     setError(null);

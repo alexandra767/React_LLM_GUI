@@ -1,0 +1,31 @@
+{
+  "version": "1.0.2",
+  "name": "sephia",
+  "buildDate": "2025-05-31T02:56:51.312Z",
+  "gitBranch": "unknown",
+  "gitCommit": "unknown",
+  "nodeVersion": "v22.16.0",
+  "platform": "darwin",
+  "features": [
+    "Bark TTS Voice Synthesis",
+    "Real-time Chat Interface",
+    "Google Calendar Integration",
+    "Apple Calendar Integration",
+    "Google Drive Integration",
+    "Image Generation (ComfyUI)",
+    "Voice Recognition",
+    "External Memory System",
+    "Terminal Integration",
+    "Ollama Local LLM Support"
+  ],
+  "changelog": {
+    "1.0.0": [
+      "Initial stable release",
+      "Comprehensive voice synthesis fixes",
+      "Memory optimization and leak prevention",
+      "Process cleanup system implementation",
+      "Audio management improvements",
+      "AI response accuracy enhancements"
+    ]
+  }
+}

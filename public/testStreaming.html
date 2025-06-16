@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ollama Streaming Test</title>
+</head>
+<body>
+    <h1>Ollama Streaming Test</h1>
+    <button onclick="testStreaming()">Test Streaming</button>
+    <pre id="output"></pre>
+
+    <script>
+    async function testStreaming() {
+        const output = document.getElementById('output');
+        output.textContent = 'Starting test...\n';
+        
+        try {
+            const response = await fetch('http://localhost:11434/api/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-r1:8b-m4',
+                    prompt: 'Say hello',
+                    stream: true
+                })
+            });
+
+            output.textContent += `Response status: ${response.status}\n`;
+            output.textContent += `Response type: ${response.type}\n`;
+            output.textContent += `Response headers: ${JSON.stringify([...response.headers.entries()])}\n\n`;
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let chunkCount = 0;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    output.textContent += '\nStream complete!';
+                    break;
+                }
+
+                chunkCount++;
+                const chunk = decoder.decode(value, { stream: true });
+                output.textContent += `\nChunk ${chunkCount} (${chunk.length} bytes): ${chunk.substring(0, 100)}...`;
+                
+                // Try to parse JSON lines
+                buffer += chunk;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                
+                for (const line of lines) {
+                    if (line.trim()) {
+                        try {
+                            const data = JSON.parse(line);
+                            output.textContent += `\nParsed: ${JSON.stringify(data).substring(0, 100)}...`;
+                        } catch (e) {
+                            output.textContent += `\nParse error: ${e.message} for line: ${line.substring(0, 50)}...`;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            output.textContent += `\nError: ${error.message}`;
+            console.error('Streaming error:', error);
+        }
+    }
+    </script>
+</body>
+</html>

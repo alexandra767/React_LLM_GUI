@@ -53,30 +53,96 @@ class OllamaAdapter extends LLMAdapter {
   
   async sendMessage(message, options = {}) {
     try {
-      const modelName = options.model || 'deepseek-r1:8b-m4';
-      console.log(`Sending message to ${modelName}`);
+      // Clean model name - remove any extra info like "(Unknown size)"
+      const rawModel = options.model || 'qwen3:14b';
+      const modelName = rawModel.split(' ')[0].trim();
+      const isM4Model = modelName.includes('-m4');
+      const isCoderModel = modelName.includes('coder');
+      console.log(`Sending message to ${modelName} (raw: ${rawModel}, isM4: ${isM4Model}, isCoder: ${isCoderModel})`);
       
-      // First check if Ollama is running before making the request
+      // Try HTTP API first, fallback to terminal if needed
+      if (false && window.electron && window.electron.exec) {
+        console.log('Using terminal connection as requested');
+        try {
+          const exec = window.electron.exec;
+          
+          return new Promise((resolve) => {
+            console.log(`Running terminal command: ollama run ${modelName}`);
+            
+            // Add parameters to improve quality and reliability
+            // Note: --num-ctx is not a valid ollama run flag, it's for API only
+            const m4Params = '';
+            
+            const command = `ollama run ${modelName} "${message.replace(/"/g, '\\"')}"`;
+            
+            // Execute without timeout
+            exec(command, 
+              { maxBuffer: 50 * 1024 * 1024 }, // No timeout, 50MB buffer
+              (error, stdout, stderr) => {
+                if (error) {
+                  console.error('Terminal command error:', error);
+                  // Log stderr for debugging
+                  if (stderr) {
+                    console.error('Terminal stderr:', stderr);
+                  }
+                  resolve(this.getErrorResponse(message));
+                  return;
+                }
+                
+                if (stdout) {
+                  console.log('Terminal command output received, length:', stdout.length);
+                  // Process stdout to remove any potential terminal control sequences
+                  const cleanedOutput = stdout.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+                  
+                  resolve({
+                    model: modelName,
+                    response: cleanedOutput,
+                    done: true
+                  });
+                } else {
+                  console.warn('Terminal command returned empty output');
+                  resolve(this.getErrorResponse(message));
+                }
+            });
+          });
+        } catch (terminalError) {
+          console.error('Terminal setup failed:', terminalError);
+          // Fall back to HTTP API if terminal fails
+        }
+      }
+      
+      // HTTP API fallback (or primary if not in Electron)
       try {
         // Send a tags check to verify Ollama API is responsive (more reliable than health endpoint)
         await axios.get(`${this.baseUrl}/api/tags`, { timeout: 3000 });
         
-        console.log("Ollama API is available, proceeding with request");
+        console.log("Using HTTP API (not in Electron or terminal failed)");
         
         // Set optimized parameters for M4 Macs
+        const is32BQwen = modelName.includes('32b-qwen-distill-q4_K_M');
         const response = await this.axios.post('/api/generate', {
           model: modelName,
           prompt: message,
           stream: false,
-          temperature: options.temperature || 0.7,
-          max_tokens: options.maxTokens || 2048,
-          top_p: options.topP || 0.95,
-          // Parameters optimized for faster response on M4 Macs
-          num_gpu: 1,
-          num_thread: 8,
-          tfs_z: 1.0,
+          options: {
+            temperature: options.temperature || 0.7,
+            num_predict: options.maxTokens || 2048,
+            top_p: options.topP || 0.95,
+            // Parameters optimized for M4 models
+            num_gpu: 999,
+            num_thread: isM4Model ? 12 : 10,
+            num_ctx: is32BQwen ? 8192 : (isM4Model ? 32768 : 16384),
+            batch_size: is32BQwen ? 256 : (isM4Model ? 2048 : 1024),
+            use_mmap: true,
+            use_mlock: false,
+            f16_kv: isM4Model ? true : false,
+            gpu_layers: 999,
+            n_gpu_layers: 999,
+            threads_batch: isM4Model ? 12 : 10,
+            n_parallel: is32BQwen ? 2 : (isM4Model ? 8 : 4)
+          }
         }, {
-          timeout: 120000 // Longer timeout for model loading on M4
+          timeout: is32BQwen ? 300000 : 120000 // 5 min timeout for 32B model
         });
         
         console.log("Received successful response from Ollama API");
@@ -85,24 +151,23 @@ class OllamaAdapter extends LLMAdapter {
         console.error('Ollama API Error:', apiError.message);
         
         // Try using terminal fallback if in Electron environment
-        if (window.require && window.require('electron')) {
+        if (false && window.electron && window.electron.exec) {
           console.log('Attempting terminal fallback...');
           try {
-            const { exec } = window.require('child_process');
+            const exec = window.electron.exec;
             
             return new Promise((resolve) => {
               console.log(`Running terminal command: ollama run ${modelName}`);
               
               // Add parameters to improve quality and reliability
-              const command = `ollama run ${modelName} \
-                --num-ctx 8192 \
-                --num-gpu 1 \
-                --num-thread 8 \
-                "${message.replace(/"/g, '\\"')}"`;
+              // Note: --num-ctx is not a valid ollama run flag, it's for API only
+              const m4Params = '';
               
-              // Execute with longer timeout
+              const command = `ollama run ${modelName} "${message.replace(/"/g, '\\"')}"`;
+              
+              // Execute without timeout
               exec(command, 
-                { timeout: 180000, maxBuffer: 10 * 1024 * 1024 }, // 3 min timeout, 10MB buffer
+                { maxBuffer: 50 * 1024 * 1024 }, // No timeout, 50MB buffer
                 (error, stdout, stderr) => {
                   if (error) {
                     console.error('Terminal command error:', error);
@@ -155,177 +220,210 @@ class OllamaAdapter extends LLMAdapter {
   
   async streamMessage(message, options = {}, onChunk) {
     try {
-      console.log(`Streaming message to ${options.model || 'default model'}`);
+      // Clean model name - remove any extra info
+      const rawModel = options.model || 'qwen3:14b';
+      const modelName = rawModel.split(' ')[0].trim();
+      console.log(`Terminal message to ${modelName} (raw: ${rawModel})`);
       
+      // Force terminal connection - no streaming support
+      if (window.electron && window.electron.exec) {
+        console.log('Using terminal connection for all messages (no streaming)');
+        
+        const response = await this.sendMessage(message, options);
+        
+        // Simulate streaming by sending the whole response at once
+        if (onChunk) {
+          onChunk(JSON.stringify({
+            response: response.response,
+            done: false
+          }));
+          
+          // Send done signal
+          setTimeout(() => {
+            onChunk(JSON.stringify({
+              response: '',
+              done: true
+            }));
+          }, 100);
+        }
+        
+        return;
+      }
+      
+      // If not in Electron, fall back to HTTP streaming
       try {
         // First check if Ollama is available via tags endpoint
         try {
           const checkResponse = await axios.get(`${this.baseUrl}/api/tags`, { timeout: 3000 });
-          console.log('Ollama API is available, proceeding with streaming');
+          console.log('Not in Electron, using HTTP API streaming');
         } catch (checkError) {
           console.error('Ollama API unavailable for streaming:', checkError);
           throw new Error('Ollama API unavailable');
         }
         
-        // Handle streaming with Ollama API
-        console.log('Attempting to stream from Ollama API:', `${this.baseUrl}/api/generate`);
+        // Use Fetch API for better streaming support
+        console.log('Using Fetch API for streaming from:', `${this.baseUrl}/api/generate`);
+        console.log('Streaming model:', modelName);
+        console.log('Model flags - isM4:', isM4Model, 'isCoder:', isCoderModel);
         
-        // Use XMLHttpRequest for streaming support
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${this.baseUrl}/api/generate`, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.responseType = 'text';
-        xhr.timeout = 180000; // 3 minute timeout for long responses
+        // M4-optimized settings based on model size and M4 variant
+        const isM4Model = modelName.includes('-m4');
+        const is32BQwen = modelName.includes('32b-qwen-distill-q4_K_M');
+        const isCoderModel = modelName.includes('coder');
+        const isLargeModel = modelName.includes('14b') || modelName.includes('32b') || modelName.includes('70b');
+        const isMediumModel = modelName.includes('7b') || modelName.includes('8b') || isCoderModel;
         
-        // Buffer for processing incomplete chunks
-        let buffer = '';
-        let fullResponse = '';
-        
-        // Handle streaming response
-        xhr.onprogress = function() {
-          const newData = xhr.responseText;
-          if (!newData || newData === fullResponse) return;
-          
-          // Update our record of the full response
-          fullResponse = newData;
-          
-          // Process any new complete JSON objects
-          const lines = newData.split('\n');
-          
-          // Process each complete line as a separate JSON object
-          for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (!line) continue;
-            
-            try {
-              // Skip HTTP response headers which can appear in the output
-              if (line.startsWith('HTTP/1.1')) {
-                console.log('Skipping HTTP header:', line);
-                continue;
-              }
-              
-              const data = JSON.parse(line);
-              
-              // Debug only first 20 chars to avoid console spam
-              if (data.response) {
-                console.log('Received data chunk:', { 
-                  response: data.response.substring(0, 20) + '...',
-                  done: data.done 
-                });
-              }
-              
-              // Make sure the response is properly formatted
-              if (data.response) {
-                // Always ensure it's a proper string
-                data.response = String(data.response);
-                
-                // Send the chunk to the callback
-                if (onChunk) {
-                  onChunk(JSON.stringify(data));
-                }
-              }
-            } catch (e) {
-              // This is likely an incomplete JSON object at the end
-              if (i === lines.length - 1) {
-                buffer = line;
-              } else {
-                console.warn('Error parsing JSON chunk:', e.message);
-                
-                // Try to handle any plaintext response - only if it seems to be actual content
-                if (typeof line === 'string' && line.length > 10 && !line.includes('HTTP/1.1')) {
-                  if (onChunk) {
-                    console.log('Sending plaintext chunk as fallback');
-                    onChunk(JSON.stringify({ response: line }));
-                  }
-                }
-              }
-            }
-          }
-        };
-        
-        // Handle completion
-        xhr.onload = function() {
-          if (xhr.status === 200) {
-            console.log('Stream completed successfully');
-            
-            // If we have a buffer with content at the end, try sending it
-            if (buffer && buffer.length > 0) {
-              try {
-                const data = JSON.parse(buffer);
-                if (data.response && onChunk) {
-                  onChunk(JSON.stringify(data));
-                }
-              } catch (e) {
-                // If we can't parse as JSON but it looks like content, send as text
-                if (buffer.length > 10 && onChunk) {
-                  onChunk(JSON.stringify({ response: buffer, done: true }));
-                }
-              }
-            }
-            
-            // Signal completion
-            if (onChunk) {
-              onChunk(JSON.stringify({ done: true }));
-            }
-          } else {
-            console.error('Stream error:', xhr.status, xhr.statusText);
-            
-            // Send an error notification to the callback
-            if (onChunk) {
-              onChunk(JSON.stringify({ 
-                error: true, 
-                response: "Error connecting to Ollama API. Check that Ollama is running on your system." 
-              }));
-            }
-          }
-        };
-        
-        // Handle errors
-        xhr.onerror = function() {
-          console.error('XHR Error in streamMessage');
-          
-          // Send an error notification to the callback
-          if (onChunk) {
-            onChunk(JSON.stringify({ 
-              error: true, 
-              response: "Network error when connecting to Ollama API. Check your connection and that Ollama is running." 
-            }));
-          }
-        };
-        
-        // Handle timeouts
-        xhr.ontimeout = function() {
-          console.error('XHR Timeout in streamMessage');
-          
-          // Send an error notification to the callback
-          if (onChunk) {
-            onChunk(JSON.stringify({ 
-              error: true, 
-              response: "Connection to Ollama API timed out. The model might be taking too long to respond or Ollama might be unresponsive." 
-            }));
-          }
-        };
-        
-        // Send the request with optimized parameters
-        xhr.send(JSON.stringify({
-          model: options.model || 'deepseek-r1:8b-m4',
+        const requestBody = {
+          model: modelName,
           prompt: message,
           stream: true,
-          temperature: options.temperature || 0.7,
-          max_tokens: options.maxTokens || 2048,
-          top_p: options.topP || 0.95,
-          // Parameters for improved response quality
-          num_ctx: 8192,
-          num_predict: 2048,
-          stop: [], // No specific stop sequences
-          num_gpu: 1, // Use GPU for acceleration
-          num_thread: 8, // Use multiple threads for processing
-        }));
+          options: {
+            temperature: options.temperature || 0.7,
+            num_predict: options.max_tokens || 4096,
+            // 24GB unified memory optimizations - special settings for 32B Qwen
+            num_ctx: is32BQwen ? 8192 : (isM4Model ? 32768 : (isLargeModel ? 16384 : (isMediumModel ? 24576 : 32768))),
+            num_gpu: 999, // Use all GPU layers (M4 Pro 16 GPU cores)
+            num_thread: is32BQwen ? 14 : (isM4Model ? 12 : 10), // More threads for 32B Qwen
+            batch_size: is32BQwen ? 256 : (isM4Model ? 2048 : (isLargeModel ? 512 : 1024)), // Smaller batches for 32B
+            use_mmap: true,
+            use_mlock: false,
+            f16_kv: isM4Model ? true : (isLargeModel ? true : false), // Always f16 for M4
+            main_gpu: 0,
+            low_vram: false,
+            num_batch: is32BQwen ? 256 : (isM4Model ? 2048 : 1024),
+            // M4 Pro specific - optimized for 32B Qwen
+            gpu_layers: 999,
+            n_gpu_layers: 999,
+            threads_batch: is32BQwen ? 14 : (isM4Model ? 12 : 10),
+            n_parallel: is32BQwen ? 2 : (isM4Model ? 8 : 4), // Less parallel for 32B
+            // Additional M4 optimizations
+            rope_frequency_scale: 1.0,
+            rope_scaling: "linear"
+          }
+        };
         
-        // Return a placeholder since the actual response is handled via callbacks
-        return { pending: true };
+        console.log('Request payload:', requestBody);
+        
+        // Use fetch with streaming support
+        const response = await fetch(`${this.baseUrl}/api/generate`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: options.signal,
+          mode: 'cors', // Explicitly set CORS mode
+          credentials: 'omit' // Don't send cookies
+        });
+
+        console.log('[Fetch] Response status:', response.status);
+        console.log('[Fetch] Response headers:', response.headers);
+        console.log('[Fetch] Model being used:', modelName);
+        console.log('[Fetch] Full request body:', JSON.stringify(requestBody, null, 2));
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[Fetch] Error response:', errorText);
+          throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+        }
+
+        if (!response.body) {
+          throw new Error('Response body is null');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+          let chunkCount = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log('[Fetch] Stream complete, total chunks:', chunkCount);
+              if (onChunk) {
+                onChunk(JSON.stringify({ done: true }));
+              }
+              break;
+            }
+
+            chunkCount++;
+            // Decode the chunk
+            const chunk = decoder.decode(value, { stream: true });
+            console.log(`[Fetch] Chunk ${chunkCount} - length: ${chunk.length}`);
+            console.log(`[Fetch] Chunk preview:`, chunk.substring(0, 200));
+
+            // Add to buffer and process lines
+            buffer += chunk;
+            const lines = buffer.split('\n');
+            
+            // Keep the last incomplete line in the buffer
+            buffer = lines.pop() || '';
+
+            // Process complete lines
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (!trimmedLine) continue;
+
+              try {
+                const data = JSON.parse(trimmedLine);
+                console.log('[Fetch] Parsed data:', { 
+                  hasResponse: data.response !== undefined,
+                  responseLength: data.response?.length || 0,
+                  done: data.done 
+                });
+
+                if (data.response !== undefined) {
+                  if (onChunk) {
+                    const chunkToSend = JSON.stringify({
+                      response: data.response,
+                      done: data.done || false
+                    });
+                    console.log('[Fetch] Sending chunk to callback:', chunkToSend);
+                    onChunk(chunkToSend);
+                  }
+                }
+              } catch (e) {
+                console.warn('[Fetch] Failed to parse JSON:', e.message, 'Line:', trimmedLine);
+              }
+            }
+          }
+        } catch (streamError) {
+          console.error('[Fetch] Stream reading error:', streamError);
+          if (onChunk) {
+            onChunk(JSON.stringify({ 
+              error: true, 
+              response: `Stream error: ${streamError.message}`,
+              done: true
+            }));
+          }
+        } finally {
+          reader.releaseLock();
+        }
+        
+        return;
       } catch (apiError) {
         console.error('Ollama API Streaming Error:', apiError);
+        console.error('Error details:', {
+          message: apiError.message,
+          stack: apiError.stack,
+          name: apiError.name
+        });
+        
+        // Check if it's a CORS error
+        if (apiError.message.includes('Failed to fetch') || apiError.name === 'TypeError') {
+          console.error('This appears to be a CORS error. Ollama may need to be configured to allow CORS.');
+          if (onChunk) {
+            onChunk(JSON.stringify({ 
+              error: true, 
+              response: "CORS error: Unable to connect to Ollama. Make sure Ollama is running with CORS enabled.",
+              done: true
+            }));
+          }
+          return;
+        }
+        
         console.log('Falling back to mock streaming response');
         
         // Try terminal fallback for streaming if in Electron environment
@@ -335,11 +433,8 @@ class OllamaAdapter extends LLMAdapter {
             const { exec } = window.require('child_process');
             
             // Add parameters to improve quality and reliability
-            const command = `ollama run ${options.model || 'deepseek-r1:8b-m4'} \
-              --num-ctx 8192 \
-              --num-gpu 1 \
-              --num-thread 8 \
-              "${message.replace(/"/g, '\\"')}"`;
+            // Note: --num-ctx is not a valid ollama run flag, it's for API only
+            const command = `ollama run ${modelName} "${message.replace(/"/g, '\\"')}"`;
             
             console.log(`Running terminal command: ${command}`);
             
@@ -443,82 +538,75 @@ class OllamaAdapter extends LLMAdapter {
   
   async getAvailableModels() {
     try {
-      console.log('Fetching available models from Ollama');
+      console.log('Fetching available models');
       
-      try {
-        // Increase timeout for M4 Macs which may need more time to respond
-        const response = await axios.get(`${this.baseUrl}/api/tags`, { 
-          timeout: 10000  // 10 second timeout 
-        });
-        
-        console.log('API response received, processing models...');
-        
-        if (response.data && response.data.models) {
-          // Map the models to a consistent format for the UI
-          const mappedModels = response.data.models.map(model => ({
-            id: model.name,
-            name: model.name,
-            details: model.details || {}
-          }));
-          
-          console.log(`Found ${mappedModels.length} models`);
-          return mappedModels;
-        } else {
-          throw new Error('Invalid API response format');
-        }
-      } catch (apiError) {
-        console.error('Failed to fetch models from API:', apiError);
-        console.log('Falling back to direct terminal command');
-        
+      // Try terminal first if in Electron
+      if (window.electron && window.electron.exec) {
+        console.log('Using terminal to get models');
         try {
-          // Try shell exec as fallback if electron allows it
-          if (window.require && window.require('electron')) {
-            const { exec } = window.require('child_process');
-            
-            return new Promise((resolve) => {
-              exec('ollama list -v', (error, stdout, stderr) => {
-                if (error) {
-                  console.error('Terminal command error:', error);
-                  // Fall back to hardcoded models
-                  resolve(this.getFallbackModels());
-                  return;
-                }
+          const exec = window.electron.exec;
+          
+          return new Promise((resolve) => {
+            exec('ollama list', (error, stdout, stderr) => {
+              if (error) {
+                console.error('Terminal command error:', error);
+                // Fall back to hardcoded models
+                resolve(this.getFallbackModels());
+                return;
+              }
+              
+              if (stdout) {
+                // Parse the output of ollama list to extract models
+                const lines = stdout.split('\n').filter(line => line.trim().length > 0);
+                // Skip the header line
+                const modelLines = lines.slice(1);
                 
-                if (stdout) {
-                  // Parse the output of ollama list to extract models
-                  const lines = stdout.split('\n').filter(line => line.trim().length > 0);
-                  // Skip the header line
-                  const modelLines = lines.slice(1);
-                  
-                  const parsedModels = modelLines.map(line => {
-                    const parts = line.split(/\s+/);
-                    if (parts.length >= 2) {
-                      return {
-                        id: parts[0].trim(),
-                        name: parts[0].trim()
-                      };
-                    }
-                    return null;
-                  }).filter(model => model !== null);
-                  
-                  if (parsedModels.length > 0) {
-                    console.log(`Found ${parsedModels.length} models from terminal`);
-                    resolve(parsedModels);
-                  } else {
-                    resolve(this.getFallbackModels());
+                const parsedModels = modelLines.map(line => {
+                  const parts = line.split(/\s+/);
+                  if (parts.length >= 2) {
+                    return {
+                      id: parts[0].trim(),
+                      name: parts[0].trim(),
+                      details: {}
+                    };
                   }
+                  return null;
+                }).filter(model => model !== null);
+                
+                if (parsedModels.length > 0) {
+                  console.log(`Found ${parsedModels.length} models from terminal`);
+                  resolve(parsedModels);
                 } else {
                   resolve(this.getFallbackModels());
                 }
-              });
+              } else {
+                resolve(this.getFallbackModels());
+              }
             });
-          } else {
-            return this.getFallbackModels();
-          }
+          });
         } catch (terminalError) {
-          console.error('Terminal fallback failed:', terminalError);
+          console.error('Terminal setup failed:', terminalError);
           return this.getFallbackModels();
         }
+      }
+      
+      // If not in Electron, use HTTP API as fallback
+      console.log('Not in Electron, using HTTP API for models');
+      const response = await axios.get(`${this.baseUrl}/api/tags`, { 
+        timeout: 10000 
+      });
+      
+      if (response.data && response.data.models) {
+        const mappedModels = response.data.models.map(model => ({
+          id: model.name,
+          name: model.name,
+          details: model.details || {}
+        }));
+        
+        console.log(`Found ${mappedModels.length} models from API`);
+        return mappedModels;
+      } else {
+        throw new Error('Invalid API response format');
       }
     } catch (error) {
       console.error('Error in getModels:', error);
@@ -530,13 +618,168 @@ class OllamaAdapter extends LLMAdapter {
   getFallbackModels() {
     console.log('Using fallback model list');
     return [
-      { id: 'deepseek-r1:32b', name: 'DeepSeek (32B)' },
-      { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4' },
-      { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4' },
-      { id: 'deepseek-r1:8b', name: 'DeepSeek 8B' },
-      { id: 'deepseek-r1:14b', name: 'DeepSeek 14B' },
-      { id: 'llama3', name: 'Llama 3 (8B)' },
-      { id: 'mistral', name: 'Mistral (7B)' }
+      { id: 'qwen3:14B', name: 'Qwen3 (14B)', size: 'Large', type: 'local' }, // User's actual model
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', size: 'Large', type: 'cloud' }, // Cloud model
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', size: 'Medium', type: 'cloud' } // Cloud model
+    ];
+  }
+
+  // Add the missing getModels method that the base class expects
+  async getModels() {
+    return this.getAvailableModels();
+  }
+}
+
+class ClaudeAdapter extends LLMAdapter {
+  constructor(config) {
+    super(config);
+    this.baseUrl = 'https://api.anthropic.com/v1/messages';
+    this.apiKey = config.apiKey;
+    if (!this.apiKey) {
+      throw new Error('Claude API key is required');
+    }
+  }
+
+  async sendMessage(message, options = {}) {
+    try {
+      console.log('[ClaudeAdapter] Sending message to Claude API');
+      
+      const model = options.model || 'claude-opus-4-20250514';
+      const maxTokens = options.max_tokens || 4096;
+      
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: maxTokens,
+          messages: [
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: options.temperature || 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[ClaudeAdapter] API Error:', response.status, errorText);
+        throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('[ClaudeAdapter] Response received from Claude');
+      
+      return {
+        response: data.content[0].text,
+        usage: {
+          input_tokens: data.usage.input_tokens,
+          output_tokens: data.usage.output_tokens
+        }
+      };
+    } catch (error) {
+      console.error('[ClaudeAdapter] Error:', error);
+      throw error;
+    }
+  }
+
+  async streamMessage(message, options = {}, onChunk) {
+    try {
+      console.log('[ClaudeAdapter] Starting streaming message to Claude API');
+      
+      const model = options.model || 'claude-3-5-sonnet-20241022';
+      const maxTokens = options.max_tokens || 4096;
+      
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: model,
+          max_tokens: maxTokens,
+          messages: [
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          temperature: options.temperature || 0.7,
+          stream: true
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[ClaudeAdapter] Streaming API Error:', response.status, errorText);
+        throw new Error(`Claude API error: ${response.status} - ${errorText}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            console.log('[ClaudeAdapter] Streaming complete');
+            if (onChunk) {
+              onChunk(JSON.stringify({ done: true }));
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                continue;
+              }
+              
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  if (onChunk) {
+                    onChunk(JSON.stringify({ 
+                      response: parsed.delta.text,
+                      done: false 
+                    }));
+                  }
+                }
+              } catch (parseError) {
+                console.warn('[ClaudeAdapter] Failed to parse streaming chunk:', parseError);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error('[ClaudeAdapter] Streaming error:', error);
+      throw error;
+    }
+  }
+
+  async getModels() {
+    return [
+      { id: 'claude-opus-4-20250514', name: 'Claude 4 Opus', size: 'Extra Large', type: 'cloud' },
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', size: 'Large', type: 'cloud' },
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku', size: 'Medium', type: 'cloud' }
     ];
   }
 }
@@ -629,21 +872,114 @@ class LLMService {
     return adapter.getModels();
   }
 
-  // Simpler API for other components to use
+  // Enhanced API that includes memory integration for consistent name recognition
   async generateResponse(message, options = {}) {
     try {
-      // This would normally send the request to the actual LLM
-      // For now, we'll simulate a response
       const startTime = Date.now();
       
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
+      // Load memory context for name questions
+      let memoryContext = {};
+      let userName = null;
+      
+      // Check if this is a name-related or memory question
+      const lowerMessage = message.toLowerCase();
+      const isNameQuestion = lowerMessage.includes("what's my name") || 
+                           lowerMessage.includes("whats my name") ||
+                           lowerMessage.includes("what is my name") ||
+                           lowerMessage.includes("do you know my name") ||
+                           lowerMessage.includes("who am i");
+                           
+      const isRememberQuestion = lowerMessage.includes("do you remember me") ||
+                               lowerMessage.includes("do you rember me") || // Handle typo
+                               lowerMessage.includes("remember me") ||
+                               lowerMessage.includes("do you know me");
+      
+      if (isNameQuestion || isRememberQuestion) {
+        try {
+          // Load memory from UnifiedStorageService
+          const memoryData = localStorage.getItem('aria_memory_system');
+          if (memoryData) {
+            const parsed = JSON.parse(memoryData);
+            const personalMap = new Map(parsed.personal || []);
+            const storedName = personalMap.get('name')?.value || personalMap.get('user_name')?.value;
+            
+            // CRITICAL: Block corrupted names like "meeting"
+            const corruptedNames = ['meeting', 'Meeting', 'birthday', 'Birthday', 'Family', 'Friend'];
+            if (storedName && !corruptedNames.includes(storedName)) {
+              userName = storedName;
+              console.log('[LLMService] ✅ Using stored name:', storedName);
+            } else {
+              console.log('[LLMService] ❌ Blocked corrupted stored name:', storedName, '- using Alexandra');
+              userName = 'Alexandra'; // Force correct name
+            }
+          }
+          
+          // Fallback to default if no name found
+          if (!userName) {
+            userName = 'Alexandra';
+            console.log('[LLMService] Using fallback name: Alexandra');
+          }
+        } catch (error) {
+          console.error('[LLMService] Error loading memory:', error);
+          userName = 'Alexandra'; // Fallback
+        }
+      }
+      
+      // Build enhanced prompt with memory context for name and memory questions
+      let enhancedMessage = message;
+      if (isNameQuestion && userName) {
+        enhancedMessage = `IDENTITY CLARIFICATION:
+- You are an AI assistant called Aria
+- The human user you're talking to is called ${userName}
+- These are completely different names: Aria (you) vs ${userName} (them)
+
+The user is asking if you know their name. Their name is ${userName}.
+
+Respond exactly like this: "Hello ${userName}! Yes, I know your name is ${userName}. How can I help you today?"
+
+Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
+      } else if (isRememberQuestion && userName) {
+        enhancedMessage = `IDENTITY CLARIFICATION:
+- You are an AI assistant called Aria
+- The human user you're talking to is called ${userName}
+- These are completely different names: Aria (you) vs ${userName} (them)
+
+The user is asking if you remember them. Their name is ${userName}.
+
+Respond exactly like this: "Hi ${userName}! I have your personal information and our conversation history stored in my memory system. I know your name is ${userName} and can recall what we've discussed previously to help you better. How can I assist you today?"
+
+Do NOT say "Hello Aria" - that's YOUR name, not theirs. Their name is ${userName}.`;
+      }
+      
+      // Send to current adapter
+      const adapter = this.getCurrentAdapter();
+      const response = await adapter.sendMessage(enhancedMessage, options);
+      
+      // Clean response for identity confusion
+      let cleanedResponse = response.response;
+      if (userName && cleanedResponse) {
+        // Fix identity confusion - replace "Hello Aria!" with user's name
+        cleanedResponse = cleanedResponse
+          .replace(/Hello Aria!/gi, `Hello ${userName}!`)
+          .replace(/Hi Aria!/gi, `Hi ${userName}!`)
+          .replace(/Hello! I'm Monica/gi, "Hello! I'm Aria")
+          .replace(/Hi! I'm Monica/gi, "Hi! I'm Aria")
+          .replace(/I'm Monica/gi, "I'm Aria")
+          .replace(/I am Monica/gi, "I am Aria")
+          .replace(/Monica/gi, "Aria")
+          .replace(/I'm Qwen/gi, "I'm Aria")
+          .replace(/I am Qwen/gi, "I am Aria")
+          .replace(/Qwen/gi, "Aria")
+          .replace(/I'm DeepSeek/gi, "I'm Aria")
+          .replace(/I am DeepSeek/gi, "I am Aria")
+          .replace(/DeepSeek/gi, "Aria");
+      }
       
       return {
-        text: `This is a simulated response to: "${message}"\n\nIn a real implementation, this would connect to your local LLM via Ollama.`,
+        text: cleanedResponse || response.response,
         tokens: {
-          input: Math.ceil(message.length / 4), // Roughly estimate tokens
-          output: 40, // Fixed response size for simulation
+          input: Math.ceil(message.length / 4),
+          output: Math.ceil((cleanedResponse || response.response || '').length / 4),
         },
         duration: (Date.now() - startTime) / 1000,
       };
@@ -654,19 +990,52 @@ class LLMService {
   }
 }
 
-// Create and configure service
+// Create and configure service instance
 const llmService = new LLMService();
 
-// Register adapters
-llmService.registerAdapter('ollama', new OllamaAdapter({
-  baseUrl: 'http://localhost:11434'
-}));
+// Function to initialize adapters based on available configuration
+function initializeAdapters() {
+  // Always register Ollama adapter for local models
+  llmService.registerAdapter('ollama', new OllamaAdapter({
+    baseUrl: 'http://localhost:11434'
+  }));
 
-llmService.registerAdapter('terminal', new TerminalAdapter({
-  command: 'ollama'
-}));
+  llmService.registerAdapter('terminal', new TerminalAdapter({
+    command: 'ollama'
+  }));
 
-// Set default adapter
-llmService.setAdapter('ollama');
+  // Check for Claude API key and register Claude adapter if available
+  try {
+    const settings = localStorage.getItem('sephia_settings');
+    if (settings) {
+      const parsedSettings = JSON.parse(settings);
+      if (parsedSettings.claudeApiKey) {
+        console.log('[LLMService] Claude API key found, registering Claude adapter');
+        llmService.registerAdapter('claude', new ClaudeAdapter({
+          apiKey: parsedSettings.claudeApiKey
+        }));
+        
+        // Check current model to determine which adapter to use
+        const currentModel = localStorage.getItem('sephia_current_model');
+        if (currentModel && currentModel.startsWith('claude-')) {
+          console.log('[LLMService] Setting Claude as active adapter for model:', currentModel);
+          llmService.setAdapter('claude');
+          return;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[LLMService] Error checking Claude configuration:', error);
+  }
+
+  // Default to Ollama if Claude not available or not preferred
+  llmService.setAdapter('ollama');
+}
+
+// Initialize adapters
+initializeAdapters();
+
+// Export function to reinitialize when settings change
+llmService.reinitialize = initializeAdapters;
 
 export default llmService;

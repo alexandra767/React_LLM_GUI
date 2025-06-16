@@ -1,50 +1,42 @@
 import React, { useEffect, useState } from 'react';
 import styled from '@emotion/styled';
-import { useTheme } from '../../context/ThemeContext';
 
-const TokenDisplayContainer = styled.div`
+// Simple styled components with inline styles
+const Container = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: ${props => props.theme.spacing.small} ${props => props.theme.spacing.medium};
-  background-color: ${props => props.theme.colors.secondaryBg};
-  border-top: 1px solid ${props => props.theme.colors.border};
-  font-size: ${props => props.theme.typography.secondaryInfo.size};
+  padding: 8px 16px;
+  background-color: #252525;
+  border-top: 1px solid #333333;
+  font-size: 13px;
+  color: #AAAAAA;
 `;
 
-const TokenStats = styled.div`
+const Stats = styled.div`
   display: flex;
-  gap: ${props => props.theme.spacing.medium};
+  gap: 16px;
 `;
 
-const TokenStat = styled.div`
+const Stat = styled.div`
   display: flex;
   align-items: center;
-  color: ${props => props.theme.colors.tertiaryText};
-  
   .label {
-    margin-right: ${props => props.theme.spacing.small};
-    color: ${props => props.accent ? props.theme.colors.accent : props.theme.colors.secondaryText};
+    margin-right: 8px;
+    color: ${props => props.accent ? '#FF643D' : '#F0F0F0'};
   }
-  
   .value {
     font-family: 'Menlo', monospace;
-    color: ${props => props.theme.colors.primaryText};
+    color: #FFFFFF;
     font-weight: 500;
   }
 `;
 
-const ProcessInfo = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${props => props.theme.spacing.medium};
-`;
-
 const StopButton = styled.button`
-  background-color: ${props => props.theme.colors.errorColor || '#d32f2f'};
+  background-color: #d32f2f;
   color: white;
   border: none;
-  border-radius: ${props => props.theme.borderRadius.small};
+  border-radius: 4px;
   padding: 4px 8px;
   font-size: 0.8rem;
   font-weight: 500;
@@ -52,40 +44,37 @@ const StopButton = styled.button`
   display: flex;
   align-items: center;
   gap: 4px;
-  
   &:hover {
-    background-color: ${props => props.theme.colors.errorColorHover || '#b71c1c'};
+    opacity: 0.9;
   }
-  
   &:disabled {
-    opacity: 0.5;
+    background-color: #cccccc;
     cursor: not-allowed;
   }
 `;
 
 const TokenDisplay = ({ 
-  isStreaming, 
-  tokenCount, 
-  streamDuration,
-  onStop
+  isStreaming = false, 
+  tokenCount = { output: 0 }, 
+  streamDuration = 0,
+  onStop = () => {}
 }) => {
-  const { theme } = useTheme();
   const [tokensPerSecond, setTokensPerSecond] = useState(0);
-  
+
   // Calculate tokens per second
   useEffect(() => {
-    if (isStreaming && streamDuration > 0 && tokenCount.output > 0) {
+    if (isStreaming && streamDuration > 0 && tokenCount?.output > 0) {
       const tps = (tokenCount.output / streamDuration).toFixed(1);
       setTokensPerSecond(tps);
     } else if (!isStreaming) {
       setTokensPerSecond(0);
     }
-  }, [isStreaming, tokenCount.output, streamDuration]);
+  }, [isStreaming, tokenCount?.output, streamDuration]);
   
   // Handle escape key
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isStreaming && onStop) {
+      if (e.key === 'Escape' && isStreaming && typeof onStop === 'function') {
         onStop();
       }
     };
@@ -96,43 +85,38 @@ const TokenDisplay = ({
     };
   }, [isStreaming, onStop]);
 
-  return (
-    <TokenDisplayContainer theme={theme}>
-      <TokenStats theme={theme}>
-        <TokenStat theme={theme}>
-          <span className="label">Input:</span>
-          <span className="value">{tokenCount.input}</span>
-        </TokenStat>
-        <TokenStat theme={theme}>
-          <span className="label">Output:</span>
-          <span className="value">{tokenCount.output}</span>
-        </TokenStat>
-        <TokenStat theme={theme}>
-          <span className="label">Total:</span>
-          <span className="value">{tokenCount.total}</span>
-        </TokenStat>
-      </TokenStats>
-      
-      {isStreaming && (
-        <ProcessInfo theme={theme}>
-          <TokenStat theme={theme} accent={true}>
-            <span className="label">{streamDuration}s</span>
-          </TokenStat>
-          <TokenStat theme={theme} accent={true}>
-            <span className="label">Tokens/sec:</span>
-            <span className="value">{tokensPerSecond}</span>
-          </TokenStat>
-          <StopButton 
-            theme={theme} 
-            onClick={onStop}
-            title="Press ESC to stop"
-          >
-            ESC
-          </StopButton>
-        </ProcessInfo>
-      )}
-    </TokenDisplayContainer>
-  );
+  try {
+    return (
+      <Container>
+        <Stats>
+          <Stat>
+            <span className="label">Output:</span>
+            <span className="value">{tokenCount?.output || 0}</span>
+          </Stat>
+          {tokensPerSecond > 0 && (
+            <Stat>
+              <span className="label">Speed:</span>
+              <span className="value">{tokensPerSecond} tokens/s</span>
+            </Stat>
+          )}
+        </Stats>
+        
+        {isStreaming && (
+          <div>
+            <StopButton 
+              onClick={onStop}
+              title="Stop generating (Esc)"
+            >
+              <span>Stop</span>
+            </StopButton>
+          </div>
+        )}
+      </Container>
+    );
+  } catch (error) {
+    console.error('Error in TokenDisplay:', error);
+    return null;
+  }
 };
 
 export default TokenDisplay;

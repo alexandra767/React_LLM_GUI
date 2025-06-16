@@ -1,20 +1,37 @@
 const { contextBridge, ipcRenderer } = require('electron');
+const { exec, spawn } = require('child_process');
+
+console.log('[Preload] Script starting...');
+console.log('[Preload] exec available:', typeof exec);
+console.log('[Preload] spawn available:', typeof spawn);
 
 // Whitelist of valid channels for IPC communication
 const validSendChannels = [
   'terminal:write',
   'terminal:resize',
   'terminal:start',
-  'terminal:stop'
+  'terminal:stop',
+  'speech:start',
+  'speech:stop',
+  'caldav:request',
+  'system:registerService',
+  'system:killProcess',
+  'system:killPort',
+  'system:forceQuit'
 ];
 
 const validReceiveChannels = [
   'terminal:data',
-  'terminal:exit'
+  'terminal:exit',
+  'speech:result',
+  'speech:error',
+  'speech:end',
+  'caldav:response',
+  'caldav:error'
 ];
 
-// Expose protected methods to the renderer process
-contextBridge.exposeInMainWorld('electron', {
+// Create the exposed API
+const electronAPI = {
   // Send messages to the main process
   send: (channel, data) => {
     if (validSendChannels.includes(channel)) {
@@ -47,8 +64,501 @@ contextBridge.exposeInMainWorld('electron', {
     }
     console.warn(`Attempted to invoke on invalid channel: ${channel}`);
     return null;
+  },
+  
+  // Execute terminal commands
+  exec: (command, options, callback) => {
+    console.log('[Preload] Executing command:', command);
+    return exec(command, options, callback);
+  },
+
+  // Process spawning for services
+  spawn: (command, options = {}) => {
+    return new Promise((resolve, reject) => {
+      try {
+        const args = options.shell ? ['-c', command] : command.split(' ');
+        const cmd = options.shell ? '/bin/bash' : args.shift();
+        
+        console.log('[Preload] Spawning service:', cmd, args);
+        
+        const process = spawn(cmd, args, {
+          detached: true,
+          stdio: 'ignore', // Don't pipe stdio for background services
+          ...options
+        });
+
+        // Don't wait for the process, just return success
+        resolve({
+          pid: process.pid,
+          kill: () => process.kill()
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+  
+  // Spawn terminal processes for streaming with IPC
+  spawnStream: (command, args, onData, onError, onClose) => {
+    console.log('[Preload] Spawning streaming command:', command, 'with args:', args);
+    
+    try {
+      const child = spawn(command, args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, TERM: 'dumb' }
+      });
+      
+      console.log('[Preload] Child process created, PID:', child.pid);
+      
+      // Handle stdout
+      if (child.stdout) {
+        child.stdout.on('data', (data) => {
+          console.log('[Preload] stdout data:', data.length, 'bytes');
+          if (onData) onData(data.toString());
+        });
+      }
+      
+      // Handle stderr - collect it but don't treat as error immediately
+      let stderrBuffer = '';
+      if (child.stderr) {
+        child.stderr.on('data', (data) => {
+          const stderr = data.toString();
+          console.error('[Preload] stderr data:', stderr);
+          stderrBuffer += stderr;
+          // Only report model not found errors immediately
+          if (stderr.includes('could not find model') || stderr.includes('model not found')) {
+            if (onError) onError(stderr);
+          }
+        });
+      }
+      
+      // Handle close
+      child.on('close', (code) => {
+        console.log('[Preload] Process closed with code:', code);
+        if (code !== 0 && stderrBuffer) {
+          console.error('[Preload] Process failed with stderr:', stderrBuffer);
+          if (onError) onError(`Process failed: ${stderrBuffer}`);
+        }
+        if (onClose) onClose(code);
+      });
+      
+      // Handle error
+      child.on('error', (err) => {
+        console.error('[Preload] Process error:', err);
+        if (onError) onError(err.message);
+      });
+      
+      // Return methods to interact with the process
+      return {
+        write: (data) => {
+          if (child.stdin && !child.stdin.destroyed) {
+            child.stdin.write(data);
+          }
+        },
+        end: () => {
+          if (child.stdin && !child.stdin.destroyed) {
+            child.stdin.end();
+          }
+        },
+        kill: () => {
+          child.kill();
+        },
+        pid: child.pid
+      };
+    } catch (error) {
+      console.error('[Preload] Failed to spawn:', error);
+      if (onError) onError(error.message);
+      return null;
+    }
+  },
+  
+  // Speech recognition methods
+  startSpeechRecognition: () => {
+    console.log('[Preload] Starting speech recognition');
+    ipcRenderer.send('speech:start');
+  },
+  
+  stopSpeechRecognition: () => {
+    console.log('[Preload] Stopping speech recognition');
+    ipcRenderer.send('speech:stop');
+  },
+  
+  // Native speech recognition using AppleScript
+  startNativeSpeech: async () => {
+    console.log('[Preload] Starting native speech recognition');
+    try {
+      const result = await ipcRenderer.invoke('speech:startNative');
+      return result;
+    } catch (error) {
+      console.error('[Preload] Native speech failed:', error);
+      throw error;
+    }
+  },
+  
+  // Built-in speech recognition
+  startBuiltinSpeech: async () => {
+    console.log('[Preload] Starting built-in speech recognition');
+    try {
+      const result = await ipcRenderer.invoke('speech:startBuiltin');
+      return result;
+    } catch (error) {
+      console.error('[Preload] Built-in speech failed:', error);
+      throw error;
+    }
+  },
+  
+  onSpeechResult: (callback) => {
+    ipcRenderer.on('speech:result', (event, data) => callback(data));
+  },
+  
+  onSpeechError: (callback) => {
+    ipcRenderer.on('speech:error', (event, error) => callback(error));
+  },
+  
+  onSpeechEnd: (callback) => {
+    ipcRenderer.on('speech:end', () => callback());
+  },
+  
+  // CalDAV request method
+  caldavRequest: async (options) => {
+    console.log('[Preload] Making CalDAV request:', options.url);
+    try {
+      const response = await ipcRenderer.invoke('caldav:request', options);
+      return response;
+    } catch (error) {
+      console.error('[Preload] CalDAV request failed:', error);
+      throw error;
+    }
+  },
+  
+  // AppleScript execution for native calendar access
+  execAppleScript: async (script) => {
+    console.log('[Preload] Executing AppleScript');
+    console.log('[Preload] Script length:', script.length);
+    
+    // Add timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('AppleScript timeout after 30 seconds')), 30000);
+    });
+    
+    try {
+      const result = await Promise.race([
+        ipcRenderer.invoke('applescript:exec', script),
+        timeoutPromise
+      ]);
+      console.log('[Preload] AppleScript result received:', result ? result.substring(0, 100) : 'empty');
+      return result;
+    } catch (error) {
+      console.error('[Preload] AppleScript execution failed:', error);
+      throw error;
+    }
+  },
+  
+  // System process management
+  registerBackgroundService: async (serviceInfo) => {
+    console.log('[Preload] Registering background service:', serviceInfo.name);
+    try {
+      return await ipcRenderer.invoke('system:registerService', serviceInfo);
+    } catch (error) {
+      console.error('[Preload] Failed to register service:', error);
+      throw error;
+    }
+  },
+  
+  killProcess: async (processPattern) => {
+    console.log('[Preload] Killing process pattern:', processPattern);
+    try {
+      return await ipcRenderer.invoke('system:killProcess', processPattern);
+    } catch (error) {
+      console.error('[Preload] Failed to kill process:', error);
+      throw error;
+    }
+  },
+  
+  killPort: async (port) => {
+    console.log('[Preload] Killing process on port:', port);
+    try {
+      return await ipcRenderer.invoke('system:killPort', port);
+    } catch (error) {
+      console.error('[Preload] Failed to kill port:', error);
+      throw error;
+    }
+  },
+  
+  forceQuit: async () => {
+    console.log('[Preload] Force quit requested');
+    try {
+      return await ipcRenderer.invoke('system:forceQuit');
+    } catch (error) {
+      console.error('[Preload] Failed to force quit:', error);
+      throw error;
+    }
+  },
+
+  // Copy image to clipboard
+  copyImageToClipboard: async (imageBuffer) => {
+    console.log('[Preload] Copying image to clipboard, buffer size:', imageBuffer.byteLength);
+    try {
+      const result = await ipcRenderer.invoke('clipboard:copyImage', imageBuffer);
+      return result;
+    } catch (error) {
+      console.error('[Preload] Failed to copy image to clipboard:', error);
+      throw error;
+    }
+  },
+
+  // Save image with dialog
+  saveImageDialog: async (imageBuffer, defaultName = 'sephia-image.png') => {
+    console.log('[Preload] Saving image with dialog, buffer size:', imageBuffer.byteLength);
+    try {
+      const result = await ipcRenderer.invoke('dialog:saveImage', imageBuffer, defaultName);
+      return result;
+    } catch (error) {
+      console.error('[Preload] Failed to save image:', error);
+      throw error;
+    }
+  },
+  
+  // File System Operations for External Memory
+  readFile: async (filePath) => {
+    console.log('[Preload] Reading file:', filePath);
+    try {
+      return await ipcRenderer.invoke('fs:readFile', filePath);
+    } catch (error) {
+      console.error('[Preload] Failed to read file:', error);
+      throw error;
+    }
+  },
+  
+  writeFile: async (filePath, data) => {
+    console.log('[Preload] Writing file:', filePath);
+    try {
+      return await ipcRenderer.invoke('fs:writeFile', filePath, data);
+    } catch (error) {
+      console.error('[Preload] Failed to write file:', error);
+      throw error;
+    }
+  },
+  
+  deleteFile: async (filePath) => {
+    console.log('[Preload] Deleting file:', filePath);
+    try {
+      return await ipcRenderer.invoke('fs:deleteFile', filePath);
+    } catch (error) {
+      console.error('[Preload] Failed to delete file:', error);
+      throw error;
+    }
+  },
+  
+  fileExists: async (filePath) => {
+    try {
+      return await ipcRenderer.invoke('fs:fileExists', filePath);
+    } catch (error) {
+      console.error('[Preload] Failed to check if file exists:', error);
+      return false;
+    }
+  },
+  
+  mkdir: async (dirPath) => {
+    console.log('[Preload] Creating directory:', dirPath);
+    try {
+      return await ipcRenderer.invoke('fs:mkdir', dirPath);
+    } catch (error) {
+      console.error('[Preload] Failed to create directory:', error);
+      throw error;
+    }
+  },
+
+  // Persistent Storage API (userData directory)
+  storage: {
+    set: async (key, value) => {
+      console.log('[Preload] Storing data for key:', key);
+      try {
+        return await ipcRenderer.invoke('storage:set', key, value);
+      } catch (error) {
+        console.error('[Preload] Failed to store data:', error);
+        throw error;
+      }
+    },
+    
+    get: async (key) => {
+      console.log('[Preload] Retrieving data for key:', key);
+      try {
+        return await ipcRenderer.invoke('storage:get', key);
+      } catch (error) {
+        console.error('[Preload] Failed to retrieve data:', error);
+        throw error;
+      }
+    },
+    
+    remove: async (key) => {
+      console.log('[Preload] Removing data for key:', key);
+      try {
+        return await ipcRenderer.invoke('storage:remove', key);
+      } catch (error) {
+        console.error('[Preload] Failed to remove data:', error);
+        throw error;
+      }
+    }
+  },
+  
+  // Ollama API
+  ollama: {
+    // List available models
+    listModels: async () => {
+      console.log('[Preload] Listing Ollama models');
+      return new Promise((resolve, reject) => {
+        exec('ollama list', (error, stdout, stderr) => {
+          if (error) {
+            console.error('[Preload] Failed to list models:', error);
+            reject(error);
+            return;
+          }
+          
+          // Parse the output to extract model names
+          const lines = stdout.split('\n').filter(line => line.trim());
+          const models = [];
+          
+          // Skip the header line
+          for (let i = 1; i < lines.length; i++) {
+            const parts = lines[i].split(/\s+/);
+            if (parts[0]) {
+              models.push({
+                name: parts[0],
+                size: parts[1] || '',
+                modified: parts.slice(2).join(' ') || ''
+              });
+            }
+          }
+          
+          resolve(models);
+        });
+      });
+    },
+    
+    // Generate response (non-streaming)
+    generate: async (model, prompt, options = {}) => {
+      console.log('[Preload] Generating with model:', model);
+      const args = ['run', model, prompt];
+      
+      return new Promise((resolve, reject) => {
+        exec(`ollama ${args.join(' ')}`, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+          if (error) {
+            console.error('[Preload] Generation failed:', error);
+            reject(error);
+            return;
+          }
+          
+          resolve({ response: stdout.trim() });
+        });
+      });
+    },
+    
+    // Stream generate response
+    streamGenerate: (model, prompt, onData, onEnd, onError, options = {}) => {
+      console.log('[Preload] Stream generating with model:', model);
+      
+      const child = spawn('ollama', ['run', model], {
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      
+      let fullResponse = '';
+      
+      // Send the prompt
+      child.stdin.write(prompt + '\n');
+      child.stdin.end();
+      
+      // Handle stdout
+      child.stdout.on('data', (data) => {
+        const text = data.toString();
+        fullResponse += text;
+        if (onData) onData(text);
+      });
+      
+      // Handle stderr
+      child.stderr.on('data', (data) => {
+        console.error('[Preload] Ollama stderr:', data.toString());
+      });
+      
+      // Handle close
+      child.on('close', (code) => {
+        if (code === 0) {
+          if (onEnd) onEnd();
+        } else {
+          if (onError) onError(new Error(`Process exited with code ${code}`));
+        }
+      });
+      
+      // Handle error
+      child.on('error', (err) => {
+        console.error('[Preload] Ollama process error:', err);
+        if (onError) onError(err);
+      });
+      
+      // Return cleanup function
+      return () => {
+        child.kill();
+      };
+    },
+    
+    // Start terminal session
+    startTerminal: (model, onData, onEnd, onError) => {
+      console.log('[Preload] Starting Ollama terminal with model:', model);
+      
+      const child = spawn('ollama', ['run', model], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env, FORCE_COLOR: '1' }
+      });
+      
+      // Handle stdout
+      child.stdout.on('data', (data) => {
+        if (onData) onData(data.toString());
+      });
+      
+      // Handle stderr
+      child.stderr.on('data', (data) => {
+        const stderr = data.toString();
+        console.error('[Preload] Terminal stderr:', stderr);
+        if (stderr.includes('could not find model')) {
+          if (onError) onError(new Error(`Model '${model}' not found`));
+        }
+      });
+      
+      // Handle close
+      child.on('close', (code) => {
+        console.log('[Preload] Terminal closed with code:', code);
+        if (onEnd) onEnd(code);
+      });
+      
+      // Handle error
+      child.on('error', (err) => {
+        console.error('[Preload] Terminal error:', err);
+        if (onError) onError(err);
+      });
+      
+      // Return control object
+      return {
+        write: (data) => {
+          if (child.stdin && !child.stdin.destroyed) {
+            child.stdin.write(data);
+          }
+        },
+        kill: () => {
+          child.kill();
+        }
+      };
+    }
   }
-});
+};
+
+console.log('[Preload] API object created with keys:', Object.keys(electronAPI));
+
+// Expose protected methods to the renderer process
+contextBridge.exposeInMainWorld('electron', electronAPI);
 
 // Log that preload script has loaded
 console.log('Preload script loaded with contextBridge enabled');
+console.log('[Preload] Testing exposed API...');
+setTimeout(() => {
+  console.log('[Preload] Verifying window.electron exists in renderer context');
+}, 1000);

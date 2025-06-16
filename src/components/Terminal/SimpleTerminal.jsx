@@ -144,6 +144,14 @@ const SimpleTerminal = ({ model, onClose }) => {
       term.clear();
       term.writeln(`Connecting to ${modelName} model...\r\n`);
       
+      // Check if electron API is available
+      if (!window.electron || !window.electron.ollama) {
+        term.writeln('\r\n[Error] Terminal API not available in web mode.\r\n');
+        term.writeln('Terminal functionality requires the Electron app.\r\n');
+        setIsConnected(false);
+        return;
+      }
+      
       // Start a new terminal session
       const session = await window.electron.ollama.startTerminal(
         modelName,

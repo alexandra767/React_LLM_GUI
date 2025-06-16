@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Calendar Auth</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #fff;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #444;
+            border-radius: 5px;
+        }
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .info { color: #2196F3; }
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1976D2;
+        }
+        input {
+            padding: 8px;
+            margin: 5px;
+            border-radius: 3px;
+            border: 1px solid #444;
+            background: #2a2a2a;
+            color: white;
+            width: 300px;
+        }
+        pre {
+            background: #2a2a2a;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>Apple Calendar Authentication Debugger</h1>
+    
+    <div class="section">
+        <h2>1. Check Stored Credentials</h2>
+        <button onclick="checkStoredCredentials()">Check localStorage</button>
+        <pre id="stored-creds"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>2. Test Authentication</h2>
+        <div>
+            <input type="text" id="test-username" placeholder="Apple ID (email)">
+            <input type="password" id="test-password" placeholder="App-specific password">
+            <button onclick="testAuth()">Test Auth</button>
+        </div>
+        <pre id="test-result"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>3. Base64 Encoding Test</h2>
+        <button onclick="testEncoding()">Test Current Credentials Encoding</button>
+        <pre id="encoding-result"></pre>
+    </div>
+    
+    <div class="section">
+        <h2>4. Direct CalDAV Test</h2>
+        <button onclick="testCalDAV()">Test CalDAV Request</button>
+        <pre id="caldav-result"></pre>
+    </div>
+
+    <script>
+        function log(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            element.innerHTML += `<span class="${type}">[${timestamp}] ${message}</span>\n`;
+        }
+
+        function checkStoredCredentials() {
+            const output = document.getElementById('stored-creds');
+            output.innerHTML = '';
+            
+            try {
+                // Check settings
+                const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+                log('stored-creds', 'Settings found:', 'success');
+                log('stored-creds', `Apple ID: ${settings.appleId || 'NOT SET'}`, settings.appleId ? 'success' : 'error');
+                log('stored-creds', `Password stored: ${settings.appleAppPassword ? 'YES' : 'NO'}`, settings.appleAppPassword ? 'success' : 'error');
+                if (settings.appleAppPassword) {
+                    log('stored-creds', `Password length: ${settings.appleAppPassword.length} chars`, 'info');
+                    log('stored-creds', `Password format: ${settings.appleAppPassword.substring(0, 4)}...${settings.appleAppPassword.substring(settings.appleAppPassword.length - 4)}`, 'info');
+                    
+                    // Check for common issues
+                    if (settings.appleAppPassword.includes(' ')) {
+                        log('stored-creds', 'WARNING: Password contains spaces!', 'error');
+                    }
+                    if (settings.appleAppPassword.length !== 19 && settings.appleAppPassword.length !== 16) {
+                        log('stored-creds', 'WARNING: App-specific passwords are usually 16 or 19 chars (with dashes)', 'error');
+                    }
+                }
+                
+                // Check auth state
+                const authState = localStorage.getItem('apple_calendar_auth');
+                if (authState) {
+                    const auth = JSON.parse(authState);
+                    log('stored-creds', '\nAuth state found:', 'success');
+                    log('stored-creds', `Username: ${auth.username || 'NOT SET'}`, 'info');
+                    log('stored-creds', `Configured: ${auth.isConfigured || false}`, 'info');
+                    log('stored-creds', `Calendar URL: ${auth.calendarUrl || 'NOT SET'}`, 'info');
+                }
+            } catch (e) {
+                log('stored-creds', `Error: ${e.message}`, 'error');
+            }
+        }
+
+        async function testAuth() {
+            const output = document.getElementById('test-result');
+            output.innerHTML = '';
+            
+            const username = document.getElementById('test-username').value;
+            const password = document.getElementById('test-password').value;
+            
+            if (!username || !password) {
+                log('test-result', 'Please enter both username and password', 'error');
+                return;
+            }
+            
+            log('test-result', `Testing with username: ${username}`, 'info');
+            log('test-result', `Password length: ${password.length}`, 'info');
+            
+            // Create auth header
+            const auth = btoa(`${username}:${password}`);
+            log('test-result', `Base64 auth: ${auth.substring(0, 20)}...`, 'info');
+            
+            // Test if we're in Electron
+            if (window.electron && window.electron.caldavRequest) {
+                log('test-result', 'Using Electron IPC for request...', 'info');
+                
+                try {
+                    const response = await window.electron.caldavRequest({
+                        url: 'https://caldav.icloud.com:443/',
+                        method: 'PROPFIND',
+                        headers: {
+                            'Authorization': `Basic ${auth}`,
+                            'Content-Type': 'application/xml; charset=utf-8',
+                            'Depth': '0'
+                        },
+                        body: `<?xml version="1.0" encoding="UTF-8"?>
+                        <d:propfind xmlns:d="DAV:">
+                          <d:prop>
+                            <d:current-user-principal/>
+                          </d:prop>
+                        </d:propfind>`
+                    });
+                    
+                    log('test-result', `Response status: ${response.status}`, response.status < 300 ? 'success' : 'error');
+                    if (response.status === 401) {
+                        log('test-result', 'Authentication failed - check credentials', 'error');
+                    } else if (response.status === 200 || response.status === 207) {
+                        log('test-result', 'Authentication successful!', 'success');
+                        log('test-result', `Response preview: ${response.text.substring(0, 200)}...`, 'info');
+                    }
+                } catch (e) {
+                    log('test-result', `Error: ${e.message}`, 'error');
+                }
+            } else {
+                log('test-result', 'Not in Electron - cannot test CalDAV directly', 'error');
+            }
+        }
+
+        function testEncoding() {
+            const output = document.getElementById('encoding-result');
+            output.innerHTML = '';
+            
+            try {
+                const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+                if (!settings.appleId || !settings.appleAppPassword) {
+                    log('encoding-result', 'No credentials found in settings', 'error');
+                    return;
+                }
+                
+                const authString = `${settings.appleId}:${settings.appleAppPassword}`;
+                log('encoding-result', `Auth string length: ${authString.length}`, 'info');
+                log('encoding-result', `Username: ${settings.appleId}`, 'info');
+                log('encoding-result', `Password: ${settings.appleAppPassword.substring(0, 4)}...${settings.appleAppPassword.substring(settings.appleAppPassword.length - 4)}`, 'info');
+                
+                const encoded = btoa(authString);
+                log('encoding-result', `Base64 encoded: ${encoded.substring(0, 30)}...`, 'info');
+                log('encoding-result', `Encoded length: ${encoded.length}`, 'info');
+                
+                // Test decode
+                const decoded = atob(encoded);
+                log('encoding-result', `Decoded matches original: ${decoded === authString}`, decoded === authString ? 'success' : 'error');
+                
+                // Common issues check
+                if (settings.appleAppPassword.includes('-')) {
+                    log('encoding-result', 'Note: Password contains dashes (this is normal for app-specific passwords)', 'info');
+                }
+                
+            } catch (e) {
+                log('encoding-result', `Error: ${e.message}`, 'error');
+            }
+        }
+        
+        async function testCalDAV() {
+            const output = document.getElementById('caldav-result');
+            output.innerHTML = '';
+            
+            try {
+                const settings = JSON.parse(localStorage.getItem('sephia_settings') || '{}');
+                if (!settings.appleId || !settings.appleAppPassword) {
+                    log('caldav-result', 'No credentials found in settings', 'error');
+                    return;
+                }
+                
+                // Import and test the actual service
+                log('caldav-result', 'Testing CalDAV service...', 'info');
+                
+                // Create a simple test
+                const auth = btoa(`${settings.appleId}:${settings.appleAppPassword}`);
+                const testUrl = 'https://caldav.icloud.com:443/';
+                
+                log('caldav-result', `URL: ${testUrl}`, 'info');
+                log('caldav-result', `Method: PROPFIND`, 'info');
+                log('caldav-result', `Auth header: Basic ${auth.substring(0, 20)}...`, 'info');
+                
+                if (window.electron && window.electron.caldavRequest) {
+                    const response = await window.electron.caldavRequest({
+                        url: testUrl,
+                        method: 'PROPFIND',
+                        headers: {
+                            'Authorization': `Basic ${auth}`,
+                            'Content-Type': 'application/xml; charset=utf-8',
+                            'Depth': '0'
+                        },
+                        body: `<?xml version="1.0" encoding="UTF-8"?>
+                        <d:propfind xmlns:d="DAV:">
+                          <d:prop>
+                            <d:current-user-principal/>
+                          </d:prop>
+                        </d:propfind>`
+                    });
+                    
+                    log('caldav-result', `Status: ${response.status} ${response.statusText || ''}`, response.status < 300 ? 'success' : 'error');
+                    
+                    if (response.text) {
+                        log('caldav-result', 'Response received:', 'info');
+                        log('caldav-result', response.text.substring(0, 500), 'info');
+                    }
+                } else {
+                    log('caldav-result', 'Electron CalDAV not available', 'error');
+                }
+                
+            } catch (e) {
+                log('caldav-result', `Error: ${e.message}`, 'error');
+            }
+        }
+        
+        // Check on load
+        window.onload = () => {
+            checkStoredCredentials();
+        };
+    </script>
+</body>
+</html>

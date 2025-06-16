@@ -1,20 +1,9 @@
 import React from 'react';
-import { Box } from '@mui/material';
-import SimpleChat from '../components/SimpleChat';
+import ChatView from '../components/Chat/ChatView';
 
-const OllamaChatView = () => {
-  return (
-    <Box sx={{ 
-      width: '100%',
-      height: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      backgroundColor: 'background.default',
-      p: 2
-    }}>
-      <SimpleChat />
-    </Box>
-  );
-};
+const OllamaChatView = React.memo(() => {
+  // Use a stable key to prevent remounting
+  return <ChatView key="ollama-chat" />;
+});
 
 export default OllamaChatView;

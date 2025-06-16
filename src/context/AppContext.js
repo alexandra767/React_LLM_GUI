@@ -1,171 +1,367 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef, useMemo } from 'react';
+import { useTheme } from './ThemeContext';
 import llmService from '../services/LLMService';
+import networkStatusService from '../services/NetworkStatusService';
+import unifiedStorageService from '../services/UnifiedStorageService';
+import { clearSpokenMessages } from '../components/Chat/Message';
 
-const AppContext = createContext();
+// Import autonomous learning services to activate them
+import knowledgeService from '../services/KnowledgeService';
+import proactiveIntelligenceService from '../services/ProactiveIntelligenceService';
+import advancedFeaturesService from '../services/AdvancedFeaturesService';
+import experimentalCapabilitiesService from '../services/ExperimentalCapabilitiesService';
+import learningNotificationService from '../services/LearningNotificationService';
+import memoryService from '../services/MemoryService';
+import memoryAdapter from '../services/MemoryAdapter';
 
-export const useApp = () => useContext(AppContext);
+export const AppContext = createContext();
 
-// Load chats from localStorage
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    console.warn('useApp must be used within an AppProvider');
+    return { appState: { activeSection: 'ollama' } };
+  }
+  return context;
+};
+
+// Load chats from unified storage
 const loadChats = () => {
   try {
-    const savedChats = localStorage.getItem('sephia_chats');
+    const savedChats = unifiedStorageService.get('sephia_chats');
     return savedChats ? JSON.parse(savedChats) : [];
   } catch (error) {
-    console.error('Failed to load chats from localStorage:', error);
+    console.error('Failed to load chats from storage:', error);
     return [];
   }
 };
 
-// Load projects from localStorage
+// Load projects from unified storage
 const loadProjects = () => {
   try {
-    const savedProjects = localStorage.getItem('sephia_projects');
-    return savedProjects ? JSON.parse(savedProjects) : [];
+    const savedProjects = unifiedStorageService.get('sephia_projects');
+    if (savedProjects) {
+      const projects = JSON.parse(savedProjects);
+      // Ensure all projects have a model property
+      return projects.map(project => ({
+        ...project,
+        model: project.model || 'deepseek-r1:14b-m4'
+      }));
+    }
+    return [];
   } catch (error) {
-    console.error('Failed to load projects from localStorage:', error);
+    console.error('Failed to load projects from storage:', error);
     return [];
   }
 };
 
-// Load profile from localStorage
+// Load profile from unified storage
 const loadProfile = () => {
   try {
-    const savedProfile = localStorage.getItem('sephia_profile');
+    const savedProfile = unifiedStorageService.get('sephia_profile');
     return savedProfile ? JSON.parse(savedProfile) : {
       name: 'User',
+      email: '',
       picture: null,
       bio: '',
     };
   } catch (error) {
-    console.error('Failed to load profile from localStorage:', error);
+    console.error('Failed to load profile from storage:', error);
     return {
       name: 'User',
+      email: '',
       picture: null,
       bio: '',
     };
   }
+};
+
+// Extract personal facts from user messages
+const extractPersonalFacts = (message) => {
+  const facts = [];
+  const lowerMessage = message.toLowerCase();
+  
+  // Extract friend names and relationships
+  const friendPatterns = [
+    /my friend (\w+)/gi,
+    /friend named (\w+)/gi,
+    /friend (\w+)/gi,
+    /(\w+) is my friend/gi,
+    /know (\w+), (?:who is |he\/she is |they are )?my friend/gi
+  ];
+  
+  friendPatterns.forEach(pattern => {
+    const matches = [...message.matchAll(pattern)];
+    matches.forEach(match => {
+      const name = match[1];
+      if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+        facts.push({
+          key: `friend_${name.toLowerCase()}`,
+          value: name,
+          context: `Friend mentioned in conversation: "${message.substring(0, 100)}..."`
+        });
+      }
+    });
+  });
+  
+  // Extract family relationships
+  const familyPatterns = [
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+)/gi,
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) is (\w+)/gi,
+    /my (?:mom|mother|dad|father|sister|brother|wife|husband|partner) (\w+) (?:called|said|told|asked|visited|came)/gi
+  ];
+  
+  familyPatterns.forEach(pattern => {
+    const matches = [...message.matchAll(pattern)];
+    matches.forEach(match => {
+      const name = match[1];
+      const relationshipMatch = match[0].match(/(?:my )?(\w+)/);
+      const relationship = relationshipMatch ? relationshipMatch[1] : 'family';
+      
+      if (name && name.length > 1 && /^[A-Za-z]+$/.test(name)) {
+        facts.push({
+          key: `${relationship}_${name.toLowerCase()}`,
+          value: `${name} (${relationship})`,
+          context: `Family member mentioned: "${message.substring(0, 100)}..."`
+        });
+        
+        console.log('[AppContext] 👨‍👩‍👧‍👦 Extracted family relationship:', {
+          name,
+          relationship,
+          fullMatch: match[0],
+          fromMessage: message.substring(0, 50)
+        });
+      }
+    });
+  });
+  
+  // Extract preferences and personal info
+  const preferencePatterns = [
+    /i like (\w+)/gi,
+    /i love (\w+)/gi,
+    /i work (?:at|for) (\w+)/gi,
+    /i live in (\w+)/gi,
+    /my name is (\w+)/gi,
+    /call me (\w+)/gi
+  ];
+  
+  preferencePatterns.forEach(pattern => {
+    const matches = [...message.matchAll(pattern)];
+    matches.forEach(match => {
+      const value = match[1];
+      const type = match[0].includes('like') || match[0].includes('love') ? 'preference' : 
+                   match[0].includes('work') ? 'workplace' :
+                   match[0].includes('live') ? 'location' : 'name';
+      
+      facts.push({
+        key: `${type}_${value.toLowerCase()}`,
+        value: value,
+        context: `Personal info from: "${message.substring(0, 100)}..."`
+      });
+    });
+  });
+  
+  return facts;
 };
 
 export const AppProvider = ({ children }) => {
-  const [currentModel, setCurrentModel] = useState('deepseek-r1:14b');
+  // Initialize theme
+  const theme = useTheme();
+  // State declarations first
+  const [currentModel, setCurrentModel] = useState(() => {
+    const savedModel = unifiedStorageService.get('sephia_current_model');
+    // Use qwen3:14B as default since that's what's actually installed
+    const defaultModel = 'qwen3:14B';
+    console.log('[AppContext] Loading saved model:', savedModel || `${defaultModel} (default)`);
+    return savedModel || defaultModel;
+  });
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [appState, setAppState] = useState({
     sidebarCollapsed: false,
-    activeSection: 'ollama', // Default to ollama chat view
-    connectionStatus: 'disconnected', // 'connected', 'connecting', 'disconnected',
-    ollamaStatus: 'disconnected' // 'connected', 'connecting', 'disconnected'
+    activeSection: 'ollama',
+    connectionStatus: 'disconnected',
+    ollamaStatus: 'disconnected'
   });
-  
-  const [chats, setChats] = useState(loadChats());
-  const [projects, setProjects] = useState(loadProjects());
+  const [chats, setChats] = useState(loadChats);
+  const [projects, setProjects] = useState(loadProjects);
   const [currentChat, setCurrentChat] = useState(null);
-  const [profile, setProfile] = useState(loadProfile());
+  const [profile, setProfile] = useState(loadProfile);
   const [tokenCount, setTokenCount] = useState({ input: 0, output: 0, total: 0 });
   const [messageDuration, setMessageDuration] = useState(0);
+  const [imageGenerationProgress, setImageGenerationProgress] = useState(null);
+  const [companionMode, setCompanionMode] = useState(() => {
+    // Load companion mode preference from unified storage
+    const saved = unifiedStorageService.get('sephia_companion_mode');
+    return saved ? JSON.parse(saved) : false;
+  });
   
-  // Save chats to localStorage whenever they change
-  useEffect(() => {
-    localStorage.setItem('sephia_chats', JSON.stringify(chats));
-  }, [chats]);
+  // Network status state
+  const [networkStatus, setNetworkStatus] = useState(() => networkStatusService.getStatus());
   
-  // Save projects to localStorage whenever they change
+  // Initialize unified storage system
   useEffect(() => {
-    localStorage.setItem('sephia_projects', JSON.stringify(projects));
-  }, [projects]);
-  
-  // Save profile to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('sephia_profile', JSON.stringify(profile));
-  }, [profile]);
-  
-  // Fetch available models
-  useEffect(() => {
-    const fetchModels = async () => {
+    const initializeServices = async () => {
       try {
-        setLoading(true);
-        setAppState(prev => ({
-          ...prev,
-          connectionStatus: 'connecting'
-        }));
+        console.log('[AppContext] 🔧 Initializing unified storage...');
         
-        console.log("Fetching models from service and terminal...");
+        // Initialize unified storage service
+        await unifiedStorageService.initialize();
         
-        // Immediately set hard-coded models that match what we know exists
-        const hardcodedModels = [
-          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
-          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
-          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
-          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
-          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
-        ];
+        // Migrate data from old services
+        await unifiedStorageService.migrateFromOldServices();
         
-        // Set hardcoded models immediately
-        setModels(hardcodedModels);
+        // Create daily backup
+        await unifiedStorageService.createDailyBackup();
         
-        // Try to get actual models from Ollama in the background
+        console.log('[AppContext] ✅ Unified storage initialized');
+        
+        // CRITICAL: Initialize memory adapter to ensure Alexandra's name is available
+        console.log('[AppContext] 🧠 Initializing memory adapter...');
+        await memoryAdapter.ensureInitialized();
+        console.log('[AppContext] ✅ Memory adapter initialized');
+        
+        // Log storage stats
+        const stats = unifiedStorageService.getStats();
+        console.log('[AppContext] 📊 Storage stats:', stats);
+        
+        // Initialize autonomous learning services explicitly
+        console.log('[AppContext] 🧠 Activating autonomous learning services...');
+        
+        // Explicitly start services and their timers
         try {
-          const ollamaModels = await llmService.getAvailableModels();
+          // Force knowledge service initialization
+          knowledgeService.loadKnowledge();
+          knowledgeService.startUpdateScheduler();
+          console.log('[AppContext] ✅ KnowledgeService: Initialized and started');
           
-          // Only update if we got real models back
-          if (ollamaModels && ollamaModels.length > 0) {
-            // Map to our format
-            const mappedModels = ollamaModels.map(model => ({
-              id: model.id || model.name || 'unknown',
-              name: model.name || 'Unknown Model',
-              type: 'local',
-              size: model.size || 'Unknown size',
-            }));
-            
-            console.log("Loaded models from Ollama:", mappedModels);
-            setModels(mappedModels);
-            
-            setAppState(prev => ({
-              ...prev,
-              connectionStatus: 'connected'
-            }));
-          }
-        } catch (apiError) {
-          console.error("Error fetching models from API:", apiError);
-          // We keep the hardcoded models already set
+          // Start proactive intelligence
+          proactiveIntelligenceService.startIntelligenceEngine();
+          console.log('[AppContext] ✅ ProactiveIntelligenceService: Started intelligence engine');
+          
+          // Start learning notifications
+          learningNotificationService.startNotificationEngine();
+          console.log('[AppContext] ✅ LearningNotificationService: Started notification engine');
+          
+          // Initialize memory service
+          memoryService.loadMemories();
+          console.log('[AppContext] ✅ MemoryService: Loaded personal memories');
+          
+          // Trigger immediate knowledge update for testing
+          setTimeout(() => {
+            console.log('[AppContext] 🔄 Triggering initial knowledge update...');
+            knowledgeService.updateRealTimeKnowledge();
+          }, 2000);
+          
+        } catch (serviceError) {
+          console.error('[AppContext] ❌ Service initialization failed:', serviceError);
         }
         
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed in model fetch process:', err);
-        setError('Failed to fetch models');
+        console.log('[AppContext] 🎯 Aria will now autonomously learn from:');
+        console.log('[AppContext]   • RSS news feeds (O\'Reilly, Wired, CNN) - every 30 min');
+        console.log('[AppContext]   • GitHub trending repositories - every 4 hours');
+        console.log('[AppContext]   • Programming language trends - every 6 hours');
+        console.log('[AppContext]   • Hacker News top stories - every 4 hours');
+        console.log('[AppContext]   • Developer news (GitHub, Stack Overflow) - every 4 hours');
+        console.log('[AppContext]   • User behavior pattern analysis - every 5 min');
+        console.log('[AppContext] 🔔 Proactive notifications will alert you to interesting discoveries!');
         
-        // Ensure we at least have the hardcoded models
-        setModels([
-          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
-          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
-          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
-          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
-          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
-        ]);
-        
-        setAppState(prev => ({
-          ...prev,
-          connectionStatus: 'disconnected'
-        }));
-        
-        setLoading(false);
+      } catch (error) {
+        console.error('[AppContext] ❌ Failed to initialize storage:', error);
       }
     };
     
-    fetchModels();
-    
-    // Set up a refresh interval to periodically check for new models
-    const modelRefreshInterval = setInterval(() => {
-      fetchModels();
-    }, 60000); // Refresh every 60 seconds
-    
-    return () => {
-      clearInterval(modelRefreshInterval);
-    };
+    initializeServices();
   }, []);
   
+  // Debug image generation progress
+  useEffect(() => {
+    console.log('[AppContext] Image generation progress changed:', {
+      progress: imageGenerationProgress,
+      type: typeof imageGenerationProgress,
+      keys: imageGenerationProgress ? Object.keys(imageGenerationProgress) : null,
+      stackTrace: new Error().stack
+    });
+  }, [imageGenerationProgress]);
+  
+  // Wrapper for setImageGenerationProgress with debugging
+  const setImageGenerationProgressWithDebug = (progress) => {
+    console.log('[AppContext] setImageGenerationProgress called with:', {
+      progress,
+      type: typeof progress,
+      keys: progress ? Object.keys(progress) : null,
+      stackTrace: new Error().stack
+    });
+    setImageGenerationProgress(progress);
+  };
+  
+  // Image generation cancel function
+  const cancelImageGeneration = async () => {
+    console.log('[AppContext] Cancelling image generation...');
+    try {
+      const imageService = await import('../services/ImageGenerationService');
+      const result = await imageService.default.cancelGeneration();
+      setImageGenerationProgress(null);
+      return result;
+    } catch (error) {
+      console.error('[AppContext] Error cancelling image generation:', error);
+      setImageGenerationProgress(null);
+      return false;
+    }
+  };
+  
+  // Function declarations next
+  const updateTokenCount = (newCount) => {
+    if (typeof newCount === 'function') {
+      setTokenCount(prev => {
+        const updated = newCount(prev);
+        return { ...prev, ...updated };
+      });
+    } else {
+      // For streaming, we want to set the output tokens directly, not add to them
+      setTokenCount(prev => ({
+        input: newCount?.input !== undefined ? newCount.input : prev.input,
+        output: newCount?.output !== undefined ? newCount.output : prev.output,
+        total: (newCount?.input !== undefined ? newCount.input : prev.input) + 
+               (newCount?.output !== undefined ? newCount.output : prev.output)
+      }));
+    }
+  };
+  
+  const setMessageTime = (time) => {
+    setMessageDuration(time);
+  };
+  
+  const resetTokenCount = () => {
+    setTokenCount({ input: 0, output: 0, total: 0 });
+  };
+
+  // Auto-switch models based on network status
+  const autoSwitchModel = () => {
+    const recommendation = networkStatusService.getRecommendedModel();
+    const currentModel = unifiedStorageService.get('sephia_current_model');
+    
+    if (recommendation.model !== currentModel) {
+      console.log(`[AppContext] Auto-switching model: ${currentModel} → ${recommendation.model} (${recommendation.reason})`);
+      setCurrentModel(recommendation.model);
+      unifiedStorageService.set('sephia_current_model', recommendation.model);
+      
+      // Update connection status based on model type
+      setAppState(prev => ({
+        ...prev,
+        connectionStatus: recommendation.type === 'local' ? 'connected' : 
+                         networkStatus.isOnline ? 'connected' : 'disconnected'
+      }));
+      
+      return recommendation;
+    }
+    return null;
+  };
+  
+
+  
+  // Define other functions that will be used in the context value
   const toggleSidebar = () => {
     setAppState(prev => ({
       ...prev,
@@ -179,166 +375,682 @@ export const AppProvider = ({ children }) => {
       activeSection: section
     }));
   };
-
+  
   const updateProfile = (newProfileData) => {
     setProfile(prev => ({
       ...prev,
       ...newProfileData
     }));
   };
+
+  // Wrapper function to toggle companion mode and clear spoken messages
+  const toggleCompanionMode = (enabled) => {
+    console.log('[AppContext] Toggling companion mode to:', enabled);
+    // Clear spoken messages cache when toggling companion mode to prevent voice conflicts
+    clearSpokenMessages();
+    setCompanionMode(enabled);
+    // Save to storage
+    unifiedStorageService.set('sephia_companion_mode', JSON.stringify(enabled));
+  };
   
-  const createNewChat = () => {
+  // Handle chat selection and apply theme
+  const handleChatSelect = (chat) => {
+    // Clear spoken messages cache when switching chats to prevent voice conflicts
+    clearSpokenMessages();
+    
+    // Find the full chat data from the chats array to ensure we have all messages
+    const fullChat = chats.find(c => c.id === chat.id);
+    if (fullChat) {
+      console.log('[AppContext] Loading chat:', fullChat.id, 'with', fullChat.messages?.length || 0, 'messages');
+      setCurrentChat(fullChat);
+    } else {
+      console.warn('[AppContext] Chat not found in chats array:', chat.id);
+      setCurrentChat(chat);
+    }
+    // Don't save current chat ID - app should always start fresh
+    
+    try {
+      // Apply the chat's theme if it has one
+      if (chat.theme) {
+        // Update the theme in unified storage
+        unifiedStorageService.set('sephia_theme', chat.theme);
+        
+        // Update the document attribute for CSS variables
+        document.documentElement.setAttribute('data-theme', chat.theme);
+        
+        // If the theme context is available, update it as well
+        if (typeof window !== 'undefined' && window.__themeContext) {
+          window.__themeContext.setTheme(chat.theme);
+        }
+      }
+      
+      // Keep the current section instead of switching to 'chat'
+      // setAppState(prev => ({
+      //   ...prev,
+      //   activeSection: 'chat'
+      // }));
+    } catch (error) {
+      console.error('Error in handleChatSelect:', error);
+    }
+  };
+
+  // Generate a description from the first message content
+  const generateChatDescription = (message) => {
+    if (!message) return 'New chat';
+    
+    try {
+      // Extract text from message (handling both string and object messages)
+      let text = '';
+      if (typeof message === 'string') {
+        text = message;
+      } else if (typeof message === 'object') {
+        // Handle different message formats
+        if (Array.isArray(message.content)) {
+          // Handle array content (e.g., from OpenAI format)
+          text = message.content
+            .filter(part => typeof part === 'string' || (part && typeof part.text === 'string'))
+            .map(part => typeof part === 'string' ? part : part.text)
+            .join(' ');
+        } else if (message.content) {
+          text = message.content;
+        } else if (message.text) {
+          text = message.text;
+        } else if (message.message) {
+          text = message.message;
+        } else if (message.parts && Array.isArray(message.parts)) {
+          text = message.parts
+            .filter(part => typeof part === 'string' || (part && typeof part.text === 'string'))
+            .map(part => typeof part === 'string' ? part : part.text)
+            .join(' ');
+        }
+      }
+      
+      // If we still don't have text, return a default description
+      if (!text || typeof text !== 'string') {
+        return 'New chat';
+      }
+      
+      // Clean up the text for the description
+      let description = text.trim();
+      
+      // Remove markdown formatting, code blocks, etc.
+      description = description
+        .replace(/```[\s\S]*?```/g, '') // Remove code blocks
+        .replace(/`[^`]+`/g, '')        // Remove inline code
+        .replace(/[#*_~]/g, '')         // Remove markdown formatting
+        .replace(/\n+/g, ' ')           // Replace newlines with spaces
+        .replace(/\s+/g, ' ')           // Collapse multiple spaces
+        .trim();
+      
+      // Truncate if needed (shorter for mobile, longer for desktop)
+      const maxLength = window.innerWidth < 768 ? 30 : 50;
+      if (description.length > maxLength) {
+        // Try to truncate at a sentence or word boundary
+        const truncated = description.substring(0, maxLength);
+        const lastSpace = truncated.lastIndexOf(' ');
+        const lastPunctuation = Math.max(
+          truncated.lastIndexOf('.'),
+          truncated.lastIndexOf('!'),
+          truncated.lastIndexOf('?')
+        );
+        
+        if (lastPunctuation > 0 && (maxLength - lastPunctuation) < 10) {
+          description = truncated.substring(0, lastPunctuation + 1);
+        } else if (lastSpace > 0 && (maxLength - lastSpace) < 10) {
+          description = truncated.substring(0, lastSpace);
+        } else {
+          description = truncated;
+        }
+        
+        // Add ellipsis if we truncated
+        if (description.length < text.length) {
+          description += '...';
+        }
+      }
+      
+      return description || 'New chat';
+      
+    } catch (error) {
+      console.error('Error generating chat description:', error);
+      return 'New chat';
+    }
+  };
+
+  const createNewChat = (initialTitle = 'New Chat', themeName = 'dark', firstMessage = '') => {
+    // Clear spoken messages cache when starting a new chat to prevent voice conflicts
+    clearSpokenMessages();
+    
+    // Generate a timestamp for the chat
+    const timestamp = new Date().toISOString();
+    
+    // Create the first message if provided
+    const firstMessageObj = firstMessage ? [{
+      id: `msg_${Date.now()}`,
+      role: 'user',
+      content: firstMessage,
+      timestamp: timestamp,
+      isUser: true
+    }] : [];
+    
+    // Generate a description from the first message or use a default
+    const description = firstMessage ? generateChatDescription(firstMessage) : 'New chat';
+    
+    // Use the generated description as the title if we have a first message
+    const chatTitle = firstMessage ? description : initialTitle;
+    
+    // Create the chat object with a more unique ID
+    const uniqueId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${performance.now().toString().replace('.', '')}`;
     const newChat = {
-      id: Date.now().toString(),
-      title: 'New Chat',
-      messages: [],
+      id: uniqueId,
+      title: chatTitle,
+      description: description,
+      messages: firstMessageObj,
       model: currentModel,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tokenCount: 0
+      theme: themeName,
+      isStarred: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      tokenCount: 0,
+      isArchived: false
     };
     
-    setChats(prev => [newChat, ...prev]);
+    // Update the chats array with the new chat
+    setChats(prevChats => {
+      const updatedChats = Array.isArray(prevChats) ? [...prevChats] : [];
+      // Remove any existing chat with the same ID to avoid duplicates
+      const filteredChats = updatedChats.filter(chat => chat.id !== newChat.id);
+      return [newChat, ...filteredChats];
+    });
+    
+    // Set the new chat as the current chat
     setCurrentChat(newChat);
-    setAppState(prev => ({
-      ...prev,
-      activeSection: 'chat'
-    }));
+    
+    // Keep the current section instead of switching to 'chat'
+    // setAppState(prev => ({
+    //   ...prev,
+    //   activeSection: 'chat'
+    // }));
+    
+    // Apply the theme for the new chat if it's different from current
+    if (themeName && theme?.setTheme && themeName !== theme.themeName) {
+      theme.setTheme(themeName);
+    }
+    
+    // Don't save current chat ID - app should always start fresh
     
     return newChat;
   };
 
   const sendMessage = async (chatId, message, options = {}) => {
     try {
-      // Find the chat to update
-      const chatIndex = chats.findIndex(c => c.id === chatId);
-      if (chatIndex === -1) {
-        throw new Error(`Chat with ID ${chatId} not found`);
+      const chat = chats.find(c => c.id === chatId);
+      if (!chat) {
+        console.error('Chat not found');
+        return;
       }
-      
-      // Add the user message to the chat
-      const chatToUpdate = { ...chats[chatIndex] };
+
       const userMessage = {
         id: Date.now().toString(),
-        content: message,
         role: 'user',
-        timestamp: new Date().toISOString(),
+        content: message,
+        timestamp: new Date().toISOString()
       };
-      
-      chatToUpdate.messages = [...chatToUpdate.messages, userMessage];
-      chatToUpdate.updatedAt = new Date().toISOString();
-      
-      // Update the chat with the user message
-      const updatedChats = [...chats];
-      updatedChats[chatIndex] = chatToUpdate;
+
+      // Add user message to chat
+      const updatedChat = {
+        ...chat,
+        messages: [...(chat.messages || []), userMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update chats state
+      const updatedChats = chats.map(c => c.id === chatId ? updatedChat : c);
       setChats(updatedChats);
-      
-      // Get response from the LLM service
-      const response = await llmService.generateResponse(message, {
-        model: currentModel,
+      setCurrentChat(updatedChat);
+
+      // If this is the first message, update the chat title and description
+      if ((updatedChat.messages || []).length === 1) {
+        const description = generateChatDescription(message);
+        updatedChat.description = description;
+        updatedChat.title = description; // Use description as title
+        
+        const updatedChatsWithDescription = updatedChats.map(c => 
+          c.id === chatId ? { ...c, description, title: description } : c
+        );
+        setChats(updatedChatsWithDescription);
+        setCurrentChat(prev => ({ ...prev, description, title: description }));
+      }
+
+      // Search knowledge base for relevant information
+      let knowledgeContext = '';
+      try {
+        // Search for relevant knowledge (politics, news, current events, etc.)
+        const relevantKnowledge = knowledgeService.searchKnowledge(message, null, 5);
+        
+        if (relevantKnowledge && relevantKnowledge.length > 0) {
+          knowledgeContext = '\n\n[Relevant information from Aria\'s knowledge base:]\n';
+          relevantKnowledge.forEach((item, index) => {
+            const knowledge = item.knowledge;
+            const title = knowledge.title || knowledge.content || item.key;
+            const summary = knowledge.summary || knowledge.description || '';
+            const source = knowledge.source || 'Unknown';
+            const timestamp = knowledge.timestamp ? new Date(knowledge.timestamp).toLocaleDateString() : '';
+            
+            knowledgeContext += `${index + 1}. ${title}`;
+            if (summary && summary !== title) {
+              knowledgeContext += ` - ${summary}`;
+            }
+            if (source && timestamp) {
+              knowledgeContext += ` (${source}, ${timestamp})`;
+            }
+            knowledgeContext += '\n';
+          });
+          
+          console.log('[AppContext] 🧠 Found relevant knowledge:', relevantKnowledge.length, 'items');
+        }
+      } catch (knowledgeError) {
+        console.warn('[AppContext] Knowledge search failed:', knowledgeError);
+      }
+
+      // Get personal memory context for Aria
+      let memoryContext = '';
+      try {
+        // Try memoryAdapter first
+        let personalContext = null;
+        try {
+          personalContext = await memoryAdapter.getRelevantContext(message);
+        } catch (adapterError) {
+          console.warn('[AppContext] MemoryAdapter failed, using direct MemoryService:', adapterError);
+        }
+        
+        // Fallback to direct MemoryService access
+        if (!personalContext || (Object.keys(personalContext.personal || {}).length === 0 && (personalContext.conversations || []).length === 0)) {
+          const directMemory = memoryService.getPersonalContext();
+          const searchResults = memoryService.searchMemory(message);
+          
+          personalContext = {
+            personal: directMemory.personal || {},
+            relationships: directMemory.relationships || {},
+            conversations: directMemory.conversations || [],
+            searchResults: searchResults
+          };
+          
+          console.log('[AppContext] 🔍 Direct memory search found:', searchResults.length, 'relevant items');
+        }
+        
+        if (personalContext && (Object.keys(personalContext.personal || {}).length > 0 || (personalContext.conversations || []).length > 0 || Object.keys(personalContext.relationships || {}).length > 0)) {
+          memoryContext = '\n\n[Personal context from memory:]\n';
+          
+          // Add personal facts
+          if (Object.keys(personalContext.personal || {}).length > 0) {
+            memoryContext += 'Personal facts:\n';
+            Object.entries(personalContext.personal).forEach(([key, fact]) => {
+              const value = typeof fact === 'object' ? fact.value : fact;
+              if (key === 'name' || key === 'user_name') {
+                memoryContext += `- User's name: ${value}\n`;
+              } else if (key.includes('friend')) {
+                memoryContext += `- Friend: ${value}\n`;
+              } else if (key.includes('relation')) {
+                memoryContext += `- ${key}: ${value}\n`;
+              } else {
+                memoryContext += `- ${key}: ${value}\n`;
+              }
+            });
+          }
+          
+          // Add relationship information
+          if (Object.keys(personalContext.relationships || {}).length > 0) {
+            memoryContext += 'Known relationships:\n';
+            Object.entries(personalContext.relationships).forEach(([name, relationship]) => {
+              const relType = typeof relationship === 'object' ? relationship.relationship : relationship;
+              memoryContext += `- ${name}: ${relType || 'known person'}\n`;
+            });
+          }
+          
+          // Add search results if available
+          if (personalContext.searchResults && personalContext.searchResults.length > 0) {
+            memoryContext += 'Relevant memory search results:\n';
+            personalContext.searchResults.slice(0, 3).forEach(result => {
+              const value = typeof result.value === 'object' ? 
+                (result.value.value || JSON.stringify(result.value)) : 
+                result.value;
+              memoryContext += `- ${result.key}: ${value}\n`;
+            });
+          }
+          
+          console.log('[AppContext] 💭 Retrieved personal memory context with', Object.keys(personalContext.personal || {}).length, 'facts and', Object.keys(personalContext.relationships || {}).length, 'relationships');
+        }
+      } catch (memoryError) {
+        console.warn('[AppContext] Memory context retrieval failed:', memoryError);
+      }
+
+      // Get AI response with knowledge and memory context
+      const enhancedMessage = message + knowledgeContext + memoryContext;
+      const response = await llmService.sendMessage(chatId, enhancedMessage, {
+        model: chat.model || currentModel,
         ...options
       });
-      
-      // Add the AI response to the chat
+
       const aiMessage = {
         id: (Date.now() + 1).toString(),
-        content: response.text,
         role: 'assistant',
-        timestamp: new Date().toISOString(),
+        content: response.content,
+        timestamp: new Date().toISOString()
       };
-      
-      chatToUpdate.messages = [...chatToUpdate.messages, aiMessage];
-      chatToUpdate.updatedAt = new Date().toISOString();
-      
-      // Update token counts
-      chatToUpdate.tokenCount = (chatToUpdate.tokenCount || 0) + 
-        (response.tokens?.input || 0) + 
-        (response.tokens?.output || 0);
-      
-      // Update the chat with the AI response
-      updatedChats[chatIndex] = chatToUpdate;
-      setChats(updatedChats);
-      
-      // Update application token counts
-      updateTokenCount(response.tokens);
-      
-      // Update message generation duration
-      setMessageTime(response.duration);
-      
+
+      // Add AI response to chat
+      const finalChat = {
+        ...updatedChat,
+        messages: [...(updatedChat.messages || []), aiMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update chats state with AI response
+      const finalChats = updatedChats.map(c => c.id === chatId ? finalChat : c);
+      setChats(finalChats);
+      setCurrentChat(finalChat);
+
+      // Add conversation to personal memory
+      try {
+        await memoryAdapter.addConversation(message, response.content, {
+          chatId,
+          model: chat.model || currentModel,
+          timestamp: new Date().toISOString()
+        });
+        console.log('[AppContext] 💾 Added conversation to personal memory');
+        
+        // Extract and store personal facts from the conversation
+        const personalFacts = extractPersonalFacts(message);
+        for (const fact of personalFacts) {
+          // Store as personal info
+          await memoryAdapter.addPersonalInfo(fact.key, fact.value, fact.context);
+          console.log('[AppContext] 📝 Stored personal fact:', fact.key, '=', fact.value);
+          
+          // Also store family/friend relationships as actual relationships
+          if (fact.key.includes('friend_') || fact.key.includes('brother_') || fact.key.includes('sister_') || 
+              fact.key.includes('mom_') || fact.key.includes('dad_') || fact.key.includes('mother_') || 
+              fact.key.includes('father_') || fact.key.includes('wife_') || fact.key.includes('husband_') || 
+              fact.key.includes('partner_')) {
+            
+            const nameMatch = fact.value.match(/^(\w+)/);
+            const relationshipMatch = fact.key.match(/^(\w+)_/);
+            
+            if (nameMatch && relationshipMatch) {
+              const name = nameMatch[1];
+              const relationship = relationshipMatch[1];
+              
+              await memoryAdapter.addRelationship(name, relationship);
+              console.log('[AppContext] 👨‍👩‍👧‍👦 Stored relationship:', name, '=', relationship);
+            }
+          }
+        }
+        
+      } catch (memoryError) {
+        console.warn('[AppContext] Failed to add conversation to memory:', memoryError);
+      }
+
+      // Save to unified storage
+      unifiedStorageService.set('sephia_chats', JSON.stringify(finalChats));
+
       return aiMessage;
     } catch (error) {
-      console.error('Failed to send message:', error);
+      console.error('Error sending message:', error);
       throw error;
     }
   };
 
-  // Function to support streaming messages
-  const streamMessage = async (message, options = {}, onChunk) => {
+  const streamMessage = async (chatId, message, options = {}) => {
     try {
-      console.log(`AppContext: Streaming message using model ${currentModel}`);
-      
-      // First validate the connection status
-      if (appState.connectionStatus !== 'connected') {
-        console.log('Connection not established, setting to connecting state...');
-        setAppState(prev => ({
-          ...prev,
-          connectionStatus: 'connecting'
-        }));
-        
-        // Add a short delay to ensure UI updates
-        await new Promise(resolve => setTimeout(resolve, 100));
+      const chat = chats.find(c => c.id === chatId);
+      if (!chat) {
+        console.error('Chat not found');
+        return;
       }
-      
-      // Wrap the onChunk callback to update connection status based on responses
-      const enhancedCallback = (chunkData) => {
+
+      const userMessage = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: message,
+        timestamp: new Date().toISOString()
+      };
+
+      // Add user message to chat
+      const updatedChat = {
+        ...chat,
+        messages: [...(chat.messages || []), userMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Update chats state
+      const updatedChats = chats.map(c => c.id === chatId ? updatedChat : c);
+      setChats(updatedChats);
+      setCurrentChat(updatedChat);
+
+      // If this is the first message, update the chat title and description
+      if ((updatedChat.messages || []).length === 1) {
+        const description = generateChatDescription(message);
+        updatedChat.description = description;
+        updatedChat.title = description; // Use description as title
+        
+        const updatedChatsWithDescription = updatedChats.map(c => 
+          c.id === chatId ? { ...c, description, title: description } : c
+        );
+        setChats(updatedChatsWithDescription);
+        setCurrentChat(prev => ({ ...prev, description, title: description }));
+      }
+
+      // Create a placeholder for the AI response that will be streamed
+      const aiMessageId = (Date.now() + 1).toString();
+      const aiMessage = {
+        id: aiMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date().toISOString(),
+        isStreaming: true
+      };
+
+      // Add placeholder AI message to chat
+      const chatWithPlaceholder = {
+        ...updatedChat,
+        messages: [...(updatedChat.messages || []), aiMessage],
+        updatedAt: new Date().toISOString()
+      };
+
+      const chatsWithPlaceholder = updatedChats.map(c => 
+        c.id === chatId ? chatWithPlaceholder : c
+      );
+      setChats(chatsWithPlaceholder);
+      setCurrentChat(chatWithPlaceholder);
+
+      // Stream the response
+      const onChunk = (chunk) => {
+        setChats(prevChats => {
+          const updatedChats = prevChats.map(chat => {
+            if (chat.id !== chatId) return chat;
+            
+            const updatedMessages = (chat.messages || []).map(msg => {
+              if (msg.id === aiMessageId) {
+                return {
+                  ...msg,
+                  content: msg.content + (chunk.content || '')
+                };
+              }
+              return msg;
+            });
+
+            return {
+              ...chat,
+              messages: updatedMessages,
+              updatedAt: new Date().toISOString()
+            };
+          });
+
+          // Update current chat if it's the one being streamed to
+          setCurrentChat(prev => 
+            prev?.id === chatId 
+              ? updatedChats.find(c => c.id === chatId)
+              : prev
+          );
+
+          return updatedChats;
+        });
+      };
+
+      const onComplete = async () => {
+        let finalResponse = '';
+        
+        setChats(prevChats => {
+          const updatedChats = prevChats.map(chat => {
+            if (chat.id !== chatId) return chat;
+            
+            const updatedMessages = (chat.messages || []).map(msg => {
+              if (msg.id === aiMessageId) {
+                const { isStreaming, ...rest } = msg;
+                finalResponse = rest.content; // Capture the final response
+                return rest; // Remove isStreaming flag
+              }
+              return msg;
+            });
+
+            return {
+              ...chat,
+              messages: updatedMessages,
+              updatedAt: new Date().toISOString()
+            };
+          });
+
+          // Save to unified storage when streaming is complete
+          unifiedStorageService.set('sephia_chats', JSON.stringify(updatedChats));
+          
+          // Update current chat if it's the one being streamed to
+          setCurrentChat(prev => 
+            prev?.id === chatId 
+              ? updatedChats.find(c => c.id === chatId)
+              : prev
+          );
+
+          return updatedChats;
+        });
+
+        // Add conversation to personal memory after streaming completes
         try {
-          const data = JSON.parse(chunkData);
-          
-          // If we get a successful response, update connection status
-          if (data.response && !data.error) {
-            if (appState.connectionStatus !== 'connected') {
-              console.log('Received valid response, updating connection status to connected');
-              setAppState(prev => ({
-                ...prev,
-                connectionStatus: 'connected'
-              }));
-            }
-          } 
-          // If we get an error response, update connection status
-          else if (data.error) {
-            console.log('Received error response, updating connection status to disconnected');
-            setAppState(prev => ({
-              ...prev,
-              connectionStatus: 'disconnected'
-            }));
-          }
-          
-          // Pass the data to the original callback
-          if (onChunk) {
-            onChunk(chunkData);
-          }
-        } catch (e) {
-          console.error('Error processing chunk in enhanced callback:', e);
-          // Still try to pass the data to the original callback
-          if (onChunk) {
-            onChunk(chunkData);
-          }
+          await memoryAdapter.addConversation(message, finalResponse, {
+            chatId,
+            model: chat.model || currentModel,
+            timestamp: new Date().toISOString(),
+            streamed: true
+          });
+          console.log('[AppContext] 💾 Added streamed conversation to personal memory');
+        } catch (memoryError) {
+          console.warn('[AppContext] Failed to add streamed conversation to memory:', memoryError);
         }
       };
-      
-      return await llmService.streamMessage(message, { 
-        model: currentModel,
-        ...options 
-      }, enhancedCallback);
+
+      // Get personal memory context for streaming
+      let memoryContext = '';
+      try {
+        const personalContext = await memoryAdapter.getRelevantContext(message);
+        
+        if (personalContext && (Object.keys(personalContext.personal).length > 0 || personalContext.conversations.length > 0)) {
+          memoryContext = '\n\n[Personal context from memory:]\n';
+          
+          // Add personal facts
+          if (Object.keys(personalContext.personal).length > 0) {
+            memoryContext += 'Personal facts:\n';
+            Object.entries(personalContext.personal).forEach(([key, fact]) => {
+              if (key === 'name' || key === 'user_name') {
+                memoryContext += `- User's name: ${fact.value}\n`;
+              } else if (key.includes('friend') || key.includes('relation')) {
+                memoryContext += `- ${key}: ${fact.value}\n`;
+              }
+            });
+          }
+          
+          // Add relationship information
+          if (Object.keys(personalContext.relationships).length > 0) {
+            memoryContext += 'Known relationships:\n';
+            Object.entries(personalContext.relationships).forEach(([name, relationship]) => {
+              memoryContext += `- ${name}: ${relationship.type || 'known person'}\n`;
+            });
+          }
+          
+          console.log('[AppContext] 💭 Retrieved personal memory context for streaming with', Object.keys(personalContext.personal).length, 'facts and', Object.keys(personalContext.relationships).length, 'relationships');
+        }
+      } catch (memoryError) {
+        console.warn('[AppContext] Memory context retrieval failed for streaming:', memoryError);
+      }
+
+      // Start streaming the response with memory context
+      const enhancedMessage = message + memoryContext;
+      await llmService.streamMessage(enhancedMessage, {
+        model: chat.model || currentModel,
+        ...options
+      }, (chunkString) => {
+        try {
+          const chunk = JSON.parse(chunkString);
+          if (chunk.error) {
+            // Handle error responses
+            console.error('Streaming error:', chunk.response);
+            setChats(prevChats => {
+              const updatedChats = prevChats.map(chat => {
+                if (chat.id !== chatId) return chat;
+                
+                const updatedMessages = (chat.messages || []).map(msg => {
+                  if (msg.id === aiMessageId) {
+                    return {
+                      ...msg,
+                      content: chunk.response || 'Failed to get response from model.',
+                      isError: true
+                    };
+                  }
+                  return msg;
+                });
+
+                return {
+                  ...chat,
+                  messages: updatedMessages,
+                  updatedAt: new Date().toISOString()
+                };
+              });
+
+              // Update current chat if it's the one being streamed to
+              setCurrentChat(prev => 
+                prev?.id === chatId 
+                  ? updatedChats.find(c => c.id === chatId)
+                  : prev
+              );
+
+              return updatedChats;
+            });
+            
+            if (chunk.done) {
+              onComplete();
+            }
+          } else if (chunk.response) {
+            // Call the onChunk from context
+            onChunk({ content: chunk.response });
+            
+            // Also call the onChunk from options if provided
+            if (options.onChunk) {
+              options.onChunk({ content: chunk.response });
+            }
+          }
+          if (chunk.done && !chunk.error) {
+            onComplete();
+            
+            // Also call onComplete from options if provided
+            if (options.onComplete) {
+              options.onComplete();
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse chunk:', e);
+        }
+      });
+
+      return aiMessageId;
     } catch (error) {
       console.error('Error streaming message:', error);
-      
-      // Update connection status on error
-      setAppState(prev => ({
-        ...prev,
-        connectionStatus: 'disconnected'
-      }));
-      
       throw error;
     }
   };
@@ -348,20 +1060,135 @@ export const AppProvider = ({ children }) => {
       id: Date.now().toString(),
       title: projectData.title || 'New Project',
       description: projectData.description || '',
-      chats: [],
-      files: [],
+      messages: projectData.messages || [],
+      fileCount: projectData.fileCount || 0,
+      isPrivate: projectData.isPrivate !== undefined ? projectData.isPrivate : true,
+      lastUpdated: projectData.lastUpdated || new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      model: projectData.model || currentModel || 'qwen3:14B', // Store the model with the project
+      knowledgeFiles: projectData.knowledgeFiles || [], // Initialize knowledge files array
     };
     
     setProjects(prev => [newProject, ...prev]);
     return newProject;
   };
   
+  // Debounce timer for project updates
+  const projectUpdateTimerRef = useRef(null);
+  
+  const updateProject = (projectId, updates) => {
+    if (!projectId || !updates) {
+      console.error('updateProject: Invalid projectId or updates', { projectId, updates });
+      return;
+    }
+    
+    // Check if streaming is active - if so, defer the update
+    if (window.__isStreaming) {
+      console.log('updateProject: Streaming is active, deferring update');
+      // Store the update for later
+      if (!window.__pendingProjectUpdates) {
+        window.__pendingProjectUpdates = [];
+      }
+      window.__pendingProjectUpdates.push({ projectId, updates, timestamp: Date.now() });
+      return;
+    }
+    
+    // Clear any pending update
+    if (projectUpdateTimerRef.current) {
+      clearTimeout(projectUpdateTimerRef.current);
+    }
+    
+    // Immediate update for state
+    setProjects(prev => {
+      if (!Array.isArray(prev)) {
+        console.error('updateProject: projects is not an array', prev);
+        return [];
+      }
+      
+      const updatedProjects = prev.map(project => {
+        if (project.id === projectId) {
+          // Ensure messages array is valid
+          const updatedProject = { 
+            ...project, 
+            ...updates, 
+            updatedAt: new Date().toISOString() 
+          };
+          
+          // Validate messages array
+          if (updates.messages !== undefined && !Array.isArray(updates.messages)) {
+            console.error('updateProject: messages must be an array', updates.messages);
+            updatedProject.messages = [];
+          }
+          
+          return updatedProject;
+        }
+        return project;
+      });
+      
+      // Debounce storage save to prevent too many writes
+      projectUpdateTimerRef.current = setTimeout(() => {
+        try {
+          unifiedStorageService.set('sephia_projects', JSON.stringify(updatedProjects));
+        } catch (e) {
+          console.error('Failed to save projects to storage:', e);
+        }
+      }, 500);
+      
+      return updatedProjects;
+    });
+  };
+  
+  // Process any pending project updates after streaming completes
+  const processPendingProjectUpdates = () => {
+    if (window.__pendingProjectUpdates && window.__pendingProjectUpdates.length > 0) {
+      console.log('Processing pending project updates:', window.__pendingProjectUpdates.length);
+      const updates = [...window.__pendingProjectUpdates];
+      window.__pendingProjectUpdates = [];
+      
+      // Apply all pending updates
+      updates.forEach(({ projectId, updates }) => {
+        updateProject(projectId, updates);
+      });
+    }
+  };
+  
   const deleteChat = (chatId) => {
-    setChats(prev => prev.filter(chat => chat.id !== chatId));
+    // Clear spoken messages cache when deleting a chat to prevent voice conflicts
+    clearSpokenMessages();
+    
+    setChats(prev => {
+      if (!prev || !Array.isArray(prev)) return [];
+      return prev.filter(chat => chat.id !== chatId);
+    });
+    
     if (currentChat && currentChat.id === chatId) {
-      setCurrentChat(null);
+      // If we're deleting the current chat, select the most recent chat if available
+      setChats(prev => {
+        if (!prev || !Array.isArray(prev) || prev.length === 0) {
+          setCurrentChat(null);
+          return [];
+        }
+        
+        // Find the most recent chat that's not the one being deleted
+        const otherChats = prev.filter(chat => chat.id !== chatId);
+        if (otherChats.length > 0) {
+          const mostRecentChat = [...otherChats].sort(
+            (a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)
+          )[0];
+          setCurrentChat(mostRecentChat);
+          
+          // Apply the chat's theme if it has one
+          if (mostRecentChat.theme) {
+            unifiedStorageService.set('sephia_theme', mostRecentChat.theme);
+            document.documentElement.setAttribute('data-theme', mostRecentChat.theme);
+          }
+        } else {
+          setCurrentChat(null);
+        }
+        
+        return otherChats;
+      });
     }
   };
   
@@ -376,6 +1203,18 @@ export const AppProvider = ({ children }) => {
       
       console.log(`Loading model: ${modelId}`);
       
+      // Re-initialize adapters to handle model switch
+      llmService.reinitialize();
+      
+      // Switch to appropriate adapter based on model type
+      if (modelId.startsWith('claude-')) {
+        console.log('Switching to Claude adapter for model:', modelId);
+        llmService.setAdapter('claude');
+      } else {
+        console.log('Switching to Ollama adapter for model:', modelId);
+        llmService.setAdapter('ollama');
+      }
+      
       // For M4 Macs, skip the connecting state and just set to connected immediately
       // This prevents the UI from getting stuck in "connecting" state
       setAppState(prev => ({
@@ -386,38 +1225,43 @@ export const AppProvider = ({ children }) => {
       // In the background, try to actually warm up the model without blocking UI
       setTimeout(async () => {
         try {
-          // Quick tags check - more reliable than health endpoint
-          const tagsResponse = await fetch('http://localhost:11434/api/tags', { 
-            method: 'GET',
-            signal: AbortSignal.timeout(3000)
-          }).catch(() => null);
-          
-          if (tagsResponse?.ok) {
-            console.log("Ollama is available");
+          if (modelId.startsWith('claude-')) {
+            // For Claude models, just verify the API key is working
+            console.log("Model is Claude, checking API key availability");
+          } else {
+            // For local models, check Ollama availability
+            const tagsResponse = await fetch('http://localhost:11434/api/tags', { 
+              method: 'GET',
+              signal: AbortSignal.timeout(3000)
+            }).catch(() => null);
             
-            // For M4 Mac optimization, setup options for best performance
-            const warmupBody = {
-              model: modelId,
-              prompt: 'Hello',
-              stream: false,
-              max_tokens: 5,
-              num_gpu: 1,          // Use GPU acceleration
-              num_thread: 8,       // Use 8 CPU threads for M4
-              num_keep: 0,         // Don't keep context in memory
-              temperature: 0.7,    // Standard temperature
-              repeat_penalty: 1.1, // Prevent repetition
-              tfs_z: 1.0           // Top frequent sampling
-            };
-            
-            // Start a non-blocking model warmup
-            fetch('http://localhost:11434/api/generate', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify(warmupBody),
-              signal: AbortSignal.timeout(3000) // Short timeout for warmup
-            }).catch(() => {
-              console.log("Model warmup request sent in background");
-            });
+            if (tagsResponse?.ok) {
+              console.log("Ollama is available");
+              
+              // For M4 Mac optimization, setup options for best performance
+              const warmupBody = {
+                model: modelId,
+                prompt: 'Hello',
+                stream: false,
+                max_tokens: 5,
+                num_gpu: 1,          // Use GPU acceleration
+                num_thread: 8,       // Use 8 CPU threads for M4
+                num_keep: 0,         // Don't keep context in memory
+                temperature: 0.7,    // Standard temperature
+                repeat_penalty: 1.1, // Prevent repetition
+                tfs_z: 1.0           // Top frequent sampling
+              };
+              
+              // Start a non-blocking model warmup
+              fetch('http://localhost:11434/api/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(warmupBody),
+                signal: AbortSignal.timeout(3000) // Short timeout for warmup
+              }).catch(() => {
+                console.log("Model warmup request sent in background");
+              });
+            }
           }
         } catch (e) {
           // Silently continue - we don't want to block the UI
@@ -442,8 +1286,9 @@ export const AppProvider = ({ children }) => {
   
   const unloadModel = async (modelId) => {
     try {
-      // In a real implementation, this would call Ollama's API to unload the model
-      // await llmService.unloadModel(modelId);
+      if (!modelId) {
+        throw new Error('Model ID is required');
+      }
       
       // Simulate unloading
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -460,58 +1305,343 @@ export const AppProvider = ({ children }) => {
     }
   };
   
-  const updateTokenCount = (newTokens) => {
-    setTokenCount(prev => ({
-      input: prev.input + (newTokens?.input || 0),
-      output: prev.output + (newTokens?.output || 0),
-      total: prev.total + (newTokens?.input || 0) + (newTokens?.output || 0)
-    }));
+  // Toggle star status of a chat
+  const toggleStarChat = (chatId) => {
+    setChats(prevChats => {
+      if (!Array.isArray(prevChats)) return [];
+      
+      return prevChats.map(chat => {
+        if (chat.id === chatId) {
+          const updatedChat = { 
+            ...chat, 
+            isStarred: !chat.isStarred,
+            updatedAt: new Date().toISOString()
+          };
+          
+          // Update current chat if it's the one being modified
+          if (currentChat?.id === chatId) {
+            setCurrentChat(updatedChat);
+          }
+          
+          return updatedChat;
+        }
+        return chat;
+      });
+    });
   };
   
-  const resetTokenCount = () => {
-    setTokenCount({ input: 0, output: 0, total: 0 });
-  };
+  // Keep currentChat in sync with chats array
+  React.useEffect(() => {
+    if (currentChat && chats.length > 0) {
+      const updatedChat = chats.find(c => c.id === currentChat.id);
+      if (updatedChat && updatedChat !== currentChat) {
+        // Only update if the chat has actually changed
+        if (JSON.stringify(updatedChat.messages) !== JSON.stringify(currentChat.messages)) {
+          console.log('[AppContext] Syncing currentChat with chats array');
+          setCurrentChat(updatedChat);
+        }
+      }
+    }
+  }, [chats]); // Only depend on chats, not currentChat to avoid loops
   
-  const setMessageTime = (duration) => {
-    setMessageDuration(duration);
-  };
-  
-  const value = {
+  // Create the context value object with all necessary values and methods
+  const contextValue = {
+    // State values
     currentModel,
-    setCurrentModel,
     models,
     loading,
     error,
     appState,
-    setAppState,
     chats,
-    setChats,
     projects,
-    setProjects,
     currentChat,
+    profile,
+    tokenCount,
+    messageDuration,
+    imageGenerationProgress,
+    companionMode,
+    networkStatus,
+    
+    // State setters
+    setCurrentModel,
+    setModels,
+    setLoading,
+    setError,
+    setAppState,
+    setChats,
+    setProjects,
     setCurrentChat,
+    setProfile,
+    setTokenCount: updateTokenCount,
+    setMessageTime,
+    setImageGenerationProgress: setImageGenerationProgressWithDebug,
+    cancelImageGeneration,
+    setCompanionMode,
+    toggleCompanionMode,
+    
+    // Methods
+    handleChatSelect,
     sendMessage,
     streamMessage,
-    profile,
     updateProfile,
-    tokenCount,
-    updateTokenCount,
     resetTokenCount,
-    messageDuration,
-    setMessageTime,
     toggleSidebar,
     setActiveSection,
     createNewChat,
     createNewProject,
+    updateProject,
     deleteChat,
     deleteProject,
     loadModel,
-    unloadModel
+    unloadModel,
+    toggleStarChat,
+    processPendingProjectUpdates,
+    generateChatDescription,
+    autoSwitchModel
   };
   
+  // Save chats to unified storage whenever they change
+  useEffect(() => {
+    try {
+      if (chats && Array.isArray(chats)) {
+        unifiedStorageService.set('sephia_chats', JSON.stringify(chats));
+        // Don't save current chat ID - app should always start fresh
+      }
+    } catch (error) {
+      console.error('Failed to save chats to storage:', error);
+    }
+  }, [chats, currentChat]);
+  
+  // Keep track of initial load to prevent duplicate theme application
+  const initialLoad = useRef(true);
+  
+  // Load current chat ID on initial load - modified to not auto-select any chat
+  useEffect(() => {
+    // Only run this on initial app load, not when chats change
+    if (!initialLoad.current) return;
+    
+    try {
+      // Don't automatically load any previous chat
+      // The app should start with a clean new chat interface
+      // Users can manually select previous chats from the sidebar
+      
+      // Only load theme from the most recent chat if available
+      const savedChatId = unifiedStorageService.get('sephia_current_chat_id');
+      if (savedChatId && chats.length > 0) {
+        const chat = chats.find(c => c.id === savedChatId);
+        if (chat && chat.theme) {
+          // Apply the theme from the last chat but don't select it
+          unifiedStorageService.set('sephia_theme', chat.theme);
+          document.documentElement.setAttribute('data-theme', chat.theme);
+        }
+      }
+      
+      // Clear the saved chat ID so we start fresh
+      unifiedStorageService.remove('sephia_current_chat_id');
+      setCurrentChat(null);
+      
+      initialLoad.current = false;
+    } catch (error) {
+      console.error('Failed to clear current chat on startup:', error);
+    }
+  }, []);
+  
+  // Apply theme when currentChat changes and has a theme
+  useEffect(() => {
+    // Skip the initial load since we handle it in the effect above
+    if (initialLoad.current) return;
+    
+    if (currentChat?.theme && theme?.setTheme) {
+      theme.setTheme(currentChat.theme);
+    }
+  }, [currentChat?.id]);
+  
+  // Save projects to unified storage whenever they change
+  useEffect(() => {
+    unifiedStorageService.set('sephia_projects', JSON.stringify(projects));
+  }, [projects]);
+  
+  // Save profile to unified storage whenever it changes
+  useEffect(() => {
+    unifiedStorageService.set('sephia_profile', JSON.stringify(profile));
+  }, [profile]);
+  
+  // Save current model to unified storage whenever it changes
+  useEffect(() => {
+    if (currentModel) {
+      console.log('[AppContext] Saving current model:', currentModel);
+      unifiedStorageService.set('sephia_current_model', currentModel);
+    }
+  }, [currentModel]);
+  
+  // Save companion mode to unified storage whenever it changes
+  useEffect(() => {
+    unifiedStorageService.set('sephia_companion_mode', JSON.stringify(companionMode));
+    console.log('[AppContext] Companion mode saved:', companionMode);
+  }, [companionMode]);
+
+  // Listen for network status changes and auto-switch models
+  useEffect(() => {
+    const unsubscribe = networkStatusService.addListener((status) => {
+      console.log('[AppContext] Network status changed:', status);
+      setNetworkStatus(status);
+      
+      // Auto-switch model when network status changes
+      setTimeout(() => {
+        const switched = autoSwitchModel();
+        if (switched) {
+          console.log(`[AppContext] Model auto-switched due to network change:`, switched);
+        }
+      }, 1000); // Small delay to let network status settle
+    });
+    
+    return unsubscribe;
+  }, []);
+
+  // Auto-switch model on initial load based on current network status
+  useEffect(() => {
+    // Only run once on initial load
+    setTimeout(() => {
+      const recommendation = networkStatusService.getRecommendedModel();
+      console.log('[AppContext] Initial model recommendation:', recommendation);
+      
+      // If we don't have a current model or it doesn't match recommendation, switch
+      if (recommendation.reason === 'offline' || recommendation.reason === 'cloud_unavailable') {
+        const switched = autoSwitchModel();
+        if (switched) {
+          console.log('[AppContext] Model auto-switched on startup:', switched);
+        }
+      }
+    }, 2000); // Wait for network status to stabilize
+  }, []); // Empty dependency array - run only once
+  
+  // Fetch available models
+  useEffect(() => {
+    const fetchModels = async () => {
+      // Don't fetch models if we're currently streaming
+      if (appState?.streamingContent || appState?.streamingMessageId) {
+        console.log("Skipping model fetch during active streaming");
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        setAppState(prev => ({
+          ...prev,
+          connectionStatus: 'connecting'
+        }));
+        
+        console.log("Fetching models from service and terminal...");
+        
+        // Immediately set hard-coded models that match what we know exists
+        const hardcodedModels = [
+          { id: 'qwen3:14B', name: 'Qwen3 14B', type: 'local' },
+          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
+          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
+          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
+          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
+          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
+        ];
+        
+        // Set hardcoded models immediately
+        setModels(hardcodedModels);
+        
+        // Try to get actual models from Ollama in the background
+        try {
+          // Set the appropriate adapter first
+          llmService.reinitialize();
+          
+          // Get local models from Ollama
+          llmService.setAdapter('ollama');
+          const ollamaModels = await llmService.getAvailableModels();
+          
+          let allModels = [...hardcodedModels];
+          
+          // Only update if we got real models back
+          if (ollamaModels && ollamaModels.length > 0) {
+            // Map to our format
+            const mappedOllamaModels = ollamaModels.map(model => ({
+              id: model.id || model.name || 'unknown',
+              name: model.name || 'Unknown Model',
+              type: 'local',
+              size: model.size || 'Unknown size',
+            }));
+            
+            console.log("Loaded models from Ollama:", mappedOllamaModels);
+            allModels = mappedOllamaModels;
+          }
+          
+          // Try to get Claude models if API key is available
+          try {
+            const settings = unifiedStorageService.get('sephia_settings');
+            if (settings) {
+              const parsedSettings = JSON.parse(settings);
+              if (parsedSettings.claudeApiKey) {
+                llmService.setAdapter('claude');
+                const claudeModels = await llmService.getAvailableModels();
+                if (claudeModels && claudeModels.length > 0) {
+                  console.log("Loaded Claude models:", claudeModels);
+                  allModels = [...allModels, ...claudeModels];
+                }
+              }
+            }
+          } catch (claudeError) {
+            console.warn("Could not fetch Claude models:", claudeError);
+          }
+          
+          // Set final model list
+          setModels(allModels);
+          console.log("Final model list:", allModels);
+          
+          setAppState(prev => ({
+            ...prev,
+            connectionStatus: 'connected'
+          }));
+        } catch (apiError) {
+          console.error("Error fetching models from API:", apiError);
+          // We keep the hardcoded models already set
+        }
+        
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed in model fetch process:', err);
+        setError('Failed to fetch models');
+        
+        // Ensure we at least have the hardcoded models including qwen3:14B
+        setModels([
+          { id: 'qwen3:14B', name: 'Qwen3 14B', type: 'local' },
+          { id: 'deepseek-r1:32b', name: 'DeepSeek R1 (32B)', type: 'local' },
+          { id: 'deepseek-r1:8b-m4', name: 'DeepSeek 8B-M4', type: 'local' },
+          { id: 'deepseek-r1:14b-m4', name: 'DeepSeek 14B-M4', type: 'local' },
+          { id: 'deepseek-r1:8b', name: 'DeepSeek 8B', type: 'local' },
+          { id: 'deepseek-r1:14b', name: 'DeepSeek 14B', type: 'local' }
+        ]);
+        
+        setAppState(prev => ({
+          ...prev,
+          connectionStatus: 'disconnected'
+        }));
+        
+        setLoading(false);
+      }
+    };
+    
+    fetchModels();
+    
+    // Removed model refresh interval to prevent interrupting streaming
+    // Models are fetched once on startup and that's sufficient
+    
+    return () => {
+      // No cleanup needed
+    };
+  }, []);
+
   return (
-    <AppContext.Provider value={value}>
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );
 };
+
+// Export the provider as default for better IDE support
+export { AppProvider as default };

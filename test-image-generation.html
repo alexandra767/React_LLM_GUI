@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Image Generation</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px; }
+        #status { margin: 20px 0; padding: 10px; background: #f0f0f0; }
+        #result { margin: 20px 0; }
+        img { max-width: 512px; margin: 10px 0; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Test Image Generation</h1>
+    
+    <button onclick="testConnection()">Test ComfyUI Connection</button>
+    <button onclick="testWebSocket()">Test WebSocket</button>
+    <button onclick="generateImage()">Generate Test Image</button>
+    
+    <div id="status"></div>
+    <div id="result"></div>
+    
+    <script>
+        const status = document.getElementById('status');
+        const result = document.getElementById('result');
+        
+        function log(message, isError = false) {
+            const div = document.createElement('div');
+            div.className = isError ? 'error' : '';
+            div.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+            status.appendChild(div);
+            console.log(message);
+        }
+        
+        async function testConnection() {
+            try {
+                log('Testing ComfyUI connection...');
+                const response = await fetch('http://localhost:8188/api/system_info');
+                if (response.ok) {
+                    const data = await response.json();
+                    log('✅ ComfyUI is running!', false);
+                    log(`Version: ${JSON.stringify(data, null, 2)}`);
+                } else {
+                    log('❌ ComfyUI returned error: ' + response.status, true);
+                }
+            } catch (error) {
+                log('❌ Failed to connect to ComfyUI: ' + error.message, true);
+            }
+        }
+        
+        function testWebSocket() {
+            try {
+                log('Testing WebSocket connection...');
+                const clientId = 'test-' + Math.random().toString(36).substring(7);
+                const ws = new WebSocket(`ws://localhost:8188/ws?clientId=${clientId}`);
+                
+                ws.onopen = () => {
+                    log('✅ WebSocket connected!');
+                    ws.close();
+                };
+                
+                ws.onerror = (error) => {
+                    log('❌ WebSocket error: ' + error, true);
+                };
+                
+                ws.onclose = () => {
+                    log('WebSocket closed');
+                };
+            } catch (error) {
+                log('❌ WebSocket failed: ' + error.message, true);
+            }
+        }
+        
+        async function generateImage() {
+            try {
+                log('Starting image generation...');
+                
+                // Simple workflow for testing
+                const workflow = {
+                    "3": {
+                        "inputs": {
+                            "seed": Math.floor(Math.random() * 1000000),
+                            "steps": 20,
+                            "cfg": 7,
+                            "sampler_name": "euler",
+                            "scheduler": "normal",
+                            "denoise": 1,
+                            "model": ["4", 0],
+                            "positive": ["6", 0],
+                            "negative": ["7", 0],
+                            "latent_image": ["5", 0]
+                        },
+                        "class_type": "KSampler"
+                    },
+                    "4": {
+                        "inputs": {
+                            "ckpt_name": "v1-5-pruned-emaonly.ckpt"
+                        },
+                        "class_type": "CheckpointLoaderSimple"
+                    },
+                    "5": {
+                        "inputs": {
+                            "width": 512,
+                            "height": 512,
+                            "batch_size": 1
+                        },
+                        "class_type": "EmptyLatentImage"
+                    },
+                    "6": {
+                        "inputs": {
+                            "text": "a cyberpunk city at night",
+                            "clip": ["4", 1]
+                        },
+                        "class_type": "CLIPTextEncode"
+                    },
+                    "7": {
+                        "inputs": {
+                            "text": "",
+                            "clip": ["4", 1]
+                        },
+                        "class_type": "CLIPTextEncode"
+                    },
+                    "8": {
+                        "inputs": {
+                            "samples": ["3", 0],
+                            "vae": ["4", 2]
+                        },
+                        "class_type": "VAEDecode"
+                    },
+                    "9": {
+                        "inputs": {
+                            "filename_prefix": "TestImage",
+                            "images": ["8", 0]
+                        },
+                        "class_type": "SaveImage"
+                    }
+                };
+                
+                const clientId = 'test-' + Math.random().toString(36).substring(7);
+                
+                // Submit workflow
+                const response = await fetch('http://localhost:8188/prompt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: workflow,
+                        client_id: clientId
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.text();
+                    log('❌ Failed to queue prompt: ' + error, true);
+                    return;
+                }
+                
+                const data = await response.json();
+                log('✅ Prompt queued! ID: ' + data.prompt_id);
+                
+                // Connect WebSocket to monitor progress
+                const ws = new WebSocket(`ws://localhost:8188/ws?clientId=${clientId}`);
+                
+                ws.onmessage = (event) => {
+                    const message = JSON.parse(event.data);
+                    
+                    if (message.type === 'executing') {
+                        log('Executing node: ' + message.data.node);
+                    } else if (message.type === 'executed' && message.data.output?.images) {
+                        log('✅ Image generated!');
+                        const images = message.data.output.images;
+                        
+                        images.forEach(img => {
+                            const imgUrl = `http://localhost:8188/view?filename=${img.filename}&subfolder=${img.subfolder}&type=${img.type}`;
+                            const imgElement = document.createElement('img');
+                            imgElement.src = imgUrl;
+                            result.appendChild(imgElement);
+                            log('Image URL: ' + imgUrl);
+                        });
+                        
+                        ws.close();
+                    } else if (message.type === 'execution_error') {
+                        log('❌ Execution error: ' + (message.data.exception_message || 'Unknown error'), true);
+                        ws.close();
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    log('❌ WebSocket error during generation', true);
+                };
+                
+            } catch (error) {
+                log('❌ Generation failed: ' + error.message, true);
+            }
+        }
+    </script>
+</body>
+</html>
